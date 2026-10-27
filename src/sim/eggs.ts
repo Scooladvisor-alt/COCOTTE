@@ -1,9 +1,9 @@
 // Cycle de vie des œufs : ponte → (pondoir | sol) → ramassage → stockage (lots) → vente.
 // Un œuf n'existe qu'à un seul endroit à la fois : son retrait précède toujours son ajout ailleurs.
-import { COMPOST, FRESHNESS, GRADE_RANK, TIME, XP, clamp, gradeOf } from '../config/balance';
+import { COMPOST, FRESHNESS, GRADE_RANK, RARE, TIME, XP, clamp, gradeOf } from '../config/balance';
 import { BREEDS } from '../config/breeds';
 import { currentDay, emit, newId, buildingCenter, notify } from './core';
-import { addXp, today } from './economy';
+import { addXp, fmtMoney, today } from './economy';
 import { getBuilding, lvl, storage, storageFree } from './queries';
 import type { BreedId, Building, EggType, GameState, Grade, Hen, WorldEgg } from './types';
 import { fertilize } from './breeding';
@@ -26,7 +26,7 @@ export function eggQuality(s: GameState, h: Hen, nest: Building | null): number 
 }
 
 export function layEgg(s: GameState, h: Hen, nest: Building | null): WorldEgg {
-  const type = BREEDS[h.breed].egg;
+  const type: EggType = h.golden ? 'or' : BREEDS[h.breed].egg;
   const egg: WorldEgg = {
     id: newId(s),
     type,
@@ -38,8 +38,8 @@ export function layEgg(s: GameState, h: Hen, nest: Building | null): WorldEgg {
     z: h.z,
     laidAt: s.clock.t,
   };
-  // un coq dans la basse-cour : l'œuf peut être fécondé
-  const chick = fertilize(s, h);
+  // un coq dans la basse-cour : l'œuf peut être fécondé (pas un œuf d'or)
+  const chick = h.golden ? null : fertilize(s, h);
   if (chick) {
     egg.fertile = chick.breed;
     egg.genes = chick.genes;
@@ -61,6 +61,13 @@ export function layEgg(s: GameState, h: Hen, nest: Building | null): WorldEgg {
 
 /** Ajoute des œufs au stockage (fusion par type / catégorie / jour / fécondation). Retourne le nombre réellement stocké. */
 export function addToStorage(s: GameState, type: EggType, grade: Grade, freshness: number, count: number, fertile?: BreedId, genes?: string): number {
+  if (type === 'or') {
+    // l'or ne se périme pas et ne prend pas de place : il rejoint le coffre, en attendant le collectionneur
+    s.goldEggs = (s.goldEggs ?? 0) + count;
+    s.stats.goldEggs = (s.stats.goldEggs ?? 0) + count;
+    notify(s, `${count > 1 ? `${count} œufs d’or ramassés` : 'Un œuf d’or ramassé'} ! Vendez-le au collectionneur (onglet Vente) : ${fmtMoney(RARE.goldEggPrice)} pièce.`, 'good', '✨');
+    return count;
+  }
   const n = Math.min(count, storageFree(s));
   if (n <= 0) return 0;
   const day = currentDay(s);
@@ -170,8 +177,9 @@ export function ageEggs(s: GameState, dtDays: number) {
   let rotten = 0;
   for (const e of [...s.worldEggs]) {
     e.freshness -= (e.where === 'ground' ? FRESHNESS.groundDecayPerDay : FRESHNESS.nestDecayPerDay) * dtDays;
-    // pondu par terre et oublié un jour entier : il pourrit, invendable
-    if (e.where === 'ground' && s.clock.t - e.laidAt >= FRESHNESS.groundRotDays * TIME.DAY) {
+    // pondu par terre et oublié un jour entier : il pourrit, invendable (l'œuf d'or, lui, attend)
+    if (e.type === 'or') e.freshness = 100;
+    else if (e.where === 'ground' && s.clock.t - e.laidAt >= FRESHNESS.groundRotDays * TIME.DAY) {
       removeWorldEgg(s, e);
       rotten++;
       emit(s, { kind: 'eggRotten', x: e.x, z: e.z });

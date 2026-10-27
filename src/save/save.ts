@@ -1,12 +1,12 @@
 // Sauvegarde locale robuste : double emplacement (principal + secours), versionnage,
 // et assainissement complet des données lues (valeurs manquantes, corrompues ou obsolètes).
-import { EGG_ORDER, GRAIN_BINS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, SAVE_VERSION, WATER, WATER_TANKS, WORLD, clamp } from '../config/balance';
+import { DELIVERY, EGG_ORDER, GRAIN_BINS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, SAVE_VERSION, WATER, WATER_TANKS, WORLD, clamp } from '../config/balance';
 import { BREEDS } from '../config/breeds';
 import { BUILDINGS } from '../config/buildings';
 import { MISSIONS } from '../config/missions';
 import { invalidateLayout } from '../sim/core';
 import { createNewGame, makeBuilding } from '../sim/state';
-import type { BreedId, Building, BuildingType, EggType, GameState, Grade, Hen, HenAct, Worker, WorkerRole } from '../sim/types';
+import type { BreedId, Building, Delivery, BuildingType, EggType, GameState, Grade, Hen, HenAct, Worker, WorkerRole } from '../sim/types';
 import { ROLES } from '../config/staff';
 import { createWorker } from '../sim/workers';
 import { autoEnclose } from '../sim/fences';
@@ -276,6 +276,7 @@ export function sanitize(input: unknown): GameState | null {
     };
     if (bool(h.rooster, false)) hen.rooster = true;
     if (hen.rooster && bool(h.black, false)) hen.black = true;
+    if (!hen.rooster && bool(h.golden, false)) hen.golden = true;
     if (hen.rooster && bool(h.ranked, false)) hen.ranked = true;
     const skin = wasIsa ? 3 : int(h.skin, 0, 0, Math.max(0, (BREEDS[breed].skins?.length ?? 1) - 1));
     if (skin > 0) hen.skin = skin;
@@ -412,8 +413,14 @@ export function sanitize(input: unknown): GameState | null {
   for (const rd of arr(raw.deliveries).slice(0, 30)) {
     const d = obj(rd);
     if (!BREEDS[d.breed as BreedId]) continue;
-    s.deliveries.push({ id: int(d.id, s.nextId++), breed: d.breed as BreedId, count: int(d.count, 1, 1, 200), eta: num(d.eta, s.clock.t, 0) });
+    const count = int(d.count, 1, 1, 200);
+    const eta = num(d.eta, s.clock.t, 0);
+    const dl: Delivery = { id: int(d.id, s.nextId++), breed: d.breed as BreedId, count, eta, slot: int(d.slot, 0, 0, DELIVERY.slots - 1), wave: int(d.wave, 0, 0), out: int(d.out, 0, 0, count) };
+    if (d.leave !== undefined) dl.leave = num(d.leave, eta, eta);
+    s.deliveries.push(dl);
   }
+  // Œufs d'or en réserve
+  s.goldEggs = int(raw.goldEggs, 0, 0, 100000);
 
   // Robots ramasseurs
   for (const rr of arr(raw.robots).slice(0, 60)) {

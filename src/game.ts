@@ -1,6 +1,6 @@
 // Contrôleur : boucle de jeu, entrées, évènements → effets, sauvegarde automatique.
 import { AUTOSAVE_SECONDS, EGG_TYPES, FRESHNESS, LEVELS, TIME } from './config/balance';
-import { BUILDINGS, COOP_SCALE, STAND_POS, STORAGE_SCALE } from './config/buildings';
+import { BUILDINGS, COOP_SCALE, STAND_POS, STORAGE_SCALE, sizeOf } from './config/buildings';
 import { sound } from './audio/sound';
 import { music } from './audio/music';
 import { FarmRenderer, type PickResult } from './render/farmRenderer';
@@ -814,11 +814,11 @@ export class Game {
     if (!this.placing) return;
     const g = this.renderer.groundAt(clientX, clientY);
     if (!g) return;
-    const def = BUILDINGS[this.placing.type];
+    const level = this.placing.moveId !== undefined ? getBuilding(this.state, this.placing.moveId)?.level ?? 1 : 1;
+    const def = sizeOf(this.placing.type, level);
     const x = Math.round(g.x - def.w / 2);
     const z = Math.round(g.z - def.d / 2);
-    const chk = canPlace(this.state, this.placing.type, x, z, this.placing.moveId ?? -1);
-    const level = this.placing.moveId !== undefined ? getBuilding(this.state, this.placing.moveId)?.level ?? 1 : 1;
+    const chk = canPlace(this.state, this.placing.type, x, z, this.placing.moveId ?? -1, level);
     this.ghost = { x, z, ok: chk.ok, reason: chk.reason };
     this.renderer.showGhost(this.placing.type, level, x, z, chk.ok);
   }

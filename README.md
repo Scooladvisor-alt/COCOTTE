@@ -87,7 +87,12 @@ La scène reste épurée : aucun texte au-dessus des éléments. Un clic sur une
   - **compost** : tas entre trois palettes, fourche, arrosoir → composteur à lattes, couvercle relevé, trappe de récolte d'où s'échappe un terreau grouillant de vers, seau d'épluchures ; le tas (terreau, paille, épluchures, coquilles, vers) monte avec le stock ;
   - les cageots d'œufs (avec leurs œufs) s'empilent devant la réserve à mesure que le stock se remplit ; les fenêtres et lanternes s'allument le soir.
 - **Poulaillers deux fois plus grands** : emprise de **6 × 4 cases** (`COOP_SCALE` dans buildings.ts) ; le modèle, la trappe, la rampe et le passage des poules suivent l'échelle (elles gravissent une rampe deux fois plus longue). Les anciennes parties (sauvegarde v7) reposent chaque poulailler au plus près de sa place, là où il tient sans chevaucher les autres bâtiments.
-- **Le village** : de l'autre côté de la route, derrière une rangée d'arbres, un petit bourg (maisons, boulangerie, église, place à la fontaine) s'éclaire le soir.
+- **Le village** (render/village.ts) : de l'autre côté de la route, un vrai bourg de campagne.
+  - Maisons en enduit coloré, en pierre apparente ou à colombages : chaînes d'angle, toits débordants à tuiles ou en ardoise (deux ou quatre pans), lucarnes, cheminées en briques fumantes, gouttières, fenêtres à carreaux avec volets et jardinières, portes à imposte, auvents et appliques.
+  - Jardins derrière les maisons : potagers, linge qui sèche, abris, tables et parasols, tas de bûches, arbres fruitiers, balançoires, clôtures variées ; voitures garées dans les allées ; ruelle de derrière.
+  - Grand-rue goudronnée avec trottoirs ; place pavée avec fontaine à deux vasques, platanes, bancs, monument aux morts, terrasse du café, bornes, jardinières, boîte aux lettres jaune, terrain de pétanque.
+  - Mairie pavoisée (horloge, drapeaux, perron), commerces à enseigne peinte et store rayé (boulangerie, café-tabac, pharmacie, épicerie, coiffeur), église (contreforts, vitraux, chevet arrondi, clocher à abat-sons et horloges, flèche d'ardoise, coq) et son petit cimetière aux cyprès.
+  - Le soir, fenêtres et vitrines s'allument, les lampadaires éclairent la chaussée.
 - **Robot ramasseur d'œufs** (150 €) : autonome, il ramasse d'abord les œufs au sol puis vide les pondoirs, décharge au stockage et se recharge seul sur sa borne.
 - Les poules sont des corps solides : elles ne se chevauchent pas et s'écartent au passage des salariés et des robots. Les salariés, eux, peuvent se croiser librement pour ne jamais se bloquer au travail.
 
@@ -115,6 +120,9 @@ Le bouton **Banque** (barre de droite, ou la carte de trésorerie à gauche) ouv
 
 ### Personnel
 Commis (eau d'abord, puis grain, propreté, trappes des poulaillers, œufs en dernier), vendeur (comptoir de l'étal), soigneur (soins, santé du troupeau), jardinier (prairies). Tous sont visibles dans la ferme, même derrière un bâtiment.
+- **Des personnages réalistes** (render/people.ts) : proportions d'adulte, visage (yeux, sourcils, nez, oreilles, bouche), coiffures variées (courts, bouclés, queue-de-cheval, chignon, cheveux longs, calvitie), barbes, moustaches, lunettes, cheveux gris pour les plus âgés, carrure et taille propres à chacun ; l'apparence suit le prénom (Léa, Chloé… ou Hugo, Lucas…).
+- **Tenues de métier** : commis en chemise à carreaux retroussée, salopette en jean, foulard, bottes en caoutchouc et chapeau de paille ; vendeur·se en chemise claire, tablier à bavette avec poche et badge, baskets ; soigneur·se en blouse blanche ouverte sur un pyjama de soin, stéthoscope, stylo, croix rouge, sabots ; jardinier·ère en tablier de toile (sécateur en poche), gants, genouillères, bottes et bob.
+- **Portraits** : le panneau Personnel, la barre d'équipe et la fiche d'un salarié montrent la photo de son vrai personnage 3D (les annonces de recrutement aussi). Clients et passants partagent le même corps détaillé (vestes, jupes, sacs en bandoulière).
 
 ### Prédateurs
 De temps en temps, un **renard** (surtout au crépuscule, la nuit et à l'aube) sort des hautes herbes, traque une poule et l'emporte ; une **buse** (en journée) tournoie au-dessus de la ferme puis pique. Les attaques restent rares : au moins un jour et demi entre deux, environ une tous les 3 à 4 jours sans chien. Un bandeau d'alerte s'affiche et le temps repasse en vitesse normale ; le bouton « Viser » ferme la page ou la fiche ouverte et centre la vue sur le prédateur.
@@ -147,6 +155,10 @@ De temps en temps, un **renard** (surtout au crépuscule, la nuit et à l'aube) 
 - **Vieillesse à 600 jours** : avant, pleine ponte ; ensuite la ponte baisse peu à peu (jusqu'à 35 % vers 800 jours). Une vieille poule peut être **confiée à une association ou à des particuliers** (fiche de la poule, ou « Réformer les vieilles poules » dans la liste) : elle part à la retraite et la ferme gagne un peu de réputation. Durée d'incubation inchangée.
 - **Faune sauvage** (render/wildlife.ts) : de temps en temps (rarement), une laie et ses marcassins, un sanglier ou des biches (parfois avec un faon) sortent du bois, longent la ferme par l'extérieur du grillage, s'arrêtent pour fouiller le sol ou brouter, puis repartent ; une notification signale leur passage. Décor seul, ils n'entrent jamais dans l'enclos.
 - **Poussins** : ils ne prennent pas de place, ni au poulailler ni sur le terrain (ils se blottissent sous les adultes) ; ils comptent à partir du moment où ils deviennent adultes.
+- **Lots de poules en convoi** : on choisit 1, 2 ou 3 camions (un lot de 6, 12 ou 24 poules chacun) ; les camions commandés ensemble arrivent en convoi et se garent l'un derrière l'autre le long du trottoir (un lot commandé avant l'arrivée du convoi le rejoint s'il reste une place). Le hayon s'abaisse, les poules sautent une à une, trottinent à la file sur le trottoir jusqu'au portail et entrent dans la ferme l'une après l'autre (une toutes les 0,5 s), puis le convoi repart (sim/deliveries.ts, render/delivery.ts).
+- **Grandes mangeoires et grands abreuvoirs** : deux niveaux de plus, qui s'allongent (l'équipement est décalé automatiquement si la place manque d'un côté ; refusé sans frais s'il n'y a vraiment pas la place) :
+  - mangeoire niv. 4 *Auge longue galvanisée* (3 cases, 14 poules côte à côte, barre anti-perchoir et séparateurs) et niv. 5 *Chaîne d'alimentation* (4 cases, 22 poules, trémie motorisée, canal au ras du sol) ;
+  - abreuvoir niv. 4 *Abreuvoir long en inox* (3 cases, 14 poules, flotteur) et niv. 5 *Double ligne de pipettes* (4 cases, 22 poules, bac de tête, régulateur, filtre, coupelles).
 - **Réserve à œufs agrandie** : 100, 350, 900 puis 2 500 œufs selon le niveau ; le bâtiment est deux fois plus grand (4 × 4 cases, comme les poulaillers), les anciennes parties sont réaménagées au chargement.
 - **Dézoom** : on peut reculer deux fois plus loin (zoom minimal 0,28) ; la campagne, la route et la circulation s'étendent en conséquence.
 - **Sélection plus sobre** : léger éclaircissement, fin liseré semi-transparent et halo discret ; l'élément sélectionné reste parfaitement lisible.
@@ -201,6 +213,7 @@ dev/worldlab.html ← atelier du paysage (hors build) : ?zoom=0.55&x=30&z=5&buil
                  &raw=storage:9,11:3 (bâtiment posé sans contrôle, pour comparer les niveaux)
   render/street.ts ← la rue : place de l'étal, parking, trottoirs, passage piéton, arrêt de car, circulation et passants
   render/farmBuildings.ts ← poulaillers, réserves, pondoirs, bains de poussière et composts : un modèle détaillé par niveau
+dev/peoplelab.html ← atelier (hors build) : les salariés des 4 métiers et des passants, ?looks=0,1,2 &roles=farmhand,seller &zoom= &gap=
 dev/henlab.html ← atelier de développement (hors build) : toutes les races sous l'éclairage du jeu,
                  ?zoom=, ?only=rousse,marans, ?stages=0,1,2, ?yaw=, ?thumbs=1 (vignettes) ;
                  scripts/hen-verts.ts compte les triangles de chaque modèle

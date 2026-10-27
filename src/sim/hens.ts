@@ -79,6 +79,8 @@ export interface NewHenOptions {
   skin?: number;
   /** Coq noir imposé (true / false) ; sinon tirage rarissime pour les coqs. */
   black?: boolean;
+  /** Forcer (ou interdire) les plumes d'or. */
+  golden?: boolean;
 }
 
 export function createHen(s: GameState, breed: BreedId, coop: Building, quickFirstEgg = false, opts: NewHenOptions = {}): Hen {
@@ -121,6 +123,16 @@ export function createHen(s: GameState, breed: BreedId, coop: Building, quickFir
   const skin = opts.skin ?? pickSkin(breed, rand(s));
   if (skin > 0) h.skin = skin;
   // rarissime : un coq entièrement noir
+  // encore plus rare : une poussine aux plumes d'or, future poule aux œufs d'or
+  if (!opts.rooster && (opts.golden ?? (!!opts.young && rand(s) < RARE.goldenHenHatch))) {
+    h.golden = true;
+    notify(
+      s,
+      `Incroyable : ${h.name} est une poussine aux plumes d’or ! Adulte, elle pondra des œufs d’or (${fmtMoney(RARE.goldEggPrice)} pièce chez le collectionneur). Elle-même vaut environ ${fmtMoney(goldenValue())}.`,
+      'good',
+      '✨',
+    );
+  }
   if (opts.rooster && (opts.black ?? rand(s) < (opts.young ? RARE.blackRoosterHatch : RARE.blackRoosterBuy))) {
     h.black = true;
     const v = fmtMoney(blackValue(h));
@@ -168,9 +180,15 @@ export function productivity(h: Hen) {
 /** Poule en âge de pondre (ni coq, ni jeune). */
 export const isLayer = (h: Hen) => !h.rooster && !h.young;
 
+/** Ponte de base par jour : celle de la race, ou un œuf d'or tous les deux jours pour la poule dorée. */
+export const baseLaying = (h: Hen) => (h.golden ? RARE.goldEggsPerDay : BREEDS[h.breed].eggsPerDay);
+
 export function eggsPerDayOf(h: Hen) {
-  return isLayer(h) ? BREEDS[h.breed].eggsPerDay * productivity(h) : 0;
+  return isLayer(h) ? baseLaying(h) * productivity(h) : 0;
 }
+
+/** Valeur d'une poule aux œufs d'or adulte en pleine santé : une vingtaine d'œufs d'or. */
+export const goldenValue = () => RARE.goldEggPrice * RARE.goldHenEggs;
 
 /** Valeur d'un coq noir adulte en pleine santé (fixe pour un oiseau donné, entre 600 et 700 €). */
 export function blackValue(h: Pick<Hen, 'id'>) {
@@ -181,6 +199,11 @@ export function blackValue(h: Pick<Hen, 'id'>) {
 
 export function henValue(h: Hen) {
   const b = BREEDS[h.breed];
+  if (h.golden) {
+    // la poule aux œufs d'or : le prix d'une vingtaine d'œufs d'or (moins si elle est encore poussine)
+    const grown = h.young ? 0.35 + 0.65 * (1 - h.young / BREEDING.growthDays) : 1;
+    return Math.round((goldenValue() * grown * (0.75 + 0.25 * h.health / 100)) / 100) * 100;
+  }
   if (h.black) {
     // le coq noir vaut une fortune ; le coquelet prend de la valeur en grandissant
     const grown = h.young ? 0.35 + 0.65 * (1 - h.young / BREEDING.growthDays) : 1;
@@ -362,7 +385,7 @@ export function updateHens(s: GameState, dt: number) {
     h.satiety = Math.max(0, h.satiety - NEEDS.satietyPerDay * b.appetite * sea.appetite * worms * dtDay * f);
     h.hydration = Math.max(0, h.hydration - NEEDS.hydrationPerDay * sea.thirst * rtHen(h).thirst * dtDay * f);
     if (!night && !sleeping && !h.rooster && !h.young) {
-      h.layProgress = Math.min(1.5, h.layProgress + (b.eggsPerDay / DAYTIME_SECONDS) * productivity(h) * sea.laying * dt);
+      h.layProgress = Math.min(1.5, h.layProgress + (baseLaying(h) / DAYTIME_SECONDS) * productivity(h) * sea.laying * dt);
     }
     // à la tombée du jour, elles reprennent le chemin du poulailler (il faut le temps d'arriver)
     behave(s, h, dt, night || hour >= TIME.NIGHT_START - 1.8, hour);

@@ -12,6 +12,7 @@ import {
   TIME,
   UNLOCKS,
   WORLD,
+  RARE,
   XP,
   clamp,
   freshnessFactor,
@@ -288,7 +289,7 @@ export function estimatedDemand(s: GameState, type: EggType, price: number) {
 
 export function dailyProduction(s: GameState, type?: EggType) {
   let n = 0;
-  for (const h of s.hens) if (!type || BREEDS[h.breed].egg === type) n += eggsPerDayOf(h);
+  for (const h of s.hens) if (!h.golden && (!type || BREEDS[h.breed].egg === type)) n += eggsPerDayOf(h);
   return n;
 }
 
@@ -632,4 +633,19 @@ export function marketNewDay(s: GameState) {
 
 export function gradeAtLeast(g: Grade, min: Grade) {
   return GRADE_RANK[g] >= GRADE_RANK[min];
+}
+
+/** Le collectionneur rachète les œufs d'or (tous, ou n), à prix fixe : ils ne passent pas par le marché. */
+export function sellGoldEggs(s: GameState, n = s.goldEggs ?? 0): { ok: boolean; reason?: string } {
+  const have = s.goldEggs ?? 0;
+  n = Math.min(Math.floor(n), have);
+  if (n <= 0) return { ok: false, reason: 'Aucun œuf d’or en réserve' };
+  s.goldEggs = have - n;
+  s.stats.goldEggsSold = (s.stats.goldEggsSold ?? 0) + n;
+  const amount = n * RARE.goldEggPrice;
+  earn(s, amount, 'reventes', n > 1 ? `${n} œufs d’or (collectionneur)` : 'Œuf d’or (collectionneur)');
+  emit(s, { kind: 'sale', amount, qty: n, x: STAND_POS.x + 1, z: STAND_POS.z, channel: 'reventes' });
+  addXp(s, 5 * n);
+  notify(s, `Le collectionneur vous achète ${n > 1 ? `${n} œufs d’or` : 'un œuf d’or'} : +${fmtMoney(amount)} !`, 'good', '✨');
+  return { ok: true };
 }

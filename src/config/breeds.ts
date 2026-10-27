@@ -280,10 +280,29 @@ const BLACK_COLORS = {
   downBelly: 0x2a282e,
 };
 
+/** Plumage spécial : la poule aux plumes d'or (quelle que soit sa race). */
+export const GOLD_SKIN = 98;
+/** Plumes d'or brillantes, plus claires au camail et au poitrail ; crête et barbillons bien rouges. */
+const GOLD_COLORS = {
+  body: 0xe2ad22,
+  breast: 0xf0c443,
+  hackle: 0xf7d867,
+  cape: 0xe9b92f,
+  tail: 0xc8901a,
+  tail2: 0xe0a92a,
+  wing: 0xd9a024,
+  primaries: 0xb78216,
+  legs: 0xe7b84a,
+  beak: 0xedc75e,
+  down: 0xf4d56a,
+  downBelly: 0xf8e394,
+};
+
 /** Plumage d'une volaille (variante tirée à l'achat ; 0 = plumage de base de la race). */
 export function skinLook(breed: BreedId, skin = 0): HenLook {
   const b = BREEDS[breed];
   if (skin === BLACK_SKIN) return { ...b.look, ...BLACK_COLORS, scales: undefined, chest: undefined, fluff: undefined };
+  if (skin === GOLD_SKIN) return { ...b.look, ...GOLD_COLORS, scales: undefined, chest: undefined };
   return b.skins?.[skin]?.look ?? b.look;
 }
 /** Nom du plumage, s'il y en a plusieurs pour la race. */

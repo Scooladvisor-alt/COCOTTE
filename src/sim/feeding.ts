@@ -37,9 +37,14 @@ function trough(xs: number[], side: 1 | -1, cz: number, half: number, pose: Feed
 }
 
 export function feedPose(b: Pick<Building, 'type' | 'level'>): FeedPose {
-  // l'auge en planches et l'abreuvoir en long sont à hauteur de poitrine ; le reste est au ras du sol
-  return (b.type === 'feeder' && b.level === 1) || (b.type === 'drinker' && b.level === 3) ? 'mid' : 'low';
+  // les auges sur pieds et les abreuvoirs en long sont à hauteur de poitrine ; le reste au ras du sol
+  if (b.type === 'feeder') return b.level === 1 || b.level === 4 ? 'mid' : 'low';
+  if (b.type === 'drinker') return b.level >= 3 ? 'mid' : 'low';
+  return 'low';
 }
+
+/** n abscisses régulières de x0 à x1. */
+const along = (x0: number, x1: number, n: number) => Array.from({ length: n }, (_, i) => x0 + ((x1 - x0) * i) / (n - 1));
 
 /** Places (relatives au coin du bâtiment) ; vide si le bâtiment ne se mange ni ne se boit. */
 export function feedLayout(b: Pick<Building, 'type' | 'level'>): FeedSpot[] {
@@ -48,13 +53,21 @@ export function feedLayout(b: Pick<Building, 'type' | 'level'>): FeedSpot[] {
     // auge sur tréteaux (z 0,37 → 0,63) ; trémie sur assiette ; couronne au pied du silo
     if (b.level === 1) return [...trough([0.3, 0.7], 1, 0.5, 0.07, pose), ...trough([0.5], -1, 0.5, 0.07, pose)];
     if (b.level === 2) return ring(0.5, 0.5, 5, 0.29, pose);
-    return ring(0.5, 0.5, 8, 0.36, pose, 0.2);
+    if (b.level === 3) return ring(0.5, 0.5, 8, 0.36, pose, 0.2);
+    // auge longue galvanisée (x 0,12 → 2,88) : sept poules de chaque côté
+    if (b.level === 4) return [...trough(along(0.3, 2.7, 7), 1, 0.5, 0.085, pose), ...trough(along(0.3, 2.7, 7), -1, 0.5, 0.085, pose)];
+    // chaîne d'alimentation au ras du sol (trémie en x < 0,6) : onze poules de chaque côté
+    return [...trough(along(0.8, 3.75, 11), 1, 0.5, 0.07, pose), ...trough(along(0.8, 3.75, 11), -1, 0.5, 0.07, pose)];
   }
   if (b.type === 'drinker') {
     // bassine basse ; coupelle à niveau constant ; longue auge à niveau constant (x -0,15 → 1,15)
     if (b.level === 1) return ring(0.5, 0.5, 3, 0.17, pose);
     if (b.level === 2) return ring(0.5, 0.5, 5, 0.29, pose);
-    return [...trough([0.04, 0.35, 0.66, 0.97], 1, 0.5, 0.07, pose), ...trough([0.04, 0.35, 0.66, 0.97], -1, 0.5, 0.07, pose)];
+    if (b.level === 3) return [...trough([0.04, 0.35, 0.66, 0.97], 1, 0.5, 0.07, pose), ...trough([0.04, 0.35, 0.66, 0.97], -1, 0.5, 0.07, pose)];
+    // abreuvoir long en inox (x 0,1 → 2,7, flotteur au bout) : sept poules de chaque côté
+    if (b.level === 4) return [...trough(along(0.28, 2.55, 7), 1, 0.5, 0.085, pose), ...trough(along(0.28, 2.55, 7), -1, 0.5, 0.085, pose)];
+    // deux lignes de pipettes (z 0,38 et 0,62) : onze poules le long de chacune, côté extérieur
+    return [...trough(along(0.65, 3.6, 11), 1, 0.62, 0.0, pose), ...trough(along(0.65, 3.6, 11), -1, 0.38, 0.0, pose)];
   }
   if (b.type === 'pond') {
     // sur la berge, le bec juste au-dessus de l'eau (on évite le ponton de la grande mare)

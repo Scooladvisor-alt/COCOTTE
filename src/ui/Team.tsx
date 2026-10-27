@@ -4,7 +4,11 @@ import { ROLES, ROLE_ORDER, STAFF } from '../config/staff';
 import { fmtMoney } from '../sim/economy';
 import { JOB_LABELS, basketCount, checkHire, dailyWages, fire, hire, startLabel, workersOf } from '../sim/workers';
 import type { Worker } from '../sim/types';
-import { RoleIcon, Btn, Chip, Stat, useGame } from './common';
+import { WorkerFace, Btn, Chip, Stat, useGame } from './common';
+import type { WorkerRole } from '../sim/types';
+
+/** Visage montré sur l'annonce de recrutement de chaque métier. */
+const RECRUIT_LOOK: Record<WorkerRole, number> = { farmhand: 13, seller: 40, caretaker: 7, gardener: 21 };
 
 function Wrap({ embedded, children }: { embedded: boolean; children: ComponentChildren }) {
   return embedded ? <>{children}</> : <div class="panel-body">{children}</div>;
@@ -60,7 +64,7 @@ export function TeamPanel({ embedded = false }: { embedded?: boolean }) {
           return (
             <div class="member" key={w.id}>
               <div class="m-av" style={{ background: '#' + def.outfit.shirt.toString(16).padStart(6, '0') }}>
-                <RoleIcon role={w.role} size={18} />
+                <WorkerFace role={w.role} look={w.look} name={w.name} size={18} />
               </div>
               <div class="m-info">
                 <b>
@@ -115,7 +119,7 @@ export function TeamPanel({ embedded = false }: { embedded?: boolean }) {
             <div class={`pcard ${locked ? 'locked' : ''}`} key={role}>
               <div class="pcard-top">
                 <div class="b-icon" style={{ background: '#' + def.outfit.shirt.toString(16).padStart(6, '0') + '33' }}>
-                  <RoleIcon role={role} size={20} />
+                  <WorkerFace role={role} look={RECRUIT_LOOK[role]} size={20} />
                 </div>
                 <div>
                   <h4>{def.title}</h4>

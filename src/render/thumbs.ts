@@ -1,12 +1,13 @@
 // Vignettes de la boutique et des listes : photos des vrais modèles 3D du jeu (rendu hors
 // écran une seule fois, puis mis en cache sous forme d'image).
 import * as THREE from 'three';
-import { BLACK_SKIN, BREEDS } from '../config/breeds';
-import type { BreedId, BuildingType, EggType, Hen } from '../sim/types';
+import { BLACK_SKIN, BREEDS, GOLD_SKIN } from '../config/breeds';
+import type { BreedId, BuildingType, EggType, Hen, WorkerRole } from '../sim/types';
 import { C, SNOW_UNIFORM, box, cyl, merge, mesh, sph } from './geo';
-import { ADULT_STAGE, EGG_MAT, HEN_MAT, HEN_PIVOT, buildingModel, eggGeometry, henGeometry, type HenKind } from './models';
+import { ADULT_STAGE, EGG_MAT, HEN_MAT, HEN_PIVOT, buildingModel, createWorkerView, eggGeometry, henGeometry, type HenKind } from './models';
 import { growthStage } from '../sim/breeding';
 import { createRobotView } from './robotModel';
+import { ROLES } from '../config/staff';
 import { applyDogPose, createDogView, dogPose } from './dogModel';
 
 const SIZE = 256;
@@ -24,7 +25,7 @@ function getRenderer() {
 }
 
 /** Photo d'un objet, cadré sur sa sphère englobante, vu de trois quarts comme dans le jeu. */
-export function snapshot(key: string, build: () => THREE.Object3D, opts: { pad?: number; yaw?: number; elev?: number } = {}): string {
+export function snapshot(key: string, build: () => THREE.Object3D, opts: { pad?: number; yaw?: number; elev?: number; frame?: { y: number; r: number } } = {}): string {
   const hit = cache.get(key);
   if (hit) return hit;
   if (typeof document === 'undefined') return '';
@@ -39,7 +40,7 @@ export function snapshot(key: string, build: () => THREE.Object3D, opts: { pad?:
     const obj = build();
     obj.updateMatrixWorld(true);
     scene.add(obj);
-    const sphere = new THREE.Box3().setFromObject(obj).getBoundingSphere(new THREE.Sphere());
+    const sphere = opts.frame ? new THREE.Sphere(new THREE.Vector3(0, opts.frame.y, 0), opts.frame.r) : new THREE.Box3().setFromObject(obj).getBoundingSphere(new THREE.Sphere());
     const rad = Math.max(0.05, sphere.radius) * (opts.pad ?? 1.08);
     const cam = new THREE.OrthographicCamera(-rad, rad, rad, -rad, 0.01, rad * 20);
     const yaw = opts.yaw ?? Math.PI / 4;
@@ -81,10 +82,10 @@ function henModel(breed: BreedId, kind: HenKind = 'hen', stage = ADULT_STAGE, sk
 export const henThumb = (breed: BreedId, skin = 0) => snapshot(`hen:${breed}:${skin}`, () => henModel(breed, 'hen', ADULT_STAGE, skin), { yaw: 0.75, elev: 0.28, pad: 1.0 });
 export const roosterThumb = (breed: BreedId, skin = 0) => snapshot(`rooster:${breed}:${skin}`, () => henModel(breed, 'rooster', ADULT_STAGE, skin), { yaw: 0.75, elev: 0.22, pad: 1.0 });
 /** Vignette d'un oiseau de la ferme : poule, coq, ou jeune à son stade de croissance, avec son plumage. */
-export const birdThumb = (h: { breed: BreedId; rooster?: boolean; young?: number; skin?: number; black?: boolean }) => {
+export const birdThumb = (h: { breed: BreedId; rooster?: boolean; young?: number; skin?: number; black?: boolean; golden?: boolean }) => {
   const kind: HenKind = h.rooster ? 'rooster' : 'hen';
   const stage = growthStage(h as Hen);
-  const skin = h.black ? BLACK_SKIN : h.skin ?? 0;
+  const skin = h.golden ? GOLD_SKIN : h.black ? BLACK_SKIN : h.skin ?? 0;
   if (stage >= ADULT_STAGE) return kind === 'rooster' ? roosterThumb(h.breed, skin) : henThumb(h.breed, skin);
   return snapshot(`young:${h.breed}:${kind}:${stage}:${skin}`, () => henModel(h.breed, kind, stage, skin), { yaw: 0.75, elev: 0.28, pad: 1.0 });
 };
@@ -113,6 +114,26 @@ export const eggThumb = (type: EggType) =>
     },
     { elev: 0.35, pad: 1.15 },
   );
+/** Portrait d'un salarié (tête et épaules), tel qu'il apparaît sur la ferme. */
+export const workerThumb = (role: WorkerRole, look: number, fem?: boolean) =>
+  snapshot(
+    `worker:${role}:${look}:${fem}`,
+    () => {
+      const v = createWorkerView(role, ROLES[role].outfit, look, fem);
+      // pas de silhouette « rayons X » sur une photo
+      v.root.traverse((o) => {
+        const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+        if (m && m.depthFunc === THREE.GreaterDepth) o.visible = false;
+      });
+      v.root.rotation.y = Math.PI / 4 - 0.3;
+      v.head.rotation.y = 0.12;
+      v.armL.rotation.z = 0.06;
+      v.armR.rotation.z = -0.06;
+      return v.root;
+    },
+    { elev: 0.14, frame: { y: 0.98, r: 0.2 } },
+  );
+
 export const robotThumb = () => snapshot('robot', () => createRobotView().root, { elev: 0.6, pad: 1.05 });
 export const dogThumb = () =>
   snapshot(

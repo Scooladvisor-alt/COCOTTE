@@ -34,6 +34,9 @@ export interface BuildingLevel {
   /** Compost : vers et insectes produits par jour (portions). */
   regen?: number;
   perk?: string;
+  /** Emprise propre à ce niveau (sinon celle du bâtiment) : les grandes auges s'allongent selon x. */
+  w?: number;
+  d?: number;
 }
 
 export interface BuildingDef {
@@ -109,6 +112,8 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Mangeoire en bois', cost: 1200, reqLevel: 1, upkeep: 3, capacity: 15, slots: 3, waste: 0.15, auto: false },
       { name: 'Trémie automatique', cost: 6000, reqLevel: 2, upkeep: 8, capacity: 40, slots: 5, waste: 0.08, auto: true, perk: 'Se remplit seule depuis le stock' },
       { name: 'Distributeur à silo', cost: 20000, reqLevel: 5, upkeep: 20, capacity: 120, slots: 8, waste: 0.03, auto: true, perk: 'Gaspillage minimal' },
+      { name: 'Auge longue galvanisée', cost: 45000, reqLevel: 6, upkeep: 30, capacity: 260, slots: 14, waste: 0.03, auto: true, w: 3, perk: '14 poules côte à côte (3 cases de long)' },
+      { name: 'Chaîne d’alimentation', cost: 110000, reqLevel: 8, upkeep: 55, capacity: 600, slots: 22, waste: 0.02, auto: true, w: 4, perk: '22 poules à la fois, grain distribué en continu (4 cases)' },
     ],
   },
   drinker: {
@@ -126,6 +131,8 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Seau abreuvoir', cost: 800, reqLevel: 1, upkeep: 2, capacity: 8, slots: 3, auto: false, quality: 0 },
       { name: 'Abreuvoir à niveau', cost: 4500, reqLevel: 2, upkeep: 6, capacity: 25, slots: 5, auto: true, quality: 0, perk: 'Raccordé au réseau : remplissage automatique' },
       { name: 'Ligne de pipettes', cost: 16000, reqLevel: 5, upkeep: 15, capacity: 80, slots: 8, auto: true, quality: 4, perk: 'Eau propre : +santé' },
+      { name: 'Abreuvoir long en inox', cost: 36000, reqLevel: 6, upkeep: 25, capacity: 200, slots: 14, auto: true, quality: 5, w: 3, perk: '14 poules côte à côte (3 cases de long)' },
+      { name: 'Double ligne de pipettes', cost: 90000, reqLevel: 8, upkeep: 45, capacity: 450, slots: 22, auto: true, quality: 7, w: 4, perk: '22 poules à la fois, eau filtrée (4 cases)' },
     ],
   },
   storage: {
@@ -242,6 +249,13 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     ],
   },
 };
+
+/** Emprise d'un bâtiment à un niveau donné (cases selon x et z). */
+export function sizeOf(type: BuildingType, level = 1): { w: number; d: number } {
+  const def = BUILDINGS[type];
+  const L = def.levels[level - 1];
+  return { w: L?.w ?? def.w, d: L?.d ?? def.d };
+}
 
 export const BUILD_ORDER: BuildingType[] = ['coop', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'incubator'];
 

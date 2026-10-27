@@ -2,7 +2,7 @@
 // le rendu et l'interface ne font que les lire (et passer par actions.ts pour les modifier).
 
 export type BreedId = 'rousse' | 'leghorn' | 'sussex' | 'soie' | 'araucana' | 'marans';
-export type EggType = 'roux' | 'blanc' | 'creme' | 'mini' | 'bleu' | 'chocolat';
+export type EggType = 'roux' | 'blanc' | 'creme' | 'mini' | 'bleu' | 'chocolat' | 'or';
 export type Grade = 'extra' | 'A' | 'B';
 export type BuildingType = 'coop' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'pond' | 'tree';
 
@@ -82,6 +82,8 @@ export interface Hen {
   genes?: Genes;
   /** Coq entièrement noir (rarissime, se revend très cher). */
   black?: boolean;
+  /** Poule aux plumes d'or (encore dix fois plus rare) : elle pond des œufs d'or. */
+  golden?: boolean;
   /** Coq qui s'est déjà mesuré aux autres coqs (un nouveau venu se bat dès qu'il les croise). */
   ranked?: boolean;
   /** Plumage (variante de la race, voir BREEDS[].skins). */
@@ -384,7 +386,15 @@ export interface Delivery {
   id: number;
   breed: BreedId;
   count: number;
+  /** Arrivée du camion devant le portail (temps simulé). */
   eta: number;
+  /** Place le long du trottoir (0 : face au portail) et convoi auquel le camion appartient. */
+  slot?: number;
+  wave?: number;
+  /** Poules déjà entrées dans la ferme. */
+  out?: number;
+  /** Départ du camion (tout le convoi repart ensemble). */
+  leave?: number;
 }
 
 /** Bouton proposé dans une notification (ex. : livrer une commande dont le stock est prêt). */
@@ -507,6 +517,9 @@ export interface Stats {
   hensSold: number;
   /** Vieilles poules confiées à une association ou à un particulier. */
   hensRehomed: number;
+  /** Œufs d'or ramassés et vendus. */
+  goldEggs?: number;
+  goldEggsSold?: number;
   coopsCleaned: number;
   feederFills: number;
   /** Poules emportées par un prédateur (comptées à part des décès). */
@@ -613,6 +626,8 @@ export interface GameState {
   robots: Robot[];
   /** Lots de poules commandés, livrés en camion au portail. */
   deliveries: Delivery[];
+  /** Œufs d'or en réserve (ils ne vont pas au stockage : on les vend au collectionneur). */
+  goldEggs?: number;
   dog: GuardDog | null;
   /** Concours agricole : catégorie, inscription, palmarès. */
   show: ShowState;

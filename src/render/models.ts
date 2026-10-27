@@ -6,6 +6,7 @@ import { COOP_SCALE, STORAGE_SCALE } from '../config/buildings';
 import { HEN_MAT, HEN_PIVOT, type HenGeo } from './henModel';
 import type { BreedId, BuildingType, EggType } from '../sim/types';
 import { C, CREATURE_MAT, GLOW, MAT, box, cone, cyl, finalizeExport, ico, merge, mesh, prism, sph } from './geo';
+import { armParts, headParts, legParts, lookOf, strip, torsoParts, type Outfit } from './people';
 import {
   compostBin,
   compostHeap,
@@ -320,25 +321,28 @@ function openTub(parts: THREE.BufferGeometry[], rTop: number, rBot: number, h: n
 }
 
 /** Sol tassé autour d'un point d'alimentation : terre battue, cailloux, grains éparpillés ou flaques. */
-function wornGround(parts: THREE.BufferGeometry[], kind: 'grain' | 'water', r = 0.5) {
+function wornGround(parts: THREE.BufferGeometry[], kind: 'grain' | 'water', r = 0.5, len = 1) {
   // le bâtiment est posé 2 cm sous la pelouse : la terre battue doit dépasser franchement du sol,
-  // sinon les deux surfaces se disputent l'affichage (rond qui clignote)
-  parts.push(cyl(r, r, 0.04, 16, kind === 'grain' ? 0xcdb88e : 0xbfb397, [0.5, 0.017, 0.5], [0, 0, 0], [1, 1, 0.88]));
-  parts.push(cyl(r * 0.78, r * 0.78, 0.04, 14, kind === 'grain' ? 0xc4ab7c : 0xa9a083, [0.5, 0.027, 0.5], [0, 0, 0], [1, 1, 0.9]));
-  for (let i = 0; i < 7; i++) {
+  // sinon les deux surfaces se disputent l'affichage (rond qui clignote). Les auges longues
+  // (len cases) ont une bande de terre battue étirée sur toute leur longueur.
+  const cx = len / 2;
+  const sx = (r + (len - 1) / 2) / r;
+  parts.push(cyl(r, r, 0.04, 16 + len * 4, kind === 'grain' ? 0xcdb88e : 0xbfb397, [cx, 0.017, 0.5], [0, 0, 0], [sx, 1, 0.88]));
+  parts.push(cyl(r * 0.78, r * 0.78, 0.04, 14 + len * 4, kind === 'grain' ? 0xc4ab7c : 0xa9a083, [cx, 0.027, 0.5], [0, 0, 0], [sx * 0.97, 1, 0.9]));
+  for (let i = 0; i < 7 * len; i++) {
     const a = i * 2.35 + 0.4;
     const d = r * (0.55 + ((i * 37) % 10) / 25);
-    parts.push(ico(0.022 + (i % 3) * 0.008, 0, 0xb5ad9c, [0.5 + Math.cos(a) * d, 0.05, 0.5 + Math.sin(a) * d * 0.9], [1, 0.55, 1]));
+    parts.push(ico(0.022 + (i % 3) * 0.008, 0, 0xb5ad9c, [cx + Math.cos(a) * d * sx, 0.05, 0.5 + Math.sin(a) * d * 0.9], [1, 0.55, 1]));
   }
   if (kind === 'grain')
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 16 * len; i++) {
       const a = i * 1.71;
       const d = r * (0.62 + ((i * 53) % 10) / 30);
-      parts.push(box(0.022, 0.012, 0.014, i % 3 ? 0xe2b752 : 0xd29c3c, [0.5 + Math.cos(a) * d, 0.053, 0.5 + Math.sin(a) * d * 0.9], [0, a, 0]));
+      parts.push(box(0.022, 0.012, 0.014, i % 3 ? 0xe2b752 : 0xd29c3c, [cx + Math.cos(a) * d * sx, 0.053, 0.5 + Math.sin(a) * d * 0.9], [0, a, 0]));
     }
   else {
-    // flaque d'eau renversée
-    parts.push(cyl(0.12, 0.12, 0.006, 12, 0x9fc6d8, [0.5 + r * 0.55, 0.05, 0.5 + r * 0.35], [0, 0, 0], [1.4, 1, 0.8]));
+    // flaques d'eau renversée
+    for (let k = 0; k < len; k++) parts.push(cyl(0.12, 0.12, 0.006, 12, 0x9fc6d8, [0.5 + k + r * 0.55 * (k % 2 ? -1 : 1), 0.05, 0.5 + r * 0.35 * (k % 2 ? -1 : 1)], [0, 0, 0], [1.4, 1, 0.8]));
   }
 }
 
@@ -371,6 +375,7 @@ function grainHeap(rx: number, rz: number, color = C.grain) {
 }
 
 function feederModel(level: number): BuildingView {
+  if (level >= 4) return longFeederModel(level);
   const parts: THREE.BufferGeometry[] = [];
   wornGround(parts, 'grain', level === 3 ? 0.56 : 0.5);
   let fill: THREE.Object3D;
@@ -447,7 +452,183 @@ function feederModel(level: number): BuildingView {
   return { group: g, fill, fillBase: base, fillHeight: height, fillMode: 'scale', eggSlots: [], eggMeshes: [], key: `feeder${level}` };
 }
 
+/**
+ * Grandes mangeoires, sur 3 ou 4 cases de long : auge galvanisée sur tréteaux avec barre anti-perchoir
+ * et séparateurs (niveau 4), puis chaîne d'alimentation au ras du sol avec sa trémie motorisée (niveau 5).
+ * Les places des poules sont dans sim/feeding.ts.
+ */
+function longFeederModel(level: number): BuildingView {
+  const parts: THREE.BufferGeometry[] = [];
+  let fill: THREE.Object3D;
+  let base: number;
+  let height: number;
+  if (level === 4) {
+    wornGround(parts, 'grain', 0.5, 3);
+    const x0 = 0.12;
+    const x1 = 2.88;
+    const L = x1 - x0;
+    const cx = (x0 + x1) / 2;
+    // tréteaux en A et leurs patins
+    for (const x of [0.25, 1.5, 2.75]) {
+      for (const s2 of [-1, 1]) parts.push(box(0.035, 0.24, 0.035, GALVA_DARK, [x, 0.11, 0.5 + s2 * 0.1], [s2 * 0.42, 0, 0]));
+      parts.push(box(0.05, 0.015, 0.3, GALVA_DARK, [x, 0.008, 0.5]));
+      parts.push(box(0.03, 0.03, 0.26, GALVA_DARK, [x, 0.125, 0.5]));
+    }
+    // auge en U : fond, flancs évasés, bords roulés, embouts
+    parts.push(box(L, 0.02, 0.17, GALVA_DARK, [cx, 0.14, 0.5]));
+    for (const s2 of [-1, 1]) {
+      parts.push(box(L, 0.13, 0.018, GALVA, [cx, 0.205, 0.5 + s2 * 0.095], [s2 * -0.22, 0, 0]));
+      parts.push(cyl(0.014, 0.014, L, 6, GALVA_LIGHT, [cx, 0.27, 0.5 + s2 * 0.11], [0, 0, Math.PI / 2]));
+    }
+    for (const x of [x0, x1]) parts.push(box(0.018, 0.14, 0.24, GALVA, [x, 0.205, 0.5]));
+    // barre anti-perchoir tournante sur ses potences, séparateurs en fil
+    for (const x of [x0 + 0.02, x1 - 0.02]) parts.push(box(0.02, 0.22, 0.02, GALVA_DARK, [x, 0.36, 0.5]));
+    parts.push(cyl(0.02, 0.02, L, 8, GALVA_LIGHT, [cx, 0.46, 0.5], [0, 0, Math.PI / 2]));
+    for (let i = 1; i < 7; i++) {
+      const x = x0 + (i * L) / 7;
+      parts.push(box(0.008, 0.18, 0.008, GALVA_DARK, [x, 0.36, 0.5]));
+      parts.push(box(0.008, 0.008, 0.2, GALVA_DARK, [x, 0.275, 0.5]));
+    }
+    // arrivée de grain automatique : tube incliné depuis une petite trémie au bout
+    parts.push(cone(0.13, 0.16, 4, GALVA, [3.0, 0.62, 0.5], [Math.PI, Math.PI / 4, 0]));
+    parts.push(box(0.2, 0.18, 0.2, GALVA, [3.0, 0.79, 0.5]));
+    parts.push(box(0.22, 0.02, 0.22, GALVA_LIGHT, [3.0, 0.89, 0.5]));
+    parts.push(cyl(0.025, 0.025, 0.35, 8, 0x5b5f66, [2.88, 0.4, 0.5], [0, 0, -0.6]));
+    for (const dz of [-0.07, 0.07]) parts.push(box(0.025, 0.55, 0.025, GALVA_DARK, [3.0, 0.27, 0.5 + dz]));
+    parts.push(box(0.12, 0.07, 0.01, 0xf0e6c8, [1.5, 0.2, 0.612]));
+    fill = mesh(box(L - 0.04, 1, 0.16, C.grain, [0, 0.5, 0]), false, true);
+    fill.position.set(cx, 0.15, 0.5);
+    base = 0.15;
+    height = 0.1;
+  } else {
+    wornGround(parts, 'grain', 0.5, 4);
+    // trémie motorisée en tête de ligne
+    for (const [x, z] of [
+      [0.12, 0.28],
+      [0.48, 0.28],
+      [0.12, 0.72],
+      [0.48, 0.72],
+    ]) parts.push(box(0.035, 0.4, 0.035, GALVA_DARK, [x, 0.2, z]));
+    parts.push(cone(0.33, 0.25, 4, GALVA, [0.3, 0.32, 0.5], [Math.PI, Math.PI / 4, 0]));
+    parts.push(box(0.46, 0.34, 0.46, GALVA, [0.3, 0.6, 0.5]));
+    for (const y of [0.48, 0.66]) parts.push(box(0.47, 0.015, 0.47, GALVA_DARK, [0.3, y, 0.5]));
+    parts.push(box(0.5, 0.03, 0.5, GALVA_LIGHT, [0.3, 0.785, 0.5]));
+    parts.push(box(0.18, 0.14, 0.14, 0xd8433a, [0.3, 0.13, 0.82]));
+    parts.push(cyl(0.05, 0.05, 0.1, 10, 0x3a3f4a, [0.3, 0.13, 0.94], [Math.PI / 2, 0, 0]));
+    parts.push(box(0.14, 0.09, 0.01, 0xf0e6c8, [0.3, 0.6, 0.737]));
+    // canal au ras du sol, chaîne, roue d'angle au bout, fil anti-perchoir
+    const x0 = 0.55;
+    const x1 = 3.78;
+    const L = x1 - x0;
+    const cx = (x0 + x1) / 2;
+    parts.push(box(L, 0.016, 0.15, GALVA_DARK, [cx, 0.035, 0.5]));
+    for (const s2 of [-1, 1]) {
+      parts.push(box(L, 0.075, 0.015, GALVA, [cx, 0.07, 0.5 + s2 * 0.075]));
+      parts.push(cyl(0.011, 0.011, L, 6, GALVA_LIGHT, [cx, 0.11, 0.5 + s2 * 0.078], [0, 0, Math.PI / 2]));
+    }
+    for (let x = x0 + 0.06; x < x1; x += 0.11) parts.push(box(0.06, 0.012, 0.03, 0x5b5f66, [x, 0.052, 0.5]));
+    parts.push(cyl(0.14, 0.14, 0.18, 14, GALVA, [3.8, 0.11, 0.5], [Math.PI / 2, 0, 0]));
+    parts.push(cyl(0.045, 0.045, 0.2, 8, GALVA_DARK, [3.8, 0.11, 0.5], [Math.PI / 2, 0, 0]));
+    for (let x = x0 + 0.25; x < x1; x += 0.65) {
+      parts.push(box(0.012, 0.2, 0.012, GALVA_DARK, [x, 0.17, 0.5]));
+      parts.push(box(0.04, 0.012, 0.18, GALVA_DARK, [x, 0.03, 0.5]));
+    }
+    parts.push(cyl(0.006, 0.006, L, 4, GALVA_LIGHT, [cx, 0.27, 0.5], [0, 0, Math.PI / 2]));
+    fill = mesh(box(L - 0.04, 1, 0.12, C.grain, [0, 0.5, 0]), false, true);
+    fill.position.set(cx, 0.045, 0.5);
+    base = 0.045;
+    height = 0.045;
+  }
+  const g = new THREE.Group();
+  g.add(mesh(merge(parts)));
+  g.add(fill);
+  return { group: g, fill, fillBase: base, fillHeight: height, fillMode: 'scale', eggSlots: [], eggMeshes: [], key: `feeder${level}` };
+}
+
+/**
+ * Grands abreuvoirs, sur 3 ou 4 cases : auge longue en inox à niveau constant (niveau 4), puis deux
+ * lignes de pipettes à coupelles avec leur bac de tête, régulateur et filtre (niveau 5).
+ */
+function longDrinkerModel(level: number): BuildingView {
+  const parts: THREE.BufferGeometry[] = [];
+  let fill: THREE.Object3D;
+  let base: number;
+  let height: number;
+  const INOX = 0xdfe4ea;
+  const INOX_D = 0xb3bcc5;
+  if (level === 4) {
+    wornGround(parts, 'water', 0.48, 3);
+    const x0 = 0.1;
+    const x1 = 2.75;
+    const L = x1 - x0;
+    const cx = (x0 + x1) / 2;
+    for (const x of [0.22, 1.42, 2.62]) {
+      for (const s2 of [-1, 1]) parts.push(box(0.035, 0.2, 0.035, INOX_D, [x, 0.09, 0.5 + s2 * 0.1], [s2 * 0.45, 0, 0]));
+      parts.push(box(0.04, 0.03, 0.34, INOX_D, [x, 0.115, 0.5]));
+    }
+    parts.push(box(L, 0.02, 0.18, INOX_D, [cx, 0.13, 0.5]));
+    for (const s2 of [-1, 1]) {
+      parts.push(box(L, 0.12, 0.016, INOX, [cx, 0.185, 0.5 + s2 * 0.09]));
+      parts.push(cyl(0.013, 0.013, L, 6, 0xf4f6f8, [cx, 0.247, 0.5 + s2 * 0.09], [0, 0, Math.PI / 2]));
+    }
+    for (const x of [x0, x1]) parts.push(box(0.016, 0.12, 0.2, INOX, [x, 0.185, 0.5]));
+    // traverses anti-souillure, capot du flotteur, arrivée d'eau, vanne, bonde de vidange
+    for (let i = 1; i < 7; i++) parts.push(box(0.012, 0.012, 0.2, INOX_D, [x0 + (i * L) / 7, 0.25, 0.5]));
+    parts.push(box(0.2, 0.1, 0.24, INOX_D, [2.86, 0.27, 0.5]));
+    parts.push(box(0.21, 0.015, 0.25, 0xf4f6f8, [2.86, 0.325, 0.5]));
+    parts.push(cyl(0.022, 0.022, 0.32, 8, 0x2f3238, [2.98, 0.16, 0.5]));
+    parts.push(cyl(0.03, 0.03, 0.05, 8, 0xd9b35a, [2.98, 0.12, 0.5]));
+    parts.push(box(0.08, 0.015, 0.02, 0xd8433a, [2.98, 0.15, 0.54]));
+    parts.push(cyl(0.022, 0.022, 0.5, 8, 0x2f3238, [2.98, 0.01, 0.75], [Math.PI / 2, 0, 0]));
+    parts.push(cyl(0.025, 0.025, 0.03, 8, 0x3a3f4a, [0.08, 0.13, 0.5], [0, 0, Math.PI / 2]));
+    fill = mesh(box(L - 0.04, 0.012, 0.16, C.water, [0, 0, 0]), false, false);
+    fill.position.set(cx, 0.14, 0.5);
+    base = 0.14;
+    height = 0.08;
+  } else {
+    wornGround(parts, 'water', 0.48, 4);
+    // bac de tête ouvert (on voit le niveau d'eau), régulateur à manomètre, filtre transparent
+    for (const [x, z] of [
+      [0.12, 0.32],
+      [0.38, 0.32],
+      [0.12, 0.68],
+      [0.38, 0.68],
+    ]) parts.push(box(0.03, 0.3, 0.03, GALVA_DARK, [x, 0.15, z]));
+    parts.push(box(0.32, 0.02, 0.42, GALVA_DARK, [0.25, 0.3, 0.5]));
+    openTub(parts, 0.17, 0.15, 0.32, 18, 0x3f7fc0, [0.25, 0.47, 0.5], 0.012, 0x2f6aa5);
+    parts.push(box(0.12, 0.1, 0.08, 0x3a3f4a, [0.48, 0.36, 0.5]));
+    parts.push(cyl(0.035, 0.035, 0.01, 12, 0xffffff, [0.48, 0.38, 0.545], [Math.PI / 2, 0, 0]));
+    parts.push(cyl(0.03, 0.03, 0.12, 10, 0xbfe3ff, [0.48, 0.24, 0.5]));
+    // deux lignes de pipettes sur potences, coupelles rouges sous chaque pipette
+    const x0 = 0.45;
+    const x1 = 3.85;
+    const L = x1 - x0;
+    const cx = (x0 + x1) / 2;
+    for (const zl of [0.38, 0.62]) {
+      parts.push(box(L, 0.035, 0.035, 0xeef0f2, [cx, 0.31, zl]));
+      for (let i = 0; i < 11; i++) {
+        const x = 0.65 + ((3.6 - 0.65) * i) / 10;
+        parts.push(cyl(0.007, 0.007, 0.04, 6, 0xc9ced3, [x, 0.275, zl]));
+        parts.push(cyl(0.028, 0.02, 0.025, 10, 0xd8433a, [x, 0.245, zl + (zl < 0.5 ? -0.02 : 0.02)]));
+      }
+      parts.push(cyl(0.025, 0.025, 0.12, 8, 0xeef0f2, [3.88, 0.37, zl]));
+    }
+    for (let x = x0 + 0.2; x < x1; x += 0.85) {
+      parts.push(box(0.025, 0.36, 0.025, GALVA_DARK, [x, 0.18, 0.5]));
+      parts.push(box(0.025, 0.025, 0.3, GALVA_DARK, [x, 0.34, 0.5]));
+      parts.push(box(0.04, 0.012, 0.24, GALVA_DARK, [x, 0.006, 0.5]));
+    }
+    parts.push(cyl(0.02, 0.02, 0.26, 8, 0xeef0f2, [0.44, 0.31, 0.5], [Math.PI / 2, 0, 0]));
+    fill = mesh(cyl(0.155, 0.155, 0.012, 18, C.water, [0, 0, 0]), false, false);
+    fill.position.set(0.25, 0.33, 0.5);
+    base = 0.33;
+    height = 0.28;
+  }
+  return { group: groupOf(parts, fill), fill, fillBase: base, fillHeight: height, fillMode: 'move', eggSlots: [], eggMeshes: [], key: `drinker${level}` };
+}
+
 function drinkerModel(level: number): BuildingView {
+  if (level >= 4) return longDrinkerModel(level);
   const parts: THREE.BufferGeometry[] = [];
   wornGround(parts, 'water', level === 3 ? 0.55 : 0.48);
   let fill: THREE.Object3D;
@@ -1054,9 +1235,7 @@ export function tractor() {
 }
 
 // ================================================================ CLIENTS ====
-const SKIN = [0xf1c7a5, 0xe0a982, 0xc68863, 0x8d5a3b, 0xf5d5bd];
 const SHIRT = [0x2f6bff, 0xf0a33a, 0x5aa36b, 0xe85d75, 0x8a6fd1, 0x3bb2c9, 0xf2f2f2, 0xd9534f];
-const HAIR = [0x3a2a20, 0x6b4a2f, 0xd9b26a, 0x1f1f1f, 0xa0522d, 0xcfcfcf];
 const PANTS = [0x3d4a63, 0x5b5f66, 0x6b4a2f, 0x2f3b4f];
 
 export interface PersonView {
@@ -1067,24 +1246,45 @@ export interface PersonView {
 }
 
 const personCache = new Map<number, { body: THREE.BufferGeometry; leg: THREE.BufferGeometry }>();
+/** Les passants sont un peu plus petits que les salariés (même corps, à l'échelle 0,83). */
+const PERSON_K = 0.35 / 0.42;
+const SHOES = [0x2b2b31, 0x6b4a2f, 0xe9e6df, 0x3d4a63, 0x8a5a30];
+const JACKETS = [0x3d4a63, 0x6b5a48, 0x2f3b4f, 0x7a2f35, 0x4a5d3f];
 export function createPerson(look: number): PersonView {
   const key = look % 64;
   let g = personCache.get(key);
   if (!g) {
-    const skin = SKIN[key % SKIN.length];
-    const shirt = SHIRT[(key >> 1) % SHIRT.length];
-    const hair = HAIR[(key >> 2) % HAIR.length];
-    const pants = PANTS[(key >> 3) % PANTS.length];
-    const body = merge([
-      cyl(0.12, 0.14, 0.4, 8, shirt, [0, 0.55, 0]),
-      sph(0.105, 8, 6, skin, [0, 0.86, 0]),
-      sph(0.11, 8, 5, hair, [0, 0.9, -0.015], [1, 0.75, 1.02]),
-      box(0.06, 0.32, 0.07, shirt, [0.16, 0.56, 0], [0, 0, 0.12]),
-      box(0.06, 0.32, 0.07, shirt, [-0.16, 0.56, 0], [0, 0, -0.12]),
-      sph(0.035, 5, 4, skin, [0.19, 0.39, 0]),
-      sph(0.035, 5, 4, skin, [-0.19, 0.39, 0]),
-    ]);
-    const leg = merge([box(0.075, 0.34, 0.085, pants, [0, -0.17, 0]), box(0.08, 0.05, 0.13, 0x2b2b31, [0, -0.33, 0.025])]);
+    const l = lookOf(key * 37 + 11);
+    const fem = l.style === 'ponytail' || l.style === 'bun' || l.style === 'long' || l.style === 'pixie';
+    const o: Outfit = { shirt: SHIRT[(key >> 1) % SHIRT.length], pants: PANTS[(key >> 3) % PANTS.length], shoes: SHOES[key % SHOES.length], check: key % 9 === 4 };
+    const jacket = key % 5 === 2 ? JACKETS[(key >> 2) % JACKETS.length] : null;
+    const skirt = fem && key % 3 === 0;
+    const parts: THREE.BufferGeometry[] = torsoParts(jacket ? { ...o, shirt: jacket } : o, l.skin, { belt: !skirt && key % 4 === 1 ? 0x3b2f2a : undefined, collar: jacket ? o.shirt : undefined });
+    if (jacket) {
+      // veste ouverte sur la chemise
+      parts.push(box(0.06, 0.3, 0.012, o.shirt, [0, 0.25, 0.1]));
+      parts.push(cyl(0.15, 0.15, 0.1, 12, jacket, [0, 0.07, 0], undefined, [1, 1, 0.76]));
+    }
+    if (skirt) parts.push(cyl(0.135, 0.18, 0.26, 12, o.pants, [0, -0.09, 0], undefined, [1, 1, 0.8]));
+    // sac à l'épaule pour certains
+    if (key % 7 === 3) {
+      parts.push(strip([0.12, 0.4, 0.02], [-0.13, 0.08, 0.02], 0.02, 0.012, 0x6b4a2f));
+      parts.push(box(0.05, 0.13, 0.16, 0x8a5a30, [-0.15, 0.06, 0.0]));
+    }
+    for (const q of parts) q.translate(0, 0.42, 0);
+    const head = headParts(l);
+    for (const q of head) q.translate(0, 0.97, 0);
+    parts.push(...head);
+    const arm = armParts(jacket ? { ...o, shirt: jacket } : o, l.skin);
+    for (const sx of [1, -1]) {
+      const geo = merge(arm.map((q) => q.clone()));
+      geo.rotateZ(sx * 0.07);
+      geo.translate(sx * 0.17 * l.build, 0.81, 0);
+      parts.push(geo);
+    }
+    for (const q of arm) q.dispose();
+    const body = merge(parts).scale(PERSON_K, PERSON_K, PERSON_K);
+    const leg = merge(legParts({ ...o, pants: skirt ? l.skin : o.pants })).scale(PERSON_K, PERSON_K, PERSON_K);
     g = { body, leg };
     personCache.set(key, g);
   }
@@ -1092,8 +1292,8 @@ export function createPerson(look: number): PersonView {
   root.add(mesh(g.body, true, false, CREATURE_MAT));
   const legL = mesh(g.leg, false, false, CREATURE_MAT);
   const legR = mesh(g.leg, false, false, CREATURE_MAT);
-  legL.position.set(0.06, 0.35, 0);
-  legR.position.set(-0.06, 0.35, 0);
+  legL.position.set(0.07 * PERSON_K, 0.35, 0);
+  legR.position.set(-0.07 * PERSON_K, 0.35, 0);
   root.add(legL, legR);
   const basket = mesh(merge([box(0.2, 0.12, 0.14, 0xb07a45, [0, 0, 0]), box(0.18, 0.03, 0.12, 0xf3e8d3, [0, 0.07, 0])]), false, false, CREATURE_MAT);
   basket.position.set(0.22, 0.42, 0.06);
@@ -1103,6 +1303,8 @@ export function createPerson(look: number): PersonView {
 }
 
 export { MAT };
+
+const shadeHex = (c: number, k: number) => new THREE.Color(c).multiplyScalar(k).getHex();
 
 // ============================================================== SALARIÉS ====
 export interface WorkerView {
@@ -1122,8 +1324,6 @@ export interface WorkerView {
   phase: number;
 }
 
-const SKIN_TONES = [0xf1c7a5, 0xe0a982, 0xc68863, 0x8d5a3b, 0xf5d5bd];
-const HAIR_TONES = [0x3a2a20, 0x6b4a2f, 0xd9b26a, 0x1f1f1f, 0xa0522d];
 
 // Les salariés sont toujours visibles : là où un bâtiment, un arbre ou une clôture les cache,
 // une silhouette bleutée est dessinée (pochoir : jamais par-dessus leurs propres parties visibles).
@@ -1196,70 +1396,134 @@ function part(geo: THREE.BufferGeometry, cast = true, xray = false) {
   return m;
 }
 
-export function createWorkerView(role: 'farmhand' | 'seller' | 'caretaker' | 'gardener', outfit: { shirt: number; pants: number; hat: number | null; apron?: number }, look: number): WorkerView {
-  const skin = SKIN_TONES[look % SKIN_TONES.length];
-  const hair = HAIR_TONES[(look >> 2) % HAIR_TONES.length];
+export function createWorkerView(
+  role: 'farmhand' | 'seller' | 'caretaker' | 'gardener',
+  outfit: { shirt: number; pants: number; hat: number | null; apron?: number },
+  look: number,
+  fem?: boolean,
+): WorkerView {
+  const l = lookOf(look, fem);
+  const skin = l.skin;
   const root = new THREE.Group();
+  // tenue de métier : chemise à carreaux et salopette en bottes ; chemise et tablier en baskets ;
+  // blouse blanche, pyjama de soin et sabots ; chemise, tablier de toile, gants et bottes
+  const wear: Outfit = {
+    farmhand: { shirt: outfit.shirt, pants: outfit.pants, shoes: 0x3d5a3a, rolled: true, boots: true, check: true },
+    seller: { shirt: outfit.shirt, pants: outfit.pants, shoes: 0xe9e6df },
+    caretaker: { shirt: outfit.shirt, pants: outfit.pants, shoes: 0xf2f2f2 },
+    gardener: { shirt: outfit.shirt, pants: outfit.pants, shoes: 0x6b4a2f, rolled: true, boots: true, gloves: 0xc9a46a },
+  }[role];
   // jambes (pivot à la hanche)
-  const legGeo = merge([box(0.085, 0.38, 0.1, outfit.pants, [0, -0.19, 0]), box(0.095, 0.06, 0.15, 0x3b2f2a, [0, -0.38, 0.025])]);
+  const legGeo = merge(legParts(wear));
   const legL = new THREE.Group();
   const legR = new THREE.Group();
   legL.position.set(0.07, 0.42, 0);
   legR.position.set(-0.07, 0.42, 0);
   legL.add(part(legGeo, false));
   legR.add(part(legGeo, false));
+  if (role === 'gardener') {
+    // genouillères
+    const pad = merge([box(0.075, 0.075, 0.03, 0x4a4f57, [0, -0.2, 0.05])]);
+    legL.add(part(pad, false));
+    legR.add(part(pad.clone(), false));
+  }
   // buste (pivot à la hanche, pour se pencher)
   const torso = new THREE.Group();
   torso.position.y = 0.42;
-  const tparts: THREE.BufferGeometry[] = [];
-  const coat = role === 'caretaker';
-  tparts.push(cyl(0.13, 0.15, 0.4, 10, outfit.shirt, [0, 0.2, 0]));
-  if (coat) tparts.push(cyl(0.155, 0.17, 0.22, 10, outfit.shirt, [0, -0.02, 0])); // blouse longue
+  const tp = torsoParts(wear, skin, { belt: role === 'seller' || role === 'gardener' ? 0x3b2f2a : undefined, collar: role === 'caretaker' ? outfit.pants : undefined });
   if (role === 'farmhand') {
-    // salopette : bavette et bretelles
-    tparts.push(box(0.2, 0.17, 0.05, outfit.pants, [0, 0.12, 0.12]));
-    tparts.push(box(0.035, 0.24, 0.04, outfit.pants, [0.07, 0.27, 0.11]));
-    tparts.push(box(0.035, 0.24, 0.04, outfit.pants, [-0.07, 0.27, 0.11]));
-    tparts.push(cyl(0.15, 0.15, 0.1, 10, outfit.pants, [0, 0.02, 0]));
+    // salopette en toile : haut de pantalon, bavette et sa poche, bretelles croisées dans le dos, boutons
+    const den = outfit.pants;
+    tp.push(cyl(0.129, 0.131, 0.13, 12, den, [0, 0.09, 0], undefined, [1, 1, 0.77]));
+    tp.push(box(0.17, 0.15, 0.03, den, [0, 0.21, 0.088]));
+    tp.push(box(0.08, 0.06, 0.012, shadeHex(den, 0.85), [0, 0.22, 0.106]));
+    tp.push(box(0.172, 0.012, 0.031, shadeHex(den, 1.25), [0, 0.283, 0.089]));
+    for (const sx of [1, -1]) {
+      tp.push(strip([sx * 0.065, 0.28, 0.098], [sx * 0.09, 0.405, 0.035], 0.03, 0.015, den));
+      tp.push(strip([sx * 0.09, 0.405, 0.035], [sx * 0.07, 0.4, -0.06], 0.03, 0.015, den));
+      tp.push(strip([sx * 0.07, 0.4, -0.06], [-sx * 0.05, 0.2, -0.098], 0.03, 0.015, den));
+      tp.push(cyl(0.012, 0.012, 0.01, 8, 0xd9b35a, [sx * 0.066, 0.27, 0.104], [Math.PI / 2, 0, 0]));
+    }
+    // foulard noué au cou
+    tp.push(cyl(0.055, 0.06, 0.03, 10, 0xf0d9a8, [0, 0.425, 0]));
+    tp.push(cyl(0.0, 0.04, 0.06, 4, 0xf0d9a8, [0, 0.39, 0.06], [Math.PI - 0.3, Math.PI / 4, 0]));
   }
-  if (outfit.apron) tparts.push(box(0.24, 0.42, 0.04, outfit.apron, [0, 0.08, 0.135]));
-  if (coat) {
-    tparts.push(box(0.05, 0.05, 0.02, 0xe5484d, [0.07, 0.3, 0.14]));
-    tparts.push(box(0.02, 0.05, 0.022, 0xffffff, [0.07, 0.3, 0.148]));
-    tparts.push(box(0.05, 0.02, 0.022, 0xffffff, [0.07, 0.3, 0.148]));
+  if (role === 'seller') {
+    // tablier à bavette : sangle de cou, poche ventrale, lien à la taille, badge
+    const ap = outfit.apron ?? 0x2f6bff;
+    tp.push(box(0.2, 0.2, 0.02, ap, [0, 0.2, 0.096]));
+    tp.push(box(0.24, 0.24, 0.02, ap, [0, -0.02, 0.112]));
+    tp.push(box(0.16, 0.07, 0.006, shadeHex(ap, 0.82), [0, 0.0, 0.124]));
+    tp.push(cyl(0.131, 0.131, 0.022, 12, ap, [0, 0.1, 0], undefined, [1, 1, 0.78]));
+    for (const sx of [1, -1]) tp.push(strip([sx * 0.085, 0.29, 0.098], [sx * 0.045, 0.425, 0.03], 0.02, 0.012, ap));
+    tp.push(box(0.045, 0.025, 0.006, 0xffffff, [0.055, 0.25, 0.108]));
+    tp.push(box(0.03, 0.006, 0.002, 0x2f6bff, [0.055, 0.255, 0.112]));
   }
-  if (role === 'gardener') tparts.push(box(0.22, 0.3, 0.04, 0x3f7d4f, [0, 0.07, 0.135]));
-  tparts.push(cyl(0.05, 0.06, 0.06, 8, skin, [0, 0.43, 0]));
-  torso.add(part(merge(tparts), true, true));
+  if (role === 'caretaker') {
+    // blouse longue ouverte sur le pyjama de soin, revers, poches, stylo, stéthoscope
+    const coat = outfit.shirt;
+    tp.push(cyl(0.15, 0.175, 0.3, 12, coat, [0, -0.06, 0], undefined, [1, 1, 0.8]));
+    tp.push(box(0.07, 0.14, 0.012, outfit.pants, [0, 0.36, 0.088], [-0.12, 0, 0]));
+    for (const sx of [1, -1]) {
+      tp.push(strip([sx * 0.04, 0.43, 0.085], [sx * 0.01, 0.2, 0.108], 0.035, 0.01, shadeHex(coat, 0.92)));
+      tp.push(box(0.07, 0.07, 0.008, shadeHex(coat, 0.93), [sx * 0.08, -0.03, 0.135]));
+      tp.push(box(0.008, 0.33, 0.004, shadeHex(coat, 0.9), [sx * 0.008, -0.02, 0.137]));
+    }
+    tp.push(box(0.05, 0.05, 0.008, shadeHex(coat, 0.93), [0.075, 0.27, 0.1]));
+    tp.push(box(0.008, 0.05, 0.008, 0x2f6bff, [0.065, 0.3, 0.104]));
+    tp.push(box(0.05, 0.05, 0.02, 0xe5484d, [-0.075, 0.3, 0.1]));
+    tp.push(box(0.02, 0.05, 0.022, 0xffffff, [-0.075, 0.3, 0.104]));
+    tp.push(box(0.05, 0.02, 0.022, 0xffffff, [-0.075, 0.3, 0.104]));
+    const steth = 0x2b2d33;
+    tp.push(strip([0.05, 0.44, 0.03], [0.035, 0.31, 0.1], 0.012, 0.012, steth));
+    tp.push(strip([-0.05, 0.44, 0.03], [-0.02, 0.33, 0.1], 0.012, 0.012, steth));
+    tp.push(strip([-0.04, 0.445, -0.03], [0.04, 0.445, -0.03], 0.012, 0.012, steth));
+    tp.push(cyl(0.02, 0.02, 0.012, 10, 0xc9ccd1, [0.035, 0.3, 0.105], [Math.PI / 2, 0, 0]));
+  }
+  if (role === 'gardener') {
+    // tablier de toile à grandes poches, sécateur dans la poche
+    const ap = outfit.apron ?? 0x9a7b4f;
+    tp.push(box(0.19, 0.18, 0.02, ap, [0, 0.19, 0.095]));
+    tp.push(box(0.23, 0.26, 0.02, ap, [0, -0.03, 0.112]));
+    for (const sx of [1, -1]) {
+      tp.push(box(0.09, 0.08, 0.008, shadeHex(ap, 0.82), [sx * 0.055, -0.03, 0.125]));
+      tp.push(strip([sx * 0.08, 0.28, 0.097], [sx * 0.05, 0.425, 0.03], 0.02, 0.012, ap));
+    }
+    tp.push(box(0.012, 0.07, 0.012, 0xd9534f, [0.07, 0.02, 0.13]));
+    tp.push(box(0.012, 0.05, 0.012, 0xa5a9b0, [0.055, 0.04, 0.13], [0, 0, 0.3]));
+  }
+  const torsoMesh = part(merge(tp), true, true);
+  torsoMesh.scale.x = l.build;
+  torso.add(torsoMesh);
   // tête
   const head = new THREE.Group();
   head.position.y = 0.55;
-  const hparts: THREE.BufferGeometry[] = [sph(0.11, 10, 8, skin, [0, 0.03, 0])];
-  hparts.push(sph(0.112, 10, 6, hair, [0, 0.07, -0.015], [1, 0.72, 1.02]));
-  hparts.push(sph(0.018, 5, 4, 0x2b2b31, [0.04, 0.04, 0.1]));
-  hparts.push(sph(0.018, 5, 4, 0x2b2b31, [-0.04, 0.04, 0.1]));
-  hparts.push(sph(0.02, 5, 4, skin, [0, 0.01, 0.112]));
-  if (outfit.hat !== null) {
-    if (role === 'farmhand') {
-      hparts.push(cyl(0.21, 0.21, 0.018, 14, outfit.hat, [0, 0.1, 0]));
-      hparts.push(cyl(0.09, 0.115, 0.1, 12, outfit.hat, [0, 0.15, 0]));
-      hparts.push(cyl(0.117, 0.117, 0.025, 12, 0xb5452f, [0, 0.12, 0]));
-    } else {
-      hparts.push(cyl(0.12, 0.15, 0.1, 12, outfit.hat, [0, 0.13, 0]));
-      hparts.push(cyl(0.17, 0.17, 0.015, 12, outfit.hat, [0, 0.085, 0]));
-    }
+  const hat = outfit.hat !== null;
+  const hp = headParts(l, { hat });
+  if (hat && role === 'farmhand') {
+    // chapeau de paille : large bord, calotte, ruban
+    hp.push(cyl(0.2, 0.205, 0.014, 18, outfit.hat!, [0, 0.118, 0]));
+    hp.push(cyl(0.083, 0.1, 0.085, 14, outfit.hat!, [0, 0.165, 0]));
+    hp.push(cyl(0.085, 0.085, 0.01, 14, shadeHex(outfit.hat!, 0.9), [0, 0.208, 0]));
+    hp.push(cyl(0.101, 0.101, 0.024, 14, 0xb5452f, [0, 0.135, 0]));
+  } else if (hat) {
+    // bob de jardinier : calotte et bord tombant
+    hp.push(cyl(0.1, 0.112, 0.075, 14, outfit.hat!, [0, 0.16, -0.005]));
+    hp.push(cyl(0.113, 0.16, 0.035, 14, outfit.hat!, [0, 0.115, -0.005]));
+    hp.push(cyl(0.113, 0.113, 0.012, 14, shadeHex(outfit.hat!, 0.75), [0, 0.135, -0.005]));
   }
-  head.add(part(merge(hparts), false, true));
+  head.add(part(merge(hp), false, true));
   torso.add(head);
   // bras (pivot à l'épaule)
-  const armGeo = merge([box(0.075, 0.34, 0.08, outfit.shirt, [0, -0.16, 0]), sph(0.04, 6, 5, skin, [0, -0.35, 0])]);
+  const armGeo = merge(armParts(wear, skin));
   const armL = new THREE.Group();
   const armR = new THREE.Group();
-  armL.position.set(0.17, 0.39, 0);
-  armR.position.set(-0.17, 0.39, 0);
+  armL.position.set(0.17 * l.build, 0.39, 0);
+  armR.position.set(-0.17 * l.build, 0.39, 0);
   armL.add(part(armGeo, false, true));
   armR.add(part(armGeo, false, true));
   torso.add(armL, armR);
+  root.scale.setScalar(l.height);
   // outils (tenus par la main droite)
   const hand = (o: THREE.Object3D) => {
     o.position.set(0, -0.36, 0.02);

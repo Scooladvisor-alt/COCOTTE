@@ -1,7 +1,7 @@
 // Rendu de la ferme : synchronise l'état de simulation avec la scène three.js.
 import * as THREE from 'three';
 import { FRESHNESS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, NEEDS, TIME, WORLD, clamp, smoothstep } from '../config/balance';
-import { BUILDINGS, COOP_SCALE, STAND_POS } from '../config/buildings';
+import { COOP_SCALE, STAND_POS, sizeOf } from '../config/buildings';
 import { feedPose, type FeedPose } from '../sim/feeding';
 import { vaultOf } from '../sim/vault';
 import { cellX, cellZ, currentHour, inGrid, parcelCenter, parcelCoords, parcelKeyOfCell, rt } from '../sim/core';
@@ -9,8 +9,8 @@ import { lvl } from '../sim/queries';
 import { rtHen } from '../sim/hens';
 import { simAlpha } from '../sim/simulation';
 import type { BreedId, Building, BuildingType, GameState, Hen, Predator } from '../sim/types';
-import { BLACK_SKIN, BREED_ORDER, BREEDS } from '../config/breeds';
-import { ROLES } from '../config/staff';
+import { BLACK_SKIN, BREED_ORDER, BREEDS, GOLD_SKIN } from '../config/breeds';
+import { ROLES, femName } from '../config/staff';
 import { C, GLOW, GRASS_MAT, GRASS_WIND, MAT, SNOW_UNIFORM, box, merge, mesh } from './geo';
 import { Particles, Shots } from './fx';
 import { createPredatorView, preyModel, type PredatorView } from './predatorModels';
@@ -28,7 +28,7 @@ import { growth, growthStage } from '../sim/breeding';
 import { seasonBlend, snowCover, weatherOf } from '../sim/seasons';
 import { Snowfall } from './snowfall';
 import { FallingLeaves } from './leaves';
-import { dockPoint } from '../sim/robots';
+import { dockOf } from '../sim/robots';
 import { sound } from '../audio/sound';
 import { buildCountryside } from './countryside';
 import { buildDecor, inDecorZone, type Decor } from './decor';
@@ -137,7 +137,7 @@ function henKey(h: Hen) {
   const st = growthStage(h);
   const base = st >= ADULT_STAGE ? (h.rooster ? `${h.breed}:rooster` : h.breed) : `${h.breed}:${h.rooster ? 'rooster' : 'hen'}:${st}`;
   // plumage : un lot d'instances par variante (les rousses ne se ressemblent pas toutes)
-  const skin = h.black ? BLACK_SKIN : h.skin;
+  const skin = h.golden ? GOLD_SKIN : h.black ? BLACK_SKIN : h.skin;
   return skin ? `${base}#${skin}` : base;
 }
 /**
@@ -364,7 +364,7 @@ export class FarmRenderer {
     // entre la clôture et le trottoir, de part et d'autre de la place
     this.scene.add(mesh(box(GRID_W + 36, 0.04, WORLD.WALK_Z - 0.6 - (GRID_Z1 + 1.5), 0xffffff, [GRID_W / 2 - 8, 0.02, (WORLD.WALK_Z - 0.6 + GRID_Z1 + 1.5) / 2]), false, true, verge.material as THREE.Material));
     this.street = buildStreet(this.scene);
-    this.truck = buildDeliveryTruck(this.scene);
+    this.truck = buildDeliveryTruck(this.street);
     this.wildlife = buildWildlife(this.scene, (text) => this.onWildlife?.(text));
     // allée de la maison jusqu'au trottoir, chemin de ferme le long de la clôture jusqu'au portail
     const statics: THREE.BufferGeometry[] = [];
@@ -989,8 +989,8 @@ export class FarmRenderer {
     }
   }
 
-  center(b: { type: BuildingType; x: number; z: number }) {
-    const d = BUILDINGS[b.type];
+  center(b: { type: BuildingType; x: number; z: number; level?: number }) {
+    const d = sizeOf(b.type, b.level);
     if (b.type === 'stand') return { x: STAND_POS.x + 1, z: STAND_POS.z + 0.3 };
     return { x: b.x + d.w / 2, z: b.z + d.d / 2 };
   }
@@ -1014,6 +1014,9 @@ export class FarmRenderer {
       }
       v.key = key;
       this.animateHen(s, h, v, dt, alpha);
+      // la poule aux œufs d'or scintille
+      if (h.golden && v.root.visible && Math.random() < dt * 2.2)
+        this.particles.burst(v.root.position.x + (Math.random() - 0.5) * 0.3, 0.25 + Math.random() * 0.3, v.root.position.z + (Math.random() - 0.5) * 0.3, Math.random() < 0.5 ? 0xffe27a : 0xffffff, 1, { speed: 0.15, up: 0.35, gravity: 0, size: 0.32, life: 0.9 });
       if (h.young) {
         v.headPivot.scale.setScalar(headScale(h));
         // pendant la mue juvénile, un brin de duvet se détache de temps en temps
@@ -1584,7 +1587,6 @@ export class FarmRenderer {
   // ------------------------------------------------------------- Robots ----
   private syncRobots(s: GameState, dt: number) {
     const seen = new Set<number>();
-    const [dx, dz] = dockPoint(s);
     for (const r of s.robots) {
       seen.add(r.id);
       let v = this.robots.get(r.id);
@@ -1620,10 +1622,12 @@ export class FarmRenderer {
       v.ledMat.color.setHex(col);
       v.led.scale.setScalar(charging ? 0.8 + Math.sin(t * 3) * 0.3 : moving ? 1 : 0.9 + Math.sin(t * 8) * 0.1);
       if (moving && Math.random() < dt * 3) this.particles.burst(v.px, 0.12, v.pz, 0xd9c28f, 1, { speed: 0.3, up: 0.3, size: 0.4, life: 0.5 });
-      // borne près du stockage, tournée vers le robot
-      v.dock.position.set(dx, GRASS_TOP, dz + 0.32);
-      v.dock.rotation.y = Math.PI;
-      v.dock.visible = this.robots.size > 0 && [...this.robots.keys()][0] === r.id;
+      // sa borne, le long du stockage : colonne côté bâtiment, balise verte quand il charge
+      const [dx, dz, nx, nz] = dockOf(s, r);
+      v.dock.position.set(dx, GRASS_TOP, dz);
+      v.dock.rotation.y = Math.atan2(nx, nz);
+      v.dockLedMat.color.setHex(charging ? 0x48d47a : r.battery < 18 ? 0xff4d4d : 0x3aa0ff);
+      v.dockLedMat.color.multiplyScalar(charging ? 0.75 + Math.sin(t * 3) * 0.25 : 0.7);
     }
     for (const [id, v] of this.robots) {
       if (!seen.has(id)) {
@@ -1705,7 +1709,7 @@ export class FarmRenderer {
       seen.add(w.id);
       let v = this.staff.get(w.id);
       if (!v) {
-        v = { ...createWorkerView(w.role, ROLES[w.role].outfit, w.look), walk: 0, role: w.role, sweepT: -1 };
+        v = { ...createWorkerView(w.role, ROLES[w.role].outfit, w.look, femName(w.name)), walk: 0, role: w.role, sweepT: -1 };
         v.root.position.set(w.x, 0.05, w.z);
         v.root.rotation.y = w.heading;
         this.staffG.add(v.root);
@@ -2010,7 +2014,7 @@ export class FarmRenderer {
       this.ghostKey = key;
       this.scene.add(this.ghost);
     }
-    const d = BUILDINGS[type];
+    const d = sizeOf(type, level);
     this.ghost!.position.set(x, GRASS_TOP + 0.02 + Math.sin(this.time * 5) * 0.03, z);
     this.ghostTiles.visible = true;
     this.ghostTiles.scale.set(d.w, 1, d.d);
@@ -2081,8 +2085,6 @@ export class FarmRenderer {
     this.wildlife.update(s, dt * Math.min(3, s.clock.speed), hh);
     // le camion du couvoir qui livre les lots de poules (la circulation reste derrière lui)
     this.truck.update(s);
-    const tr = this.truck.onRoad();
-    this.street.blockers = tr ? [tr] : [];
     this.particles.update(dt);
     // neige en hiver, feuilles mortes en automne (intensité variable d'un jour à l'autre)
     const wx = weatherOf(s);
@@ -2118,7 +2120,7 @@ export class FarmRenderer {
     this.highlight.update(this.time);
     let halo: { x: number; z: number; w: number; d: number } | null = null;
     if (sb) {
-      const d = BUILDINGS[sb.type];
+      const d = sizeOf(sb.type, sb.level);
       const c = this.center(sb);
       halo = { x: c.x, z: sb.type === 'stand' ? STAND_POS.z + 0.35 : c.z, w: d.w + 1.1, d: d.d + 1.1 };
     } else if (sw) halo = { x: sw.root.position.x, z: sw.root.position.z, w: 1.7, d: 1.7 };

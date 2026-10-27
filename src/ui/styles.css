@@ -7128,3 +7128,54 @@ body {
     width: min(300px, 46vw);
   }
 }
+
+/* portraits des salariés (photo de leur personnage 3D) */
+.face {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.m-av:has(.face),
+.ava-ic:has(.face),
+.b-icon:has(.face),
+.avatar:has(.face) {
+  background: radial-gradient(circle at 50% 30%, #fffaf0 0%, #f1e7d4 60%, #e3d5bb 100%) !important;
+  padding: 0;
+}
+.m-av:has(.face) {
+  width: 52px;
+  height: 52px;
+  border-radius: 15px;
+}
+.b-icon:has(.face) {
+  width: 54px;
+  height: 54px;
+  border-radius: 15px;
+}
+.ava-ic:has(.face) {
+  width: 38px;
+  height: 38px;
+}
+
+/* commande de plusieurs camions de poules à la fois */
+.packs-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 5px; }
+.packs-head small { margin: 0; }
+.truck-seg { display: inline-flex; align-items: center; background: #f2efe8; border-radius: 9px; padding: 2px; gap: 1px; flex: none; }
+.truck-seg span { font-size: 12px; padding: 0 3px 0 4px; }
+.packs-head small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.truck-seg button {
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 7px;
+  color: var(--ink2, #4a4f5c);
+  cursor: pointer;
+}
+.truck-seg button.on { background: #fff; color: #2f6bff; box-shadow: 0 1px 3px rgba(60, 50, 30, 0.15); }

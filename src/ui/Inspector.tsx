@@ -24,7 +24,7 @@ import { SHOW_HOUR, eligible, enterShow, nextShowDay, showScore } from '../sim/s
 import { GeneStars } from './Show';
 import { basketCount, endLabel, fire, startLabel } from '../sim/workers';
 import { RestockToggle, workerStats, workerStatus } from './Team';
-import { Bar, Btn, Chip, EggDot, Icon, RoleIcon, n1, useGame } from './common';
+import { Bar, Btn, Chip, EggDot, Icon, WorkerFace, n1, useGame } from './common';
 
 export function Inspector() {
   const game = useGame();
@@ -208,7 +208,7 @@ function WorkerCard({ w }: { w: Worker }) {
     <div class="insp">
       <div class="insp-head">
         <div class="avatar bld" style={{ background: '#' + def.outfit.shirt.toString(16).padStart(6, '0') + '40' }}>
-          <RoleIcon role={w.role} size={22} />
+          <WorkerFace role={w.role} look={w.look} name={w.name} size={22} />
         </div>
         <div>
           <h3>{w.name}</h3>
@@ -403,7 +403,7 @@ function HenCard({ h }: { h: Hen }) {
           )}
           <div class="chips">
             <Chip>{b.name}</Chip>
-            {h.black ? <Chip tone="warn">Entièrement noir · rarissime</Chip> : h.skin ? <Chip>{skinName(h.breed, h.skin)}</Chip> : null}
+            {h.golden ? <Chip tone="warn">Poule aux œufs d’or · un œuf d’or tous les 2 jours</Chip> : h.black ? <Chip tone="warn">Entièrement noir · rarissime</Chip> : h.skin ? <Chip>{skinName(h.breed, h.skin)}</Chip> : null}
             {(h.rooster || h.young) && <Chip tone="blue">{birdRole(h)}</Chip>}
             <Chip tone={st.tone}>{st.label}</Chip>
           </div>
@@ -526,6 +526,9 @@ function levelDiff(type: Building['type'], cur: BuildingLevel, next: BuildingLev
   if (type === 'incubator') out.push(`Capacité ${cur.capacity} → ${next.capacity} œufs`, `Éclosion +${Math.round((next.quality ?? 0) * 100)} %`);
   if (type === 'stand') out.push(`Clients ${cur.flow}/h → ${next.flow}/h`, `Paniers ×${cur.qtyMult} → ×${next.qtyMult}`);
   if (next.perk) out.push(next.perk);
+  const w0 = cur.w ?? BUILDINGS[type].w;
+  const w1 = next.w ?? BUILDINGS[type].w;
+  if (w1 !== w0) out.push(`S’allonge : ${w0} → ${w1} cases de long (décalé si besoin)`);
   out.push(`Entretien ${fmtMoney(cur.upkeep)} → ${fmtMoney(next.upkeep)}/j`);
   return out;
 }

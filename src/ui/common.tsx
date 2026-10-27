@@ -2,7 +2,9 @@ import { createContext, type ComponentChildren } from 'preact';
 import { useContext, useEffect, useReducer } from 'preact/hooks';
 import { EGG_TYPES } from '../config/balance';
 import type { Game } from '../game';
-import type { EggType } from '../sim/types';
+import type { EggType, WorkerRole } from '../sim/types';
+import { femName } from '../config/staff';
+import { workerThumb } from '../render/thumbs';
 
 export const GameCtx = createContext<Game>(null as unknown as Game);
 
@@ -449,4 +451,10 @@ export const n1 = (v: number) => v.toLocaleString('fr-FR', { maximumFractionDigi
 const ROLE_ICON: Record<string, string> = { farmhand: 'basket', seller: 'sell', caretaker: 'heart', gardener: 'sprout' };
 export function RoleIcon({ role, size = 18 }: { role: string; size?: number }) {
   return <Icon name={ROLE_ICON[role] ?? 'team'} size={size} />;
+}
+
+/** Portrait d'un salarié (photo de son personnage 3D) ; l'icône du métier si la photo échoue. */
+export function WorkerFace({ role, look, name, size = 18 }: { role: WorkerRole; look: number; name?: string; size?: number }) {
+  const src = workerThumb(role, look, name ? femName(name) : undefined);
+  return src ? <img class="face" src={src} alt="" draggable={false} /> : <RoleIcon role={role} size={size} />;
 }

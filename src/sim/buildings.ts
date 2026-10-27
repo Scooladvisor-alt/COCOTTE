@@ -1,7 +1,7 @@
 // Bâtiments : validation de placement, remplissages automatiques, encrassement.
 import { COOP_HYGIENE, GRID_H, GRID_W, NATURE, TIME } from '../config/balance';
 import { seasonIndex } from './seasons';
-import { BUILDINGS } from '../config/buildings';
+import { BUILDINGS, sizeOf } from '../config/buildings';
 import { GATE, accessCells, cellIndex, cellX, cellZ, coopDoorCells, fenceValue, hIdx, inGrid, invalidateLayout, isOwnedCell, rt, vIdx } from './core';
 import { coopOccupancy, lvl } from './queries';
 import { takeGrain, takeWater } from './stocks';
@@ -16,8 +16,8 @@ export interface PlaceCheck {
  * Vérifie qu'un bâtiment peut être posé en (x,z) : sur des cases possédées et libres,
  * sans bloquer l'entrée ni l'accès aux autres installations.
  */
-export function canPlace(s: GameState, type: BuildingType, x: number, z: number, ignoreId = -1): PlaceCheck {
-  const def = BUILDINGS[type];
+export function canPlace(s: GameState, type: BuildingType, x: number, z: number, ignoreId = -1, level = 1): PlaceCheck {
+  const def = { ...BUILDINGS[type], ...sizeOf(type, level) };
   const r = rt(s);
   const fp = new Set<number>();
   for (let j = 0; j < def.d; j++)
@@ -49,13 +49,13 @@ export function canPlace(s: GameState, type: BuildingType, x: number, z: number,
   const walk = new Uint8Array(r.owned);
   for (const b of s.buildings) {
     if (b.id === ignoreId || b.type === 'stand') continue;
-    const d = BUILDINGS[b.type];
+    const d = sizeOf(b.type, b.level);
     for (let j = 0; j < d.d; j++) for (let i = 0; i < d.w; i++) if (inGrid(b.x + i, b.z + j)) walk[cellIndex(b.x + i, b.z + j)] = 0;
   }
   for (const i of fp) walk[i] = 0;
 
   // l'accès du nouveau bâtiment doit exister
-  const ownAccess = accessCells({ type, x, z }).filter(([ax, az]) => walk[cellIndex(ax, az)]);
+  const ownAccess = accessCells({ type, x, z, level }).filter(([ax, az]) => walk[cellIndex(ax, az)]);
   if (def.access !== 'none' && ownAccess.length === 0) return { ok: false, reason: 'Accès bloqué' };
   if (type === 'nest' && ownAccess.length < def.w) return { ok: false, reason: 'L’avant du pondoir doit rester libre' };
   if (type === 'coop' && coopDoorCells({ x, z }).some(([cx, cz]) => inGrid(cx, cz) && !walk[cellIndex(cx, cz)])) return { ok: false, reason: 'La porte doit rester dégagée' };
@@ -86,14 +86,14 @@ export function canPlace(s: GameState, type: BuildingType, x: number, z: number,
       }
     }
   }
-  const check = (bt: BuildingType, bx: number, bz: number) => {
+  const check = (bt: BuildingType, bx: number, bz: number, bl: number) => {
     if (BUILDINGS[bt].access === 'none') return true;
-    return accessCells({ type: bt, x: bx, z: bz }).some(([ax, az]) => seen[cellIndex(ax, az)]);
+    return accessCells({ type: bt, x: bx, z: bz, level: bl }).some(([ax, az]) => seen[cellIndex(ax, az)]);
   };
-  if (!check(type, x, z)) return { ok: false, reason: 'Inaccessible pour les poules' };
+  if (!check(type, x, z, level)) return { ok: false, reason: 'Inaccessible pour les poules' };
   for (const b of s.buildings) {
     if (b.id === ignoreId || b.type === 'stand') continue;
-    if (!check(b.type, b.x, b.z)) return { ok: false, reason: `Bloquerait l’accès : ${BUILDINGS[b.type].name.toLowerCase()}` };
+    if (!check(b.type, b.x, b.z, b.level)) return { ok: false, reason: `Bloquerait l’accès : ${BUILDINGS[b.type].name.toLowerCase()}` };
   }
   return { ok: true };
 }

@@ -1,16 +1,17 @@
-// Le camion du couvoir : quand un lot de poules est commandé, il arrive par la route, s'arrête
-// devant le portail (feux de détresse), le temps que les poules descendent, puis repart.
-// Sa position se lit sur le temps simulé : il suit l'accélération du jeu et la pause.
+// Les camions du couvoir : chaque lot de poules commandé arrive par la route dans son camion. Le
+// camion roule dans la circulation comme les autres véhicules (render/street.ts : il reste derrière
+// la voiture qui le précède, freine, s'arrête au passage piéton), puis se gare à sa place le long du
+// trottoir, feux de détresse allumés ; un convoi (jusqu'à trois camions) se gare l'un derrière
+// l'autre et les voitures le doublent quand la voie d'en face est libre. Le hayon s'abaisse, les
+// poules sautent une à une et trottinent jusqu'au portail, où la simulation les prend en charge
+// (horaire dans sim/deliveries.ts). Puis le camion se réinsère dans le trafic et repart.
 import * as THREE from 'three';
-import { DELIVERY, WORLD, smoothstep } from '../config/balance';
-import { GATE } from '../sim/core';
-import type { GameState } from '../sim/types';
+import { BREEDS } from '../config/breeds';
+import { alongPath, hopPath, hopTime, jumpAt, leaveAt, truckStopX, unloadEnd } from '../sim/deliveries';
+import type { Street } from './street';
+import type { BreedId, Delivery, GameState } from '../sim/types';
 import { C, box, cyl, merge, mesh, sph } from './geo';
-
-const STOP_X = GATE.x + 0.5;
-/** Voie côté ferme (on roule à droite : vers l'ouest). */
-const LANE = WORLD.ROAD_Z - WORLD.ROAD_HALF / 2;
-const RUN = 45;
+import { ADULT_STAGE, HEN_MAT, HEN_PIVOT, henGeometry } from './models';
 
 function truckModel() {
   const g = new THREE.Group();
@@ -45,6 +46,12 @@ function truckModel() {
   // panneau du couvoir
   parts.push(box(0.04, 0.22, 0.8, 0xf0c94a, [1.71, 1.24, 0]));
   g.add(mesh(merge(parts)));
+  // hayon arrière (charnière en bas) : il s'abaisse en rampe pendant le déchargement
+  const gate = new THREE.Group();
+  gate.position.set(-1.47, 0.5, 0);
+  const plank = mesh(merge([box(0.05, 0.7, 1.04, C.wood, [0, 0.35, 0]), box(0.06, 0.06, 1.06, C.woodDark, [0, 0.68, 0]), box(0.06, 0.06, 1.06, C.woodDark, [0, 0.05, 0])]));
+  gate.add(plank);
+  g.add(gate);
   // feux de détresse (ils clignotent à l'arrêt)
   const blinkMat = new THREE.MeshBasicMaterial({ color: 0xf0a33a });
   const blink = new THREE.Group();
@@ -56,48 +63,159 @@ function truckModel() {
   ])
     blink.add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.12), blinkMat).translateX(x).translateY(0.5).translateZ(z));
   g.add(blink);
-  return { g, blink };
+  return { g, blink, gate };
+}
+
+/** Poule qui trottine du camion au portail (rendu seul ; la simulation la crée au portail). */
+interface Walker {
+  root: THREE.Group;
+  legL: THREE.Mesh;
+  legR: THREE.Mesh;
+}
+const walkerGeo = new Map<BreedId, { body: THREE.BufferGeometry; leg: THREE.BufferGeometry }>();
+function makeWalker(breed: BreedId): Walker {
+  let g = walkerGeo.get(breed);
+  if (!g) {
+    const h = henGeometry(breed, 'hen', ADULT_STAGE, 0);
+    const at = (geo: THREE.BufferGeometry, x: number, y: number, z: number) => geo.clone().translate(x, y, z);
+    g = {
+      body: merge([
+        at(h.body, 0, HEN_PIVOT.body, 0),
+        at(h.head, HEN_PIVOT.neck[0], HEN_PIVOT.neck[1], HEN_PIVOT.neck[2]),
+        at(h.eyes, HEN_PIVOT.neck[0], HEN_PIVOT.neck[1], HEN_PIVOT.neck[2]),
+        at(h.wingL, HEN_PIVOT.wing[0], HEN_PIVOT.wing[1], HEN_PIVOT.wing[2]),
+        at(h.wingR, -HEN_PIVOT.wing[0], HEN_PIVOT.wing[1], HEN_PIVOT.wing[2]),
+      ]),
+      leg: h.leg,
+    };
+    walkerGeo.set(breed, g);
+  }
+  const root = new THREE.Group();
+  const body = new THREE.Mesh(g.body, HEN_MAT);
+  body.castShadow = true;
+  const legL = new THREE.Mesh(g.leg, HEN_MAT);
+  const legR = new THREE.Mesh(g.leg, HEN_MAT);
+  legL.position.set(HEN_PIVOT.hip[0], HEN_PIVOT.hip[1], HEN_PIVOT.hip[2]);
+  legR.position.set(-HEN_PIVOT.hip[0], HEN_PIVOT.hip[1], HEN_PIVOT.hip[2]);
+  root.add(body, legL, legR);
+  root.scale.setScalar(BREEDS[breed].scale);
+  return { root, legL, legR };
 }
 
 export interface DeliveryTruck {
   update(s: GameState): void;
-  /** Position sur la route (pour que la circulation l'évite), null s'il n'est pas là. */
-  onRoad(): { x: number; z: number; len: number } | null;
 }
 
-export function buildDeliveryTruck(scene: THREE.Scene): DeliveryTruck {
-  const { g, blink } = truckModel();
-  g.visible = false;
-  scene.add(g);
-  /** Heure d'arrivée de la livraison en cours (gardée après la descente des poules, pour le départ). */
-  let eta = -1;
+/**
+ * Le camion entre dans la circulation assez tôt pour être garé à l'heure prévue par la simulation ;
+ * ensuite c'est la rue qui le conduit (il reste derrière la voiture qui le précède, freine, se gare,
+ * puis se réinsère dans le trafic quand il repart).
+ */
+export function buildDeliveryTruck(street: Street): DeliveryTruck {
+  type Truck = ReturnType<typeof truckModel>;
+  interface Track {
+    d: Delivery;
+    truck?: Truck;
+    called: boolean;
+    released: boolean;
+    open: number;
+  }
+  const tracks = new Map<number, Track>();
+  const walkers = new Map<BreedId, Walker[]>();
+  let scene: THREE.Object3D | null = null;
+  let last = performance.now();
+
+  const walkerAt = (breed: BreedId, i: number) => {
+    let list = walkers.get(breed);
+    if (!list) walkers.set(breed, (list = []));
+    while (list.length <= i) {
+      const w = makeWalker(breed);
+      w.root.visible = false;
+      scene?.add(w.root);
+      list.push(w);
+    }
+    return list[i];
+  };
+
   return {
-    onRoad: () => (g.visible ? { x: g.position.x, z: g.position.z, len: 3.4 } : null),
     update(s) {
+      const now = performance.now();
+      const rdt = Math.min(0.1, (now - last) / 1000);
+      last = now;
       const t = s.clock.t;
-      const next = s.deliveries.reduce((a, d) => Math.min(a, d.eta), Infinity);
-      if (eta < 0 || t > eta + DELIVERY.unload + DELIVERY.drive) eta = Number.isFinite(next) ? next : -1;
-      // on ne montre que le camion qui approche (pas une commande encore lointaine)
-      if (eta < 0 || t < eta - DELIVERY.drive) {
-        g.visible = false;
-        return;
+      const spd = s.clock.speed;
+      for (const d of s.deliveries) {
+        const tr = tracks.get(d.id);
+        if (tr) tr.d = { ...d };
+        else tracks.set(d.id, { d: { ...d }, called: false, released: false, open: 0 });
       }
-      g.visible = true;
-      let x: number;
-      const stopped = t >= eta - 0.4 && t <= eta + DELIVERY.unload;
-      if (t < eta) {
-        // il arrive de l'est et ralentit jusqu'au portail
-        const k = smoothstep(eta - DELIVERY.drive, eta - 0.4, t);
-        x = STOP_X + RUN * (1 - Math.sin((k * Math.PI) / 2));
-      } else if (t <= eta + DELIVERY.unload) x = STOP_X;
-      else {
-        // puis repart vers l'ouest
-        const k = (t - eta - DELIVERY.unload) / DELIVERY.drive;
-        x = STOP_X - RUN * k * k;
+      const used = new Map<BreedId, number>();
+      for (const [id, tr] of tracks) {
+        const d = tr.d;
+        const slot = d.slot ?? 0;
+        const leave = leaveAt(d);
+        if (!tr.called) {
+          // trop tard pour le voir passer (jeu très accéléré, partie rechargée) : on l'oublie
+          if (t > leave || !s.deliveries.some((x) => x.id === id)) {
+            if (t > leave) tracks.delete(id);
+            continue;
+          }
+          // le convoi garde son ordre : un camion n'entre qu'après celui qui le précède
+          const before = [...tracks.values()].some((o) => o !== tr && (o.d.wave ?? 0) === (d.wave ?? 0) && (o.d.slot ?? 0) < slot && !o.called);
+          if (spd > 0 && !before) {
+            // temps qu'il reste, compté au rythme de la rue (elle va au plus 2× plus vite que nature)
+            const remain = ((d.eta - t) * Math.min(2, spd)) / spd;
+            const ahead = Math.max(12, Math.min(75, (remain - 1) * 4.6));
+            if ((remain - 1) * 4.6 <= 75) {
+              const truck = truckModel();
+              if (street.callDelivery(id, truck.g, 3.4, truckStopX(slot), ahead)) {
+                tr.truck = truck;
+                tr.called = true;
+              }
+            }
+          }
+        }
+        const st = tr.called ? street.delivery(id) : null;
+        if (tr.called && !st) {
+          // sorti de la route : livraison terminée côté rendu
+          if (tr.released || t > leave) tracks.delete(id);
+          continue;
+        }
+        if (tr.called && !tr.released && t >= leave) {
+          street.releaseDelivery(id);
+          tr.released = true;
+        }
+        if (tr.truck && st) {
+          tr.truck.blink.visible = st.parked && Math.floor(now / 420) % 2 === 0;
+          // hayon : il s'abaisse à l'arrêt, se relève quand la dernière poule est descendue
+          const want = st.parked && t >= d.eta - 0.2 && t < unloadEnd(d) - 0.3 ? 1 : 0;
+          tr.open += (want - tr.open) * Math.min(1, rdt * 3.5);
+          tr.truck.gate.rotation.z = tr.open * 1.95;
+          if (!scene) scene = tr.truck.g.parent;
+        }
+        // poules en route vers le portail
+        const path = hopPath(slot);
+        const dur = hopTime(slot);
+        for (let i = 0; i < d.count; i++) {
+          const j = jumpAt(d, i);
+          if (t < j || t > j + dur || !scene) continue;
+          const n = used.get(d.breed) ?? 0;
+          used.set(d.breed, n + 1);
+          const w = walkerAt(d.breed, n);
+          const k = (t - j) / dur;
+          const p = alongPath(path, k);
+          // saut du hayon au début, puis trot sautillant
+          const jump = k < 0.08 ? Math.sin((k / 0.08) * Math.PI) * 0.35 + (1 - k / 0.08) * 0.45 : 0;
+          const step = (t - j) * 13 + i;
+          w.root.visible = true;
+          w.root.position.set(p.x, 0.07 + jump + Math.abs(Math.sin(step)) * 0.035, p.z);
+          w.root.rotation.y = Math.atan2(p.dx, p.dz);
+          w.legL.rotation.x = Math.sin(step) * 0.7;
+          w.legR.rotation.x = -Math.sin(step) * 0.7;
+        }
       }
-      g.position.set(x, 0.06, LANE);
-      g.rotation.y = Math.PI;
-      blink.visible = stopped && Math.floor(performance.now() / 420) % 2 === 0;
+      for (const [breed, list] of walkers) for (let i = used.get(breed) ?? 0; i < list.length; i++) list[i].root.visible = false;
     },
   };
 }
+

@@ -25,7 +25,7 @@ export const ROLES: Record<WorkerRole, RoleDef> = {
     wage: 600,
     reqLevel: 3,
     max: (l) => (l >= 8 ? 3 : l >= 6 ? 2 : 1),
-    outfit: { shirt: 0x3a6ea5, pants: 0x2f4a6b, hat: 0xe2c06a },
+    outfit: { shirt: 0xb5483c, pants: 0x34557d, hat: 0xe2c06a },
   },
   seller: {
     role: 'seller',
@@ -115,3 +115,9 @@ export const WORKER_NAMES = [
   'Léa', 'Hugo', 'Chloé', 'Lucas', 'Manon', 'Louis', 'Camille', 'Jules', 'Inès', 'Gabriel', 'Zoé', 'Arthur',
   'Jade', 'Nathan', 'Lina', 'Tom', 'Rose', 'Paul', 'Alice', 'Théo', 'Margaux', 'Victor', 'Anaïs', 'Martin',
 ];
+
+/** Prénom féminin (rang pair de la liste) ? Sert à l'apparence (coiffure, barbe) ; inconnu → au hasard. */
+export function femName(name: string): boolean | undefined {
+  const i = WORKER_NAMES.indexOf(name.split(' ')[0]);
+  return i < 0 ? undefined : i % 2 === 0;
+}

@@ -2,7 +2,7 @@
 // illustrées par les modèles 3D du jeu, l'essentiel en deux ou trois chiffres, le prix bien visible.
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { BREEDING, COSTS, HEN_PACKS, DOG, EGG_TYPES, GRAIN_BINS, GRAIN_SACKS, PARCELS, ROBOT, UNLOCKS, WATER, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice, type StoreLevel, COMPOST, NATURE } from '../config/balance';
+import { BREEDING, COSTS, DELIVERY, HEN_PACKS, DOG, EGG_TYPES, GRAIN_BINS, GRAIN_SACKS, PARCELS, ROBOT, UNLOCKS, WATER, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice, type StoreLevel, COMPOST, NATURE } from '../config/balance';
 import { grainBinDef, grainPerDay, waterPerDay, waterTankDef } from '../sim/stocks';
 import { BREEDS, BREED_ORDER, ROOSTER_TITLES } from '../config/breeds';
 import { BUILDINGS, BUILD_ORDER } from '../config/buildings';
@@ -243,7 +243,7 @@ function HensTab() {
       {s.deliveries.length > 0 && (
         <div class="notice">
           <span>
-            🚚 En route : <b>{s.deliveries.map((d) => `${d.count} ${BREEDS[d.breed].name}`).join(', ')}</b> — le camion arrive au portail.
+            🚚 {s.deliveries.length > 1 ? `${s.deliveries.length} camions` : 'Un camion'} en route : <b>{s.deliveries.map((d) => `${d.count - (d.out ?? 0)} ${BREEDS[d.breed].name}`).join(', ')}</b> — les poules descendent au portail une à une.
           </span>
         </div>
       )}
@@ -350,26 +350,41 @@ function BreedTile({ id }: { id: BreedId }) {
   );
 }
 
-/** Lots de 6, 12 ou 24 poules : moins chers à l'unité, livrés en camion au portail. */
+/**
+ * Lots de 6, 12 ou 24 poules : moins chers à l'unité, livrés en camion au portail. On peut en
+ * commander plusieurs d'un coup : un camion par lot, ils arrivent en convoi.
+ */
 function PackRow({ id }: { id: BreedId }) {
   const game = useGame();
   const s = game.state;
+  const [trucks, setTrucks] = useState(1);
   return (
     <div class="packs">
-      <small>Par lot, livré en camion :</small>
+      <div class="packs-head">
+        <small>Par lot, en camion</small>
+        <div class="truck-seg" role="group" aria-label="Nombre de camions">
+          <span aria-hidden="true">🚚</span>
+          {Array.from({ length: DELIVERY.slots }, (_, i) => i + 1).map((n) => (
+            <button key={n} class={trucks === n ? 'on' : ''} title={n > 1 ? `${n} camions en convoi (un lot chacun)` : 'Un camion'} onClick={() => setTrucks(n)}>
+              {n}
+            </button>
+          ))}
+        </div>
+      </div>
       <div class="pack-btns">
         {HEN_PACKS.map((p) => {
-          const chk = A.checkBuyHenPack(s, id, p.count);
+          const chk = A.checkBuyHenPack(s, id, p.count, trucks);
+          const price = A.henPackPrice(id, p.count) * trucks;
           return (
             <button
               key={p.count}
               class="pack"
               disabled={!chk.ok}
-              title={chk.ok ? `${p.count} poules pour ${fmtMoney(A.henPackPrice(id, p.count))} (−${Math.round(p.discount * 100)} %)` : chk.reason}
-              onClick={() => game.act(() => A.buyHenPack(s, id, p.count), 'buy')}
+              title={chk.ok ? `${p.count * trucks} poules (${trucks > 1 ? `${trucks} camions de ${p.count}` : 'un camion'}) pour ${fmtMoney(price)} (−${Math.round(p.discount * 100)} %)` : chk.reason}
+              onClick={() => game.act(() => A.buyHenPack(s, id, p.count, trucks), 'buy')}
             >
-              <b>×{p.count}</b>
-              <span>{fmtMoney(A.henPackPrice(id, p.count))}</span>
+              <b>×{p.count * trucks}</b>
+              <span>{fmtMoney(price)}</span>
               <em>−{Math.round(p.discount * 100)} %</em>
             </button>
           );

@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { EGG_ORDER, EGG_TYPES, GRADES, MARKET, ORDERS, TIME, UNLOCKS } from '../config/balance';
+import { EGG_ORDER, EGG_TYPES, GRADES, MARKET, ORDERS, RARE, TIME, UNLOCKS } from '../config/balance';
 import { BREEDS } from '../config/breeds';
 import { currentDay } from '../sim/core';
 import { farmLevel, fmtMoney, today } from '../sim/economy';
@@ -28,6 +28,7 @@ import {
   setPrice,
   standCounters,
   wholesaleQuote,
+  sellGoldEggs,
 } from '../sim/market';
 import { lvl, stand, storedCount } from '../sim/queries';
 import { BUILDINGS } from '../config/buildings';
@@ -108,8 +109,19 @@ function StandTab() {
   const queue = queueLength(s);
   const counters = standCounters(s);
   const lost = lostToday(s);
+  const gold = s.goldEggs ?? 0;
   return (
     <>
+      {(gold > 0 || s.hens.some((h) => h.golden)) && (
+        <div class="notice">
+          <span>
+            ✨ Œufs d’or en réserve : <b>{gold}</b> — le collectionneur les rachète {fmtMoney(RARE.goldEggPrice)} pièce.
+          </span>
+          <Btn small kind="primary" disabled={gold <= 0} onClick={() => game.act(() => sellGoldEggs(s), 'coin')}>
+            Vendre {gold > 1 ? `les ${gold}` : ''} ({fmtMoney(gold * RARE.goldEggPrice)})
+          </Btn>
+        </div>
+      )}
       <div class="strip">
         <div>
           <small>En stock</small>
@@ -154,7 +166,7 @@ function StandTab() {
 }
 
 /** Couleurs des courbes du marché (les teintes réelles des œufs blancs ou crème seraient illisibles). */
-const EGG_LINE: Record<EggType, string> = { roux: '#c46a32', blanc: '#7d8ea6', creme: '#d6a43a', mini: '#a985c9', bleu: '#3a9cc0', chocolat: '#6b3f24' };
+const EGG_LINE: Record<EggType, string> = { roux: '#c46a32', blanc: '#7d8ea6', creme: '#d6a43a', mini: '#a985c9', bleu: '#3a9cc0', chocolat: '#6b3f24', or: '#d4a017' };
 
 /** Cours de l'œuf au fil des jours (prix de référence du marché, pour chaque type produit). */
 function MarketChart({ types }: { types: EggType[] }) {

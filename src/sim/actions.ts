@@ -3,8 +3,9 @@
 import { BREEDING, COSTS, DELIVERY, GRAIN_BINS, HEN_PACKS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
 import { grainCapacity, takeGrain, takeWater, waterCapacity } from './stocks';
 import { BREEDS } from '../config/breeds';
-import { BUILDINGS } from '../config/buildings';
-import { GATE, buildingCenter, emit, invalidateLayout, isWalkable, nearestWalkable, newId, notify, parcelCoords, pick } from './core';
+import { BUILDINGS, sizeOf } from '../config/buildings';
+import { buildingCenter, emit, invalidateLayout, isWalkable, nearestWalkable, newId, notify, parcelCoords, pick, rand } from './core';
+import { GATE_IN, arriveAt, scheduleTruck, syncWaveLeave } from './deliveries';
 import { addXp, earn, levelReached, maxParcelsOf, spend } from './economy';
 import { canPlace, cleaningCost, countOfType } from './buildings';
 import { collectEggs, collectNest } from './eggs';
@@ -47,9 +48,9 @@ export function buyHen(s: GameState, breed: BreedId): ActionResult {
 }
 
 // ------------------------------------------------------- Lots de poules ----
-/** Poules commandées en lot, pas encore livrées. */
+/** Poules commandées en lot, pas encore entrées dans la ferme. */
 export function pendingHens(s: GameState) {
-  return s.deliveries.reduce((a, d) => a + d.count, 0);
+  return s.deliveries.reduce((a, d) => a + d.count - (d.out ?? 0), 0);
 }
 /** Places libres dans les poulaillers qui acceptent la race (moins les poules attendues). */
 export function coopRoom(s: GameState, breed: BreedId) {
@@ -63,52 +64,80 @@ export function henPackPrice(breed: BreedId, count: number) {
   return Math.round((BREEDS[breed].price * count * (1 - (pack?.discount ?? 0))) / 10) * 10;
 }
 
-export function checkBuyHenPack(s: GameState, breed: BreedId, count: number): ActionResult {
+/** Vérifie une commande de `trucks` camions portant chacun un lot de `count` poules. */
+export function checkBuyHenPack(s: GameState, breed: BreedId, count: number, trucks = 1): ActionResult {
   const def = BREEDS[breed];
   if (!def || !HEN_PACKS.some((p) => p.count === count)) return fail('Lot inconnu');
+  if (trucks < 1 || trucks > DELIVERY.slots) return fail('Trop de camions');
+  const total = count * trucks;
   const land = landCapacity(s) - adultCount(s) - pendingHens(s);
-  if (land < count) return fail(land > 0 ? `Terrain : place pour ${land} poule${land > 1 ? 's' : ''} seulement` : 'Terrain plein : achetez une parcelle');
+  if (land < total) return fail(land > 0 ? `Terrain : place pour ${land} poule${land > 1 ? 's' : ''} seulement` : 'Terrain plein : achetez une parcelle');
   const room = coopRoom(s, breed);
-  if (room < count) return fail(room > 0 ? `Poulaillers : place pour ${room} poule${room > 1 ? 's' : ''} seulement` : def.reqCoop > 1 ? `Il faut des places dans un poulailler niv. ${def.reqCoop}+` : 'Poulaillers pleins');
-  if (s.money < henPackPrice(breed, count)) return fail('Fonds insuffisants');
+  if (room < total) return fail(room > 0 ? `Poulaillers : place pour ${room} poule${room > 1 ? 's' : ''} seulement` : def.reqCoop > 1 ? `Il faut des places dans un poulailler niv. ${def.reqCoop}+` : 'Poulaillers pleins');
+  if (s.money < henPackPrice(breed, count) * trucks) return fail('Fonds insuffisants');
   return OK;
 }
 
-/** Commande un lot : le camion du couvoir le livre au portail un peu plus tard. */
-export function buyHenPack(s: GameState, breed: BreedId, count: number): ActionResult {
-  const chk = checkBuyHenPack(s, breed, count);
+/**
+ * Commande un ou plusieurs lots : un camion par lot. Les camions commandés ensemble (ou peu
+ * avant l'arrivée du convoi) arrivent en convoi et se garent l'un derrière l'autre.
+ */
+export function buyHenPack(s: GameState, breed: BreedId, count: number, trucks = 1): ActionResult {
+  const chk = checkBuyHenPack(s, breed, count, trucks);
   if (!chk.ok) return chk;
   const def = BREEDS[breed];
-  const price = henPackPrice(breed, count);
-  if (!spend(s, price, 'poules', `Lot de ${count} ${def.name}`)) return fail('Fonds insuffisants');
-  // les camions se suivent si plusieurs lots sont commandés d'affilée
-  const last = s.deliveries.reduce((a, d) => Math.max(a, d.eta), 0);
-  const eta = Math.max(s.clock.t + DELIVERY.delay, last + DELIVERY.drive * 2 + DELIVERY.unload);
-  s.deliveries.push({ id: newId(s), breed, count, eta });
+  const price = henPackPrice(breed, count) * trucks;
+  if (!spend(s, price, 'poules', trucks > 1 ? `${trucks} lots de ${count} ${def.name}` : `Lot de ${count} ${def.name}`)) return fail('Fonds insuffisants');
+  for (let k = 0; k < trucks; k++) {
+    const at = scheduleTruck(s);
+    s.deliveries.push({ id: newId(s), breed, count, out: 0, ...at });
+    syncWaveLeave(s, at.wave ?? 0);
+  }
   emit(s, { kind: 'purchase', amount: price, label: `Lot de ${count} ${def.name}` });
-  notify(s, `Commande passée : le camion du couvoir livre vos ${count} ${def.name} au portail d’ici peu.`, 'good', '🚚');
+  notify(
+    s,
+    trucks > 1
+      ? `Commande passée : ${trucks} camions du couvoir livrent vos ${count * trucks} ${def.name} au portail d’ici peu.`
+      : `Commande passée : le camion du couvoir livre vos ${count} ${def.name} au portail d’ici peu.`,
+    'good',
+    '🚚',
+  );
   return OK;
 }
 
-/** Arrivée des camions : les poules descendent au portail et rejoignent leur poulailler. */
+/**
+ * Déchargement : chaque poule passe le portail à son tour (sim/deliveries.ts), puis part en
+ * trottinant vers le pré ; le lot est soldé quand la dernière est entrée.
+ */
 export function updateDeliveries(s: GameState) {
   if (!s.deliveries.length) return;
   for (const d of [...s.deliveries]) {
     if (s.clock.t < d.eta) continue;
-    s.deliveries.splice(s.deliveries.indexOf(d), 1);
-    const def = BREEDS[d.breed];
-    let n = 0;
-    for (let i = 0; i < d.count; i++) {
+    let out = d.out ?? 0;
+    while (out < d.count && s.clock.t >= arriveAt(d, out)) {
       const coop = coopFor(s, d.breed) ?? s.buildings.find((b) => b.type === 'coop');
-      if (!coop) break;
-      const h = createHen(s, d.breed, coop, s.stats.hensBought === 0, { at: [GATE.x + 0.5 + ((i % 5) - 2) * 0.22, GATE.z + 0.3 - Math.floor(i / 5) * 0.3] });
+      if (!coop) {
+        out = d.count;
+        break;
+      }
+      const h = createHen(s, d.breed, coop, s.stats.hensBought === 0, { at: [GATE_IN[0] + (rand(s) - 0.5) * 0.16, GATE_IN[1]] });
+      // elle s'écarte du portail pour laisser entrer la suivante
+      h.act = 'walk';
+      h.tx = GATE_IN[0] + (rand(s) - 0.5) * 2.4;
+      h.tz = GATE_IN[1] - 1.4 - rand(s) * 2;
+      h.actT = 8;
+      h.heading = Math.PI;
       s.hens.push(h);
       s.stats.hensBought++;
       s.stats.boughtBreeds[d.breed] = (s.stats.boughtBreeds[d.breed] ?? 0) + 1;
       emit(s, { kind: 'henArrived', henId: h.id });
-      n++;
+      out++;
     }
-    notify(s, `Livraison : ${n} ${def.name} sont arrivées et rejoignent le poulailler.`, 'good', '🚚');
+    d.out = out;
+    if (out >= d.count) {
+      s.deliveries.splice(s.deliveries.indexOf(d), 1);
+      notify(s, `Livraison : ${d.count} ${BREEDS[d.breed].name} sont entrées et rejoignent le poulailler.`, 'good', '🚚');
+    }
   }
 }
 
@@ -368,8 +397,27 @@ export function checkUpgrade(s: GameState, id: number): ActionResult {
   const next = BUILDINGS[b.type].levels[b.level];
   if (!next) return fail('Niveau maximum atteint');
   if (!levelReached(s, next.reqLevel)) return fail(`Niveau de ferme ${next.reqLevel} requis`);
+  if (growSpot(s, b) === null) {
+    const { w, d } = sizeOf(b.type, b.level + 1);
+    return fail(`Il faut ${w} × ${d} cases libres autour`);
+  }
   if (s.money < next.cost) return fail('Fonds insuffisants');
   return OK;
+}
+
+/**
+ * Où poser le bâtiment amélioré quand il s'agrandit (grandes auges) : sur place si la place est
+ * libre, sinon décalé de quelques cases ; null s'il n'y a pas la place. Même emprise : sur place.
+ */
+export function growSpot(s: GameState, b: { id: number; type: BuildingType; x: number; z: number; level: number }): [number, number] | null {
+  const cur = sizeOf(b.type, b.level);
+  const nxt = sizeOf(b.type, b.level + 1);
+  if (cur.w === nxt.w && cur.d === nxt.d) return [b.x, b.z];
+  const tries: Array<[number, number]> = [];
+  for (let dx = 0; dx <= nxt.w - cur.w; dx++) for (const dz of [0, -1, 1]) tries.push([b.x - dx, b.z + dz]);
+  for (const dx of [1, -(nxt.w - cur.w) - 1]) tries.push([b.x + dx, b.z]);
+  for (const [x, z] of tries) if (canPlace(s, b.type, x, z, b.id, b.level + 1).ok) return [x, z];
+  return null;
 }
 
 export function upgrade(s: GameState, id: number): ActionResult {
@@ -377,8 +425,18 @@ export function upgrade(s: GameState, id: number): ActionResult {
   if (!chk.ok) return chk;
   const b = getBuilding(s, id)!;
   const next = BUILDINGS[b.type].levels[b.level];
+  const spot = growSpot(s, b)!;
   if (!spend(s, next.cost, 'constructions', `Amélioration : ${next.name}`)) return fail('Fonds insuffisants');
+  const grows = sizeOf(b.type, b.level + 1).w !== sizeOf(b.type, b.level).w || sizeOf(b.type, b.level + 1).d !== sizeOf(b.type, b.level).d;
   b.level++;
+  if (grows) {
+    // l'équipement s'allonge : nouvelle emprise, les poules qui s'en servaient recommencent
+    [b.x, b.z] = spot;
+    for (const h of s.hens) if (h.targetId === b.id && h.act !== 'sleep') (h.act = 'idle'), (h.actT = 0), (h.targetId = -1);
+    invalidateLayout(s);
+    relocateGroundEggs(s);
+    resetHenAfterLayout(s);
+  }
   b.invested += next.cost;
   if (b.type === 'coop') b.cleanliness = Math.max(b.cleanliness, 90);
   emit(s, { kind: 'upgrade', buildingId: b.id });
@@ -391,7 +449,7 @@ export function move(s: GameState, id: number, x: number, z: number): ActionResu
   if (!b) return fail('Bâtiment introuvable');
   if (!BUILDINGS[b.type].movable) return fail('Ce bâtiment ne se déplace pas');
   if (b.x === x && b.z === z) return OK;
-  const place = canPlace(s, b.type, x, z, b.id);
+  const place = canPlace(s, b.type, x, z, b.id, b.level);
   if (!place.ok) return fail(place.reason ?? 'Emplacement invalide');
   b.x = x;
   b.z = z;

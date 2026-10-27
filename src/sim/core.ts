@@ -1,6 +1,6 @@
 // Briques de base : hasard déterministe, horloge, grille et caches de navigation.
 import { GRID_H, GRID_W, GRID_Z0, GRID_Z1, HOUR, TIME, WORLD } from '../config/balance';
-import { BUILDINGS } from '../config/buildings';
+import { BUILDINGS, sizeOf } from '../config/buildings';
 import type { Building, GameEvent, GameState, NotifyAction } from './types';
 
 // ------------------------------------------------------------- Hasard ----
@@ -97,13 +97,14 @@ export function parcelCoords(key: string): [number, number] {
 /** Case de l'entrée de la ferme (portail), toujours réservée. */
 export const GATE = { x: 14, z: 29 };
 
-export function footprint(b: Pick<Building, 'type' | 'x' | 'z'>) {
-  const def = BUILDINGS[b.type];
-  return { x: b.x, z: b.z, w: def.w, d: def.d };
+type Placed = Pick<Building, 'type' | 'x' | 'z'> & { level?: number };
+export function footprint(b: Placed) {
+  const { w, d } = sizeOf(b.type, b.level);
+  return { x: b.x, z: b.z, w, d };
 }
-export function buildingCenter(b: Pick<Building, 'type' | 'x' | 'z'>) {
-  const def = BUILDINGS[b.type];
-  return { x: b.x + def.w / 2, z: b.z + def.d / 2 };
+export function buildingCenter(b: Placed) {
+  const { w, d } = sizeOf(b.type, b.level);
+  return { x: b.x + w / 2, z: b.z + d / 2 };
 }
 /** Milieu de la trappe d'un poulailler (x) et pied de sa façade (z). */
 export function coopDoor(b: Pick<Building, 'x' | 'z'>) {
@@ -118,8 +119,8 @@ export function coopDoorCells(b: Pick<Building, 'x' | 'z'>): Array<[number, numb
   ];
 }
 /** Cases d'accès (où les poules se placent pour utiliser le bâtiment). */
-export function accessCells(b: Pick<Building, 'type' | 'x' | 'z'>): Array<[number, number]> {
-  const def = BUILDINGS[b.type];
+export function accessCells(b: Placed): Array<[number, number]> {
+  const def = { ...BUILDINGS[b.type], ...sizeOf(b.type, b.level) };
   const out: Array<[number, number]> = [];
   if (def.access === 'front') {
     for (let i = 0; i < def.w; i++) out.push([b.x + i, b.z + def.d]);

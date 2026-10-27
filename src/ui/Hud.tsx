@@ -16,7 +16,7 @@ import { currentDay, currentHour, fmtClock, isNightHour } from '../sim/core';
 import { farmLevel, fmtMoney, fmtSigned, levelDef, levelReached, nextLevelDef, sumExpense, sumIncome, today } from '../sim/economy';
 import { farmGrass } from '../sim/grass';
 import { adultCount, avgOf, buildingsOf, coopCapacity, flockCapacity, landCapacity, lvl, storageCapacity, storedCount } from '../sim/queries';
-import { RoleIcon, Bar, Icon, useGame } from './common';
+import { WorkerFace, Bar, Icon, useGame } from './common';
 
 export function LeftPanel() {
   const game = useGame();
@@ -279,7 +279,7 @@ function StaffStrip() {
               }}
             >
               <span class="ava-ic" style={{ background: '#' + def.outfit.shirt.toString(16).padStart(6, '0') }}>
-                <RoleIcon role={w.role} size={16} />
+                <WorkerFace role={w.role} look={w.look} name={w.name} size={16} />
                 <i class="dot" />
               </span>
               <small>{w.name}</small>

@@ -1,9 +1,10 @@
-// Robots ramasseurs d'œufs : comme un aspirateur robot, ils sillonnent la ferme, ramassent
-// d'abord les œufs pondus au sol (qui pourriraient), puis vident les pondoirs, déchargent au
-// stockage et retournent se recharger sur leur borne. Ils restent à l'intérieur des clôtures.
+// Robots ramasseurs d'œufs : petits robots à roues munis d'un bras à ventouse, ils sillonnent la
+// ferme, ramassent d'abord les œufs pondus au sol (qui pourriraient), puis vident les pondoirs,
+// déchargent au stockage et retournent se recharger chacun sur sa borne (rangées le long du
+// stockage). Ils restent à l'intérieur des clôtures.
 import { HOUR, ROBOT, gradeOf } from '../config/balance';
-import { BUILDINGS } from '../config/buildings';
-import { buildingCenter, canStand, crossesFence, emit, newId, notify, planPath, currentDay } from './core';
+import { BUILDINGS, sizeOf } from '../config/buildings';
+import { buildingCenter, canStand, crossesFence, emit, newId, notify, planPath, currentDay, rt } from './core';
 import { henMovable } from './hens';
 import { addXp, earn, fmtMoney, spend } from './economy';
 import { addToStorage, removeWorldEgg } from './eggs';
@@ -12,21 +13,60 @@ import type { ActionResult, GameState, Robot } from './types';
 
 export const hopperCount = (r: Robot) => r.hopper.reduce((a, l) => a + l.count, 0);
 
-/** Borne de recharge : à côté du stockage. */
-export function dockPoint(s: GameState): [number, number] {
+/** Une borne : où le robot se gare pour charger, et la direction du stockage vers lui. */
+export type DockSpot = [x: number, z: number, nx: number, nz: number];
+
+const dockCache = new WeakMap<GameState, { key: string; spots: DockSpot[] }>();
+
+/**
+ * Bornes de recharge, une par robot : alignées le long du stockage (façade d'abord, puis les côtés,
+ * puis l'arrière), sur une deuxième rangée s'il le faut. Seules les places praticables comptent.
+ */
+export function dockSpots(s: GameState): DockSpot[] {
   const st = storage(s);
-  if (st) {
-    const c = buildingCenter(st);
-    const d = BUILDINGS.storage;
-    for (const [dx, dz] of [
-      [0, d.d / 2 + 0.55],
-      [d.w / 2 + 0.55, 0],
-      [-d.w / 2 - 0.55, 0],
-      [0, -d.d / 2 - 0.55],
-    ])
-      if (canStand(s, c.x + dx, c.z + dz, 0.22)) return [c.x + dx, c.z + dz];
+  if (!st) return [[14.5, 28.5, 0, 1]];
+  const key = `${rt(s).version}:${st.x},${st.z},${st.level}`;
+  const hit = dockCache.get(s);
+  if (hit && hit.key === key) return hit.spots;
+  const c = buildingCenter(st);
+  const { w, d } = sizeOf('storage', st.level);
+  const spots: DockSpot[] = [];
+  const offsets = (half: number) => {
+    const out = [0];
+    for (let k = 0.8; k <= half; k += 0.8) out.push(-k, k);
+    return out;
+  };
+  for (const ring of [0.55, 1.45]) {
+    const sides: Array<[number, number, number]> = [
+      [0, 1, w / 2 - 0.2],
+      [1, 0, d / 2 - 0.2],
+      [-1, 0, d / 2 - 0.2],
+      [0, -1, w / 2 - 0.2],
+    ];
+    for (const [nx, nz, half] of sides)
+      for (const u of offsets(half)) {
+        const x = c.x + nx * (w / 2 + ring) + (nz !== 0 ? u : 0);
+        const z = c.z + nz * (d / 2 + ring) + (nx !== 0 ? u : 0);
+        if (!canStand(s, x, z, 0.22)) continue;
+        if (spots.some(([ox, oz]) => Math.hypot(ox - x, oz - z) < 0.7)) continue;
+        spots.push([x, z, nx, nz]);
+      }
   }
-  return [14.5, 28.5];
+  if (!spots.length) spots.push([14.5, 28.5, 0, 1]);
+  dockCache.set(s, { key, spots });
+  return spots;
+}
+
+/** La borne de ce robot (chaque robot a la sienne ; un nouveau robot prend la suivante). */
+export function dockOf(s: GameState, r?: Robot): DockSpot {
+  const spots = dockSpots(s);
+  const i = r ? Math.max(0, s.robots.indexOf(r)) : s.robots.length;
+  return spots[i % spots.length];
+}
+
+export function dockPoint(s: GameState, r?: Robot): [number, number] {
+  const [x, z] = dockOf(s, r);
+  return [x, z];
 }
 
 export function checkBuyRobot(s: GameState): ActionResult {
@@ -102,7 +142,7 @@ function go(s: GameState, r: Robot, task: Robot['task'], target: number, tx: num
 /** Choix de la prochaine tournée : œufs au sol, puis pondoirs, puis déchargement, puis borne. */
 function plan(s: GameState, r: Robot) {
   const n = hopperCount(r);
-  const [dx, dz] = dockPoint(s);
+  const [dx, dz] = dockPoint(s, r);
   if (r.battery < ROBOT.lowBattery) return go(s, r, 'dock', -1, dx, dz) || void (r.task = 'idle');
   if (n >= ROBOT.capacity * 0.8 && storage(s)) return go(s, r, 'unload', -1, dx, dz);
   const taken = new Set(s.robots.filter((o) => o !== r).map((o) => `${o.task}:${o.target}`));
@@ -147,10 +187,12 @@ const thinkT = new WeakMap<Robot, number>();
 export function updateRobots(s: GameState, dt: number) {
   for (const r of s.robots) {
     for (const l of r.hopper) l.freshness = Math.max(1, l.freshness - (9 * dt) / 180);
-    const [dx, dz] = dockPoint(s);
+    const [dx, dz] = dockPoint(s, r);
     const docked = r.task === 'dock' && !r.path.length && Math.hypot(dx - r.x, dz - r.z) < 0.35;
     if (docked) {
-      // en charge sur sa borne ; il repart dès qu'il y a du travail et assez d'énergie
+      // en charge sur sa borne, dos à la colonne ; il repart dès qu'il y a du travail et assez d'énergie
+      const [, , nx, nz] = dockOf(s, r);
+      r.heading = Math.atan2(nx, nz);
       r.battery = Math.min(100, r.battery + (ROBOT.chargePerHour * dt) / HOUR);
       if (hopperCount(r) > 0) unload(s, r);
       const t = (thinkT.get(r) ?? 0) - dt;

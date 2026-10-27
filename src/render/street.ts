@@ -145,7 +145,7 @@ function streetGeometry() {
 }
 
 // ------------------------------------------------------------- Véhicules ----
-type Kind = 'car' | 'van' | 'bike' | 'tractor' | 'bus';
+type Kind = 'car' | 'van' | 'bike' | 'tractor' | 'bus' | 'delivery';
 const CAR_COLORS = [0xd9534f, 0x2f6bff, 0xf3efe6, 0x5aa36b, 0xf0c94a, 0x3a3f4a, 0x9fb4c8, 0xe58b3a, 0x8a6fd1, 0xc9ccd1];
 const LIGHT_FRONT = 0xfff4d0;
 const LIGHT_BACK = 0xff4a3a;
@@ -256,7 +256,8 @@ function model(kind: Kind, color: number): Model {
   return m;
 }
 
-type VState = 'drive' | 'toBay' | 'parked' | 'leave';
+/** 'unload' : camion du couvoir garé dans sa voie le temps de décharger les poules. */
+type VState = 'drive' | 'toBay' | 'parked' | 'leave' | 'unload';
 interface Veh {
   kind: Kind;
   g: THREE.Group;
@@ -280,6 +281,10 @@ interface Veh {
   /** Écart latéral pour dépasser un vélo. */
   swerve: number;
   phase: number;
+  /** Camion du couvoir : sa place le long du trottoir, et s'il a fini de décharger. */
+  del?: { id: number; stopX: number; released: boolean; done: boolean };
+  /** Dépassement en cours d'un camion garé : on roule dans l'autre voie jusqu'à passX. */
+  ovt?: { passX: number };
 }
 
 // --------------------------------------------------------------- Passants ----
@@ -297,16 +302,20 @@ interface Walker {
 }
 
 /** Véhicule extérieur sur la chaussée (camion de livraison) : la circulation reste derrière lui. */
-export interface RoadBlocker {
-  x: number;
-  z: number;
-  len: number;
-}
-
 export interface Street {
   update(dt: number, hour: number, day: number): void;
-  /** Véhicules extérieurs présents sur la route (mis à jour à chaque image). */
-  blockers: RoadBlocker[];
+  /**
+   * Fait entrer un camion du couvoir dans la circulation, `ahead` mètres à l'est de sa place :
+   * il roule comme les autres (il reste derrière la voiture qui le précède), puis se gare à stopX.
+   * Faux si la voie est encombrée à cet endroit (on réessaiera).
+   */
+  callDelivery(id: number, g: THREE.Group, len: number, stopX: number, ahead: number): boolean;
+  /** Fin du déchargement : il remet le contact et repart dans la circulation. */
+  releaseDelivery(id: number): void;
+  /** Où en est ce camion (null : sorti de la route ou jamais appelé). */
+  delivery(id: number): { x: number; parked: boolean } | null;
+  /** Véhicules sur la route (contrôles de développement). */
+  vehicles(): Array<{ kind: string; x: number; z: number; len: number; state: string; dir: number; v: number; ovt: number | null; del: number | null }>;
 }
 
 const bez = (a: number, b: number, c: number, t: number) => (1 - t) * (1 - t) * a + 2 * t * (1 - t) * b + t * t * c;
@@ -419,13 +428,12 @@ export function buildStreet(scene: THREE.Scene): Street {
   let walkAcc = 0;
   let warmed = false;
 
-  function addVehicle(kind: Kind, dir: 1 | -1, x: number): Veh {
+  function addVehicle(kind: Kind, dir: 1 | -1, x: number, custom?: { g: THREE.Group; len: number; vmax: number }): Veh {
     const color =
       kind === 'van' ? [0xf3efe6, 0xf0c94a, 0x9fb4c8][Math.floor(Math.random() * 3)] : kind === 'bike' ? [0x3bb2c9, 0xe85d75, 0x5aa36b, 0x2f3b4f][Math.floor(Math.random() * 4)] : CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
-    const m = model(kind, color);
-    const g = new THREE.Group();
-    const body = mesh(m.body, true, false);
-    g.add(body, mesh(m.lights, false, false, lightMat));
+    const m: Model = custom ? { body: new THREE.BufferGeometry(), lights: new THREE.BufferGeometry(), len: custom.len, vmax: [custom.vmax, custom.vmax] } : model(kind, color);
+    const g = custom?.g ?? new THREE.Group();
+    if (!custom) g.add(mesh(m.body, true, false), mesh(m.lights, false, false, lightMat));
     const beam = new THREE.Mesh(beamGeo, beamMat);
     const big = kind === 'bike' ? 0.45 : 1;
     beam.scale.set(2.4 * big, 1, 1.4 * big);
@@ -501,14 +509,54 @@ export function buildStreet(scene: THREE.Scene): Street {
     }
   }
 
+  /** Le ou les camions garés devant v dans sa voie : jusqu'où faut-il doubler ? */
+  function overtakeTarget(v: Veh): number | null {
+    const lz = laneZ(v.dir);
+    let far = -Infinity;
+    let first = Infinity;
+    for (const o of vehs) {
+      if (o === v || Math.abs(o.z - lz) > 0.8) continue;
+      const d = (o.x - v.x) * v.dir;
+      if (d <= 0) continue;
+      if (o.state === 'unload') {
+        first = Math.min(first, d);
+        if (d < 30) far = Math.max(far, d + o.len / 2);
+      }
+    }
+    if (!Number.isFinite(first) || first - v.len / 2 > 5 || far < 0) return null;
+    return v.x + v.dir * (far + 4.5);
+  }
+
   function driveVehicle(v: Veh, dt: number, crossBusy: boolean) {
     const lz = laneZ(v.dir);
+    const other = laneZ(-v.dir as 1 | -1);
+    if (v.ovt && (v.ovt.passX - v.x) * v.dir <= 0) v.ovt = undefined;
+    // pendant un dépassement, on regarde la voie d'en face (les voitures qui arrivent nous laissent passer)
+    const ref = v.ovt ? other : lz;
     let gap = Infinity;
     let leadV = 0;
     let bikeNear = false;
     for (const o of vehs) {
-      if (o === v || Math.abs(o.z - lz) > 0.8) continue;
-      const d = (o.x - v.x) * v.dir;
+      if (o === v) continue;
+      let ox = o.x;
+      let inLane = Math.abs(o.z - ref) < 0.8;
+      // une voiture d'en face qui double vient dans notre voie : on s'arrête avant l'endroit où elle se rabat
+      if (o.ovt && o.dir !== v.dir && !v.ovt && Math.abs(laneZ(-o.dir as 1 | -1) - ref) < 0.8) {
+        inLane = true;
+        // l'obstacle le plus proche devant nous : le point où elle se rabat, ou la voiture elle-même
+        const dm = (o.ovt.passX + o.dir * 5 - v.x) * v.dir;
+        const dr = (o.x - v.x) * v.dir;
+        if (dm > 0 && (dr <= 0 || dm < dr)) ox = o.ovt.passX + o.dir * 5;
+      }
+      // une voiture qui sort du parking en marche arrière : on s'arrête avant l'endroit où elle finit sa manœuvre
+      if (o.state === 'leave' && o.bay >= 0 && Math.abs(LANE_E - ref) < 0.8) {
+        inLane = true;
+        const end = BAYS[o.bay] - 2.6 - o.len / 2 - 0.5;
+        if ((end - v.x) * v.dir > 0) ox = Math.min(ox, end);
+      }
+      if (!inLane) continue;
+      if (v.ovt && o.dir !== v.dir) continue;
+      const d = (ox - v.x) * v.dir;
       // on double les vélos en se décalant dans sa voie
       if (o.kind === 'bike' && v.kind !== 'bike' && o.state === 'drive') {
         if (d > -1.2 && d < v.len / 2 + 2.2) bikeNear = true;
@@ -521,15 +569,15 @@ export function buildStreet(scene: THREE.Scene): Street {
         leadV = o.state === 'drive' && o.dir === v.dir ? o.v : 0;
       }
     }
-    // le camion de livraison arrêté (ou qui manœuvre) : on attend derrière lui
-    for (const o of api.blockers) {
-      if (Math.abs(o.z - lz) > 0.8) continue;
-      const d = (o.x - v.x) * v.dir;
-      if (d <= 0) continue;
-      const gp = d - (v.len + o.len) / 2;
-      if (gp < gap) {
-        gap = gp;
-        leadV = 0;
+    // derrière un camion du couvoir garé dans la voie : on double quand la voie d'en face est libre
+    if (!v.ovt && !v.del && v.kind !== 'bike' && v.kind !== 'bus' && v.v < 1.5 && gap < 4) {
+      const passX = overtakeTarget(v);
+      if (passX !== null) {
+        // les voitures d'en face ralentissent pour le laisser finir : il suffit qu'aucune ne soit déjà toute proche
+        const lo = Math.min(v.x - v.dir * 2, passX + v.dir * 18);
+        const hi = Math.max(v.x - v.dir * 2, passX + v.dir * 18);
+        const crossOnWay = (CROSS_X - v.x) * v.dir > 0 && (passX - CROSS_X) * v.dir > 0;
+        if (laneFree(-v.dir as 1 | -1, lo, hi, v) && !(crossOnWay && crossBusy) && !maneuvering(v)) v.ovt = { passX };
       }
     }
     // on laisse traverser les piétons
@@ -538,6 +586,23 @@ export function buildStreet(scene: THREE.Scene): Street {
       if (d > -0.4) gap = Math.min(gap, d + 0.9);
     }
     let cap = v.vmax;
+    // on ne se déporte qu'au pas, le temps de quitter sa voie
+    if (v.ovt) cap = Math.min(cap, Math.abs(v.z - other) > 0.5 ? 1.2 : 4.6);
+    // le camion du couvoir ralentit et se range à sa place
+    if (v.del && !v.del.done) {
+      const d = (v.del.stopX - v.x) * v.dir;
+      // freinage régulier jusqu'à sa place (sans la dépasser)
+      cap = Math.min(cap, Math.max(0.25, Math.sqrt(2 * 1.8 * Math.max(0, d))));
+      gap = Math.min(gap, d + 0.9);
+      if (d < 0.12) {
+        v.state = 'unload';
+        v.v = 0;
+        v.t = 0;
+        v.x = v.del.stopX;
+        v.g.position.x = v.x;
+        return;
+      }
+    }
     // le car marque l'arrêt
     if (v.kind === 'bus' && !v.served) {
       const d = (BUS_X - v.x) * v.dir;
@@ -572,8 +637,15 @@ export function buildStreet(scene: THREE.Scene): Street {
     else v.v = Math.min(desired, v.v + 2.4 * dt);
     v.x += v.dir * v.v * dt;
     v.swerve += ((bikeNear ? 0.3 : 0) - v.swerve) * Math.min(1, dt * 3);
-    v.z = v.kind === 'bike' ? lz + v.dir * 0.5 : lz - v.dir * v.swerve;
-    v.g.rotation.y = v.dir > 0 ? 0 : Math.PI;
+    const z0 = v.z;
+    if (v.kind === 'bike') v.z = lz + v.dir * 0.5;
+    else {
+      // changement de voie en douceur (dépassement), sinon on suit sa voie
+      const zt = (v.ovt ? other : lz) - v.dir * v.swerve;
+      v.z += (zt - v.z) * Math.min(1, dt * 2.2);
+    }
+    const vz = (v.z - z0) / Math.max(dt, 1e-4);
+    v.g.rotation.y = Math.atan2(-vz, v.dir * Math.max(v.v, 0.4));
   }
 
   function step(dt: number, hour: number) {
@@ -583,6 +655,17 @@ export function buildStreet(scene: THREE.Scene): Street {
       if (v.state === 'drive') {
         driveVehicle(v, dt, crossBusy);
         if ((v.dir > 0 && v.x > T1 + 5) || (v.dir < 0 && v.x < T0 - 5)) removeVehicle(v);
+      } else if (v.state === 'unload') {
+        // garé dans sa voie, feux de détresse : il repart quand les poules sont descendues
+        // (même retardé par un bouchon, il marque toujours l'arrêt quelques secondes)
+        v.t += dt;
+        // il ne déboîte pas tant qu'une voiture le double ou qu'il n'a pas la place devant lui
+        const passing = vehs.some((o) => o.ovt && o.dir === v.dir && (o.ovt.passX - v.x) * v.dir > -2);
+        const ahead = vehs.some((o) => o !== v && Math.abs(o.z - v.z) < 0.8 && (o.x - v.x) * v.dir > 0 && (o.x - v.x) * v.dir < (v.len + o.len) / 2 + 3);
+        if (v.del?.released && v.t > 2.5 && !passing && !ahead) {
+          v.del.done = true;
+          v.state = 'drive';
+        }
       } else if (v.state === 'toBay') {
         const bx = BAYS[v.bay];
         const [ax, az] = v.p0;
@@ -598,7 +681,7 @@ export function buildStreet(scene: THREE.Scene): Street {
       } else if (v.state === 'parked') {
         v.t -= dt;
         const bx = BAYS[v.bay];
-        if (v.t <= 0 && !maneuvering(v) && laneFree(-1, bx - 3, bx + 14, v) && laneFree(1, bx - 16, bx + 3, v)) {
+        if (v.t <= 0 && !maneuvering(v) && !vehs.some((o) => o.ovt) && laneFree(-1, bx - 3, bx + 14, v) && laneFree(1, bx - 16, bx + 3, v)) {
           v.state = 'leave';
           v.t = 0;
         }
@@ -749,7 +832,28 @@ export function buildStreet(scene: THREE.Scene): Street {
   }
 
   const api: Street = {
-    blockers: [],
+    callDelivery(id, g, len, stopX, ahead) {
+      if (vehs.some((v) => v.del?.id === id)) return true;
+      for (let x = stopX + ahead; x < Math.min(T1, stopX + ahead + 40); x += 3) {
+        if (!laneFree(-1, x - len - 3, x + len + 3)) continue;
+        const v = addVehicle('delivery', -1, x, { g, len, vmax: 5.2 });
+        v.del = { id, stopX, released: false, done: false };
+        v.v = Math.min(v.vmax, 0.5 + Math.sqrt(2 * 2.2 * Math.max(0, x - stopX)));
+        v.g.position.set(v.x, 0.06, v.z);
+        v.g.rotation.y = Math.PI;
+        return true;
+      }
+      return false;
+    },
+    releaseDelivery(id) {
+      const v = vehs.find((o) => o.del?.id === id);
+      if (v?.del) v.del.released = true;
+    },
+    vehicles: () => vehs.map((v) => ({ kind: v.kind, x: v.x, z: v.z, len: v.len, state: v.state, dir: v.dir, v: v.v, ovt: v.ovt?.passX ?? null, del: v.del ? v.del.stopX : null })),
+    delivery(id) {
+      const v = vehs.find((o) => o.del?.id === id);
+      return v ? { x: v.x, parked: v.state === 'unload' } : null;
+    },
     update(dt, hour, day) {
       if (!warmed) {
         // la rue est déjà animée quand on arrive : quelques minutes simulées d'un coup
@@ -757,7 +861,8 @@ export function buildStreet(scene: THREE.Scene): Street {
         for (let i = 0; i < 360; i++) step(0.25, hour);
         if (hour > 8 && hour < 19) for (let i = 0; i < 3; i++) if (!bays[i] && Math.random() < 0.5) parkNow(i);
       }
-      if (dt > 0) step(Math.min(dt, 0.1), hour);
+      // pas fixes : la circulation garde son rythme même quand les images se font rares
+      for (let rest = Math.min(dt, 1); rest > 1e-4; rest -= 0.1) step(Math.min(rest, 0.1), hour);
       const night = 1 - day;
       lightMat.color.setScalar(0.78 + 0.22 * night);
       beamMat.opacity = night * 0.55;

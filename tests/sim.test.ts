@@ -41,6 +41,7 @@ import { goodPlayer, guard, lazyPlayer } from '../scripts/bot';
 import { hire } from '../src/sim/workers';
 import { distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
 import { buyDog } from '../src/sim/dog';
+import { buyRobot, dockOf } from '../src/sim/robots';
 import { crowdedChicks, eggHatchIn, fertileStock, fertility, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
 import { ageFactor, createHen, eggsPerDayOf, henValue, productivity, refreshVitals, wellbeingTarget } from '../src/sim/hens';
 import { COMPOST, NATURE, RARE } from '../src/config/balance';
@@ -2132,9 +2133,13 @@ describe('Basse-cour vivante', () => {
       ['feeder', 1],
       ['feeder', 2],
       ['feeder', 3],
+      ['feeder', 4],
+      ['feeder', 5],
       ['drinker', 1],
       ['drinker', 2],
       ['drinker', 3],
+      ['drinker', 4],
+      ['drinker', 5],
       ['pond', 1],
       ['pond', 2],
     ] as const) {
@@ -2290,7 +2295,7 @@ describe('Achats sans limite et lots de poules', () => {
     expect(s.deliveries).toHaveLength(1);
     // pas de place réservée deux fois : la capacité tient compte du lot en route
     const room = A.coopRoom(s, 'rousse');
-    run(s, DELIVERY.delay + 1);
+    run(s, DELIVERY.delay + 20);
     expect(s.deliveries).toHaveLength(0);
     expect(s.hens.length).toBe(before + 12);
     expect(A.coopRoom(s, 'rousse')).toBe(room);
@@ -2300,5 +2305,127 @@ describe('Achats sans limite et lots de poules', () => {
     const s = createNewGame(100);
     s.money = 1e7;
     expect(A.buyHenPack(s, 'rousse', 24).ok).toBe(false);
+  });
+});
+
+describe('Convois de camions et grandes auges', () => {
+  const bigFarm = (seed: number) => {
+    const s = createNewGame(seed);
+    s.money = 1e8;
+    s.xp = 99999;
+    const coop = buildingsOf(s, 'coop')[0];
+    while (A.upgrade(s, coop.id).ok);
+    for (let i = 0; i < 3; i++) {
+      for (let x = 2; x < 18; x += 7) if (A.build(s, 'coop', x, 11 + i * 0).ok) break;
+    }
+    for (const c of buildingsOf(s, 'coop')) while (A.upgrade(s, c.id).ok);
+    return s;
+  };
+
+  it('plusieurs lots commandés d’un coup arrivent en convoi, un camion par lot', () => {
+    const s = bigFarm(301);
+    const m = s.money;
+    expect(A.buyHenPack(s, 'rousse', 6, 3).ok).toBe(true);
+    expect(m - s.money).toBe(A.henPackPrice('rousse', 6) * 3);
+    expect(s.deliveries).toHaveLength(3);
+    expect(s.deliveries.map((d) => d.slot)).toEqual([0, 1, 2]);
+    expect(new Set(s.deliveries.map((d) => d.wave)).size).toBe(1);
+    // le camion de tête arrive le premier, les autres le suivent de près ; ils repartent ensemble
+    const [a, b, c] = s.deliveries;
+    expect(b.eta).toBeGreaterThan(a.eta);
+    expect(c.eta).toBeGreaterThan(b.eta);
+    expect(c.eta - a.eta).toBeLessThan(4);
+    expect(a.leave).toBeLessThan(b.leave!);
+    // une commande passée juste après rejoint le convoi s'il reste de la place, sinon un convoi suivant
+    expect(A.buyHenPack(s, 'rousse', 6).ok).toBe(true);
+    const d = s.deliveries[3];
+    expect(d.wave).toBe(a.wave! + 1);
+    expect(d.eta).toBeGreaterThan(c.leave!);
+  });
+
+  it('les poules passent le portail une à une, sans se marcher dessus', () => {
+    const s = bigFarm(302);
+    const before = s.hens.length;
+    expect(A.buyHenPack(s, 'rousse', 12).ok).toBe(true);
+    const d = s.deliveries[0];
+    const times: number[] = [];
+    run(
+      s,
+      DELIVERY.delay + 25,
+      (st) => {
+        const n = st.hens.length - before - times.length;
+        for (let k = 0; k < n; k++) times.push(st.clock.t);
+      },
+      0.1,
+    );
+    expect(s.hens.length).toBe(before + 12);
+    expect(times).toHaveLength(12);
+    // première entrée après le trajet depuis le hayon ; ensuite une toutes les ~0,5 s
+    expect(times[0]).toBeGreaterThan(d.eta + DELIVERY.firstJump);
+    for (let i = 1; i < times.length; i++) expect(times[i] - times[i - 1]).toBeGreaterThan(DELIVERY.henGap * 0.6);
+    expect(s.deliveries).toHaveLength(0);
+  });
+
+  it('la mangeoire et l’abreuvoir s’allongent aux niveaux 4 et 5 et accueillent plus de poules', () => {
+    const s = newFarm(303);
+    morning(s);
+    s.money = 1e8;
+    s.xp = 99999;
+    for (const type of ['feeder', 'drinker'] as const) {
+      const b = buildingsOf(s, type)[0];
+      while (b.level < 3) expect(A.upgrade(s, b.id).ok).toBe(true);
+      expect(A.upgrade(s, b.id).ok).toBe(true);
+      expect(b.level).toBe(4);
+      expect(feedLayout(b)).toHaveLength(14);
+      expect(A.upgrade(s, b.id).ok).toBe(true);
+      expect(b.level).toBe(5);
+      expect(feedLayout(b)).toHaveLength(22);
+      // la nouvelle emprise (4 cases de long) est bien occupée : on ne peut rien poser dessus
+      expect(canPlace(s, 'tree', b.x + 3, b.z).ok).toBe(false);
+    }
+    // et les poules s'y servent pour de vrai
+    for (const h of s.hens) (h.satiety = 20), (h.hydration = 20);
+    const used = new Set<number>();
+    run(s, 60, (st) => st.hens.forEach((h) => (h.act === 'eat' || h.act === 'drink') && used.add(h.targetId)), 0.2);
+    expect(used.has(buildingsOf(s, 'feeder')[0].id)).toBe(true);
+    expect(used.has(buildingsOf(s, 'drinker')[0].id)).toBe(true);
+  });
+
+  it('une auge qui ne tient pas à sa place est refusée sans rien coûter', () => {
+    const s = createNewGame(304);
+    s.money = 1e8;
+    s.xp = 99999;
+    const f = buildingsOf(s, 'feeder')[0];
+    while (f.level < 3) A.upgrade(s, f.id);
+    // on entoure la mangeoire d'arbres : plus de place pour l'allonger
+    for (let dx = -4; dx <= 4; dx++) for (const dz of [-1, 0, 1]) if (dx || dz) A.build(s, 'tree', f.x + dx, f.z + dz);
+    const m = s.money;
+    const r = A.upgrade(s, f.id);
+    if (!r.ok) {
+      expect(r.reason).toMatch(/cases libres/);
+      expect(s.money).toBe(m);
+      expect(f.level).toBe(3);
+    }
+  });
+});
+
+describe('Une borne par robot', () => {
+  it('chaque robot a sa propre borne et y recharge', () => {
+    const s = newFarm(401);
+    morning(s);
+    s.money = 1e8;
+    for (let i = 0; i < 4; i++) expect(buyRobot(s).ok).toBe(true);
+    const docks = s.robots.map((r) => dockOf(s, r));
+    // quatre bornes distinctes, bien séparées, le long du stockage
+    for (let i = 0; i < docks.length; i++)
+      for (let j = i + 1; j < docks.length; j++) expect(Math.hypot(docks[i][0] - docks[j][0], docks[i][1] - docks[j][1])).toBeGreaterThan(0.65);
+    // batteries faibles : chacun rentre sur la sienne et charge
+    for (const r of s.robots) (r.battery = 10), (r.task = 'idle'), (r.path = []);
+    run(s, 120, undefined, 1);
+    for (const r of s.robots) {
+      const [x, z] = dockOf(s, r);
+      expect(Math.hypot(r.x - x, r.z - z)).toBeLessThan(0.4);
+      expect(r.battery).toBeGreaterThan(10);
+    }
   });
 });

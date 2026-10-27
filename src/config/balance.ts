@@ -205,6 +205,8 @@ export const EGG_TYPES: Record<EggType, EggTypeDef> = {
   mini: { id: 'mini', name: 'Petit œuf de Soie', short: 'Mini', ref: 95, specialty: false, color: 0xf3e6cf },
   bleu: { id: 'bleu', name: 'Œuf bleu', short: 'Bleu', ref: 280, specialty: true, color: 0x9fcad6 },
   chocolat: { id: 'chocolat', name: 'Œuf chocolat', short: 'Choco', ref: 330, specialty: true, color: 0x7b4a2d },
+  // pondu par la poule aux œufs d'or ; il ne passe ni par le stockage ni par le marché (voir sim/eggs.ts)
+  or: { id: 'or', name: 'Œuf d’or', short: 'Or', ref: 15000, specialty: true, color: 0xf2c230 },
 };
 export const EGG_ORDER: EggType[] = ['roux', 'blanc', 'creme', 'mini', 'bleu', 'chocolat'];
 
@@ -303,7 +305,12 @@ export const HEN_PACKS = [
   { count: 24, discount: 0.22 },
 ];
 /** Livraison des lots : délai avant l'arrivée du camion, trajet, déchargement (secondes simulées). */
-export const DELIVERY = { delay: 16, drive: 8, unload: 6 };
+/**
+ * Camion du couvoir : délai de livraison, trajet, et déchargement (une poule saute du hayon toutes
+ * les henGap s et trottine jusqu'au portail). Jusqu'à `slots` camions en convoi, garés aux
+ * places `stops` (m à l'est du portail ; le passage piéton reste dégagé).
+ */
+export const DELIVERY = { delay: 16, drive: 8, firstJump: 1.0, henGap: 0.5, henSpeed: 2.3, closeUp: 1.4, stops: [0, 8.4, 12.8], tail: 1.55, convoyGap: 1.1, joinMargin: 4, slots: 3 };
 
 export const ORDERS = {
   maxOffers: 3,
@@ -653,6 +660,14 @@ export const RARE = {
   blackRoosterHatch: 0.04,
   /** Valeur de revente d'un coq noir adulte en bonne santé (centimes, selon l'oiseau). */
   blackValue: [60000, 70000] as [number, number],
+  /** Chance qu'une poussine née à la ferme ait des plumes d'or : dix fois plus rare que le coq noir. */
+  goldenHenHatch: 0.004,
+  /** La poule aux œufs d'or pond un œuf d'or tous les deux jours (en bonne forme). */
+  goldEggsPerDay: 0.5,
+  /** Prix d'un œuf d'or chez le collectionneur (centimes). */
+  goldEggPrice: 15000,
+  /** Valeur de la poule elle-même : une vingtaine d'œufs d'or. */
+  goldHenEggs: 20,
 };
 
 export const PARCELS = {

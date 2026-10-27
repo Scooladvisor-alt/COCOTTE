@@ -1,7 +1,7 @@
 // Le personnel : des salariés visibles qui se déplacent dans la ferme et font réellement
 // le travail (ramassage, remplissage, nettoyage, soins, arrosage, vente au comptoir).
 import { FRESHNESS, GRAIN_SACKS, GRID_H, GRID_W, PREDATORS, WORLD, clamp, gradeOf, sackPrice } from '../config/balance';
-import { BUILDINGS, STAND_POS } from '../config/buildings';
+import { BUILDINGS, STAND_POS, sizeOf } from '../config/buildings';
 import { ROLES, STAFF, WORKER_NAMES } from '../config/staff';
 import { buildingCenter, canStand, cellIndex, coopDoor, cellX, cellZ, crossesFence, currentDay, currentHour, emit, inGrid, isWalkable, nearestWalkable, newId, notify, pick, planPath, rand, randRange, rt } from './core';
 import { PREDATOR_INFO, damagePredator, distanceToFarm, predatorAimY } from './predators';
@@ -231,13 +231,18 @@ function besideBuilding(s: GameState, b: Building, w: Worker): [number, number] 
   if (b.type === 'coop') return [coopDoor(b).x, coopDoor(b).z + 0.75];
   if (b.type === 'nest') return [b.x + 1, b.z + def.d + 0.55];
   const c = buildingCenter(b);
+  const { w: bw, d: bd0 } = sizeOf(b.type, b.level);
   let best: [number, number] | null = null;
   let bd = Infinity;
-  for (let a = 0; a < 16; a++) {
-    const ang = (a / 16) * Math.PI * 2;
-    const rad = Math.max(def.w, def.d) / 2 + 0.55;
-    const x = c.x + Math.sin(ang) * rad;
-    const z = c.z + Math.cos(ang) * rad;
+  // points tout autour de l'emprise (les grandes auges sont longues : on longe leurs côtés)
+  const n = 16 + 4 * (bw + bd0 - 2);
+  for (let a = 0; a < n; a++) {
+    const ang = (a / n) * Math.PI * 2;
+    const ex = Math.sin(ang);
+    const ez = Math.cos(ang);
+    const k = 1 / Math.max(Math.abs(ex) / (bw / 2 + 0.55), Math.abs(ez) / (bd0 / 2 + 0.55));
+    const x = c.x + ex * k;
+    const z = c.z + ez * k;
     if (!canStand(s, x, z, 0.16)) continue;
     const d = Math.hypot(x - w.x, z - w.z);
     if (d < bd) {

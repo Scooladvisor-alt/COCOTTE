@@ -233,6 +233,7 @@ export function HenListPanel() {
                     <b>{h.name}</b>
                     <span class={`pill ${st.tone}`}>{st.label}</span>
                     {h.black && <span class="pill rare">Rarissime</span>}
+                    {h.golden && <span class="pill rare">Œufs d’or</span>}
                   </div>
                   <small>
                     {h.rooster || h.young ? `${birdRole(h)} · ` : ''}

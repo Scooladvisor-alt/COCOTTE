@@ -19,6 +19,7 @@ import { FenceLayer } from './fences';
 import { buildVillage, type Village } from './village';
 import { buildStreet, type Street } from './street';
 import { buildWildlife, type Wildlife } from './wildlife';
+import { buildDeliveryTruck, type DeliveryTruck } from './delivery';
 import { Droppings } from './droppings';
 import { createRobotView, type RobotView } from './robotModel';
 import { applyDogPose, createDogView, dogPose, type DogView } from './dogModel';
@@ -256,6 +257,7 @@ export class FarmRenderer {
   private village!: Village;
   private street!: Street;
   private wildlife!: Wildlife;
+  private truck!: DeliveryTruck;
   /** Annonce d'un passage d'animaux sauvages (branchée par le jeu sur ses notifications). */
   onWildlife: ((text: string) => void) | null = null;
   private ghostKey = '';
@@ -362,6 +364,7 @@ export class FarmRenderer {
     // entre la clôture et le trottoir, de part et d'autre de la place
     this.scene.add(mesh(box(GRID_W + 36, 0.04, WORLD.WALK_Z - 0.6 - (GRID_Z1 + 1.5), 0xffffff, [GRID_W / 2 - 8, 0.02, (WORLD.WALK_Z - 0.6 + GRID_Z1 + 1.5) / 2]), false, true, verge.material as THREE.Material));
     this.street = buildStreet(this.scene);
+    this.truck = buildDeliveryTruck(this.scene);
     this.wildlife = buildWildlife(this.scene, (text) => this.onWildlife?.(text));
     // allée de la maison jusqu'au trottoir, chemin de ferme le long de la clôture jusqu'au portail
     const statics: THREE.BufferGeometry[] = [];
@@ -2076,6 +2079,10 @@ export class FarmRenderer {
     this.street.update(dt * Math.min(2, s.clock.speed), hh, smoothstep(4.8, 7.2, hh) * (1 - smoothstep(19.2, 21.8, hh)));
     // de temps en temps, des sangliers ou des biches longent la ferme
     this.wildlife.update(s, dt * Math.min(3, s.clock.speed), hh);
+    // le camion du couvoir qui livre les lots de poules (la circulation reste derrière lui)
+    this.truck.update(s);
+    const tr = this.truck.onRoad();
+    this.street.blockers = tr ? [tr] : [];
     this.particles.update(dt);
     // neige en hiver, feuilles mortes en automne (intensité variable d'un jour à l'autre)
     const wx = weatherOf(s);

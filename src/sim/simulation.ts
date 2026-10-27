@@ -20,6 +20,7 @@ import { maybeSpawnPredator, setPredatorsQuiet, updatePredators } from './predat
 import { updateRobots } from './robots';
 import { dogUpkeep, updateDog } from './dog';
 import { updateVaults } from './vault';
+import { updateDeliveries } from './actions';
 import { autoWholesale, checkOrdersReady, deliverContracts, marketNewDay, updateCustomers } from './market';
 import { checkMissions } from './progression';
 import { dailyWages, hasRole, onDuty, resetWorkersDay, separateBodies, updateWorkers } from './workers';
@@ -193,6 +194,7 @@ export function step(s: GameState, dt: number) {
   updateHens(s, dt);
   updateWorkers(s, dt);
   updateRobots(s, dt);
+  updateDeliveries(s);
   updateDog(s, dt);
   // personne ne traverse le grillage : on saute par-dessus
   updateVaults(s, dt);

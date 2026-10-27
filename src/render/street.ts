@@ -296,8 +296,17 @@ interface Walker {
   crossing: boolean;
 }
 
+/** Véhicule extérieur sur la chaussée (camion de livraison) : la circulation reste derrière lui. */
+export interface RoadBlocker {
+  x: number;
+  z: number;
+  len: number;
+}
+
 export interface Street {
   update(dt: number, hour: number, day: number): void;
+  /** Véhicules extérieurs présents sur la route (mis à jour à chaque image). */
+  blockers: RoadBlocker[];
 }
 
 const bez = (a: number, b: number, c: number, t: number) => (1 - t) * (1 - t) * a + 2 * t * (1 - t) * b + t * t * c;
@@ -510,6 +519,17 @@ export function buildStreet(scene: THREE.Scene): Street {
       if (gp < gap) {
         gap = gp;
         leadV = o.state === 'drive' && o.dir === v.dir ? o.v : 0;
+      }
+    }
+    // le camion de livraison arrêté (ou qui manœuvre) : on attend derrière lui
+    for (const o of api.blockers) {
+      if (Math.abs(o.z - lz) > 0.8) continue;
+      const d = (o.x - v.x) * v.dir;
+      if (d <= 0) continue;
+      const gp = d - (v.len + o.len) / 2;
+      if (gp < gap) {
+        gap = gp;
+        leadV = 0;
       }
     }
     // on laisse traverser les piétons
@@ -728,7 +748,8 @@ export function buildStreet(scene: THREE.Scene): Street {
     v.g.position.set(v.x, 0.06, v.z);
   }
 
-  return {
+  const api: Street = {
+    blockers: [],
     update(dt, hour, day) {
       if (!warmed) {
         // la rue est déjà animée quand on arrive : quelques minutes simulées d'un coup
@@ -744,4 +765,5 @@ export function buildStreet(scene: THREE.Scene): Street {
       for (const v of vehs) v.beam.visible = lit && v.state !== 'parked';
     },
   };
+  return api;
 }

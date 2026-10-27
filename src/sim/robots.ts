@@ -5,7 +5,7 @@ import { HOUR, ROBOT, gradeOf } from '../config/balance';
 import { BUILDINGS } from '../config/buildings';
 import { buildingCenter, canStand, crossesFence, emit, newId, notify, planPath, currentDay } from './core';
 import { henMovable } from './hens';
-import { addXp, buyLevel, earn, fmtMoney, spend } from './economy';
+import { addXp, earn, fmtMoney, spend } from './economy';
 import { addToStorage, removeWorldEgg } from './eggs';
 import { storage } from './queries';
 import type { ActionResult, GameState, Robot } from './types';
@@ -30,9 +30,7 @@ export function dockPoint(s: GameState): [number, number] {
 }
 
 export function checkBuyRobot(s: GameState): ActionResult {
-  const level = buyLevel(s);
-  if (level < ROBOT.reqLevel) return { ok: false, reason: `Débloqué au niveau ${ROBOT.reqLevel}` };
-  if (s.robots.length >= ROBOT.max(level)) return { ok: false, reason: `Maximum ${ROBOT.max(level)} à ce niveau` };
+  // autant de robots qu'on veut, dès le début
   if (s.money < ROBOT.price) return { ok: false, reason: 'Fonds insuffisants' };
   return { ok: true };
 }

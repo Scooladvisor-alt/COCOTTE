@@ -1,7 +1,7 @@
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { ROLES, ROLE_ORDER, STAFF } from '../config/staff';
-import { buyLevel, fmtMoney } from '../sim/economy';
+import { fmtMoney } from '../sim/economy';
 import { JOB_LABELS, basketCount, checkHire, dailyWages, fire, hire, startLabel, workersOf } from '../sim/workers';
 import type { Worker } from '../sim/types';
 import { RoleIcon, Btn, Chip, Stat, useGame } from './common';
@@ -37,7 +37,6 @@ export function workerStats(w: Worker, which: 'today' | 'total') {
 export function TeamPanel({ embedded = false }: { embedded?: boolean }) {
   const game = useGame();
   const s = game.state;
-  const level = buyLevel(s);
   const [confirm, setConfirm] = useState(-1);
   const today = s.workers.reduce(
     (a, w) => ({ eggs: a.eggs + w.today.eggs, refills: a.refills + w.today.refills, heals: a.heals + w.today.heals, waterings: a.waterings + w.today.waterings }),
@@ -110,7 +109,7 @@ export function TeamPanel({ embedded = false }: { embedded?: boolean }) {
         {ROLE_ORDER.map((role) => {
           const def = ROLES[role];
           const chk = checkHire(s, role);
-          const locked = level < def.reqLevel;
+          const locked = false;
           const n = workersOf(s, role).length;
           return (
             <div class={`pcard ${locked ? 'locked' : ''}`} key={role}>
@@ -121,7 +120,7 @@ export function TeamPanel({ embedded = false }: { embedded?: boolean }) {
                 <div>
                   <h4>{def.title}</h4>
                   <small class="pc-sub">
-                    {fmtMoney(def.wage)} / jour · {n}/{def.max(level)} embauché{n > 1 ? 's' : ''}
+                    {fmtMoney(def.wage)} / jour · {n} embauché{n > 1 ? 's' : ''}
                   </small>
                 </div>
               </div>

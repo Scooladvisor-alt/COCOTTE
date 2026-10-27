@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { BREEDING, EGG_TYPES, HOUR, LEVELS, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, waterPrice } from '../src/config/balance';
+import { BREEDING, DELIVERY, EGG_TYPES, HOUR, LEVELS, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, waterPrice } from '../src/config/balance';
 import { GATE_EDGE, farmEnclosed, perimeter } from '../src/sim/fences';
 import { waterCapacity } from '../src/sim/stocks';
 import { BREEDS, BREED_ORDER } from '../src/config/breeds';
-import { ROLES } from '../src/config/staff';
 import { BUILDINGS, COOP_SCALE, STAND_POS } from '../src/config/buildings';
 import { BACKUP_KEY, SAVE_KEY, deserialize, loadGame, saveGame, serialize, type Storage } from '../src/save/save';
 import * as A from '../src/sim/actions';
@@ -846,14 +845,14 @@ describe('Salariés', () => {
     expect(night.workers[0].onSite).toBe(true);
   });
 
-  it('embauche possible dès le début (pas de niveau requis), mais jamais au-delà du maximum', () => {
+  it('embauche possible dès le début, sans maximum : seul le salaire compte', () => {
     const s = createNewGame(32);
     s.money = 1e7;
-    expect(hire(s, 'farmhand').ok).toBe(true);
-    let n = 1;
-    while (hire(s, 'farmhand').ok) n++;
-    expect(n).toBe(ROLES.farmhand.max(LEVELS[LEVELS.length - 1].level));
-    expect(s.workers).toHaveLength(n);
+    for (let i = 0; i < 12; i++) expect(hire(s, 'farmhand').ok).toBe(true);
+    for (const r of ['seller', 'caretaker', 'gardener'] as const) for (let i = 0; i < 4; i++) expect(hire(s, r).ok).toBe(true);
+    expect(s.workers).toHaveLength(24);
+    s.money = 0;
+    expect(hire(s, 'farmhand').ok).toBe(false);
   });
 
   it('le commis ramasse et range les œufs, sans jamais en perdre ni en dupliquer', () => {
@@ -2265,5 +2264,41 @@ describe('Vieillesse et réforme', () => {
     }
     expect(s.hens).toHaveLength(1);
     expect(h.health).toBeGreaterThanOrEqual(35);
+  });
+});
+
+describe('Achats sans limite et lots de poules', () => {
+  it('on peut construire autant de bâtiments qu’on veut (sauf réserve et étal)', () => {
+    const s = createNewGame(98);
+    expect(A.maxCount(s, 'coop')).toBe(Infinity);
+    expect(A.maxCount(s, 'drinker')).toBe(Infinity);
+    expect(A.maxCount(s, 'storage')).toBe(1);
+  });
+
+  it('un lot coûte moins cher et arrive en camion au portail', () => {
+    const s = createNewGame(99);
+    s.money = 1e7;
+    const coop = buildingsOf(s, 'coop')[0];
+    while (A.upgrade(s, coop.id).ok);
+    const price = A.henPackPrice('rousse', 12);
+    expect(price).toBeLessThan(BREEDS.rousse.price * 12);
+    const before = s.hens.length;
+    const m = s.money;
+    expect(A.buyHenPack(s, 'rousse', 12).ok).toBe(true);
+    expect(m - s.money).toBe(price);
+    expect(s.hens.length).toBe(before);
+    expect(s.deliveries).toHaveLength(1);
+    // pas de place réservée deux fois : la capacité tient compte du lot en route
+    const room = A.coopRoom(s, 'rousse');
+    run(s, DELIVERY.delay + 1);
+    expect(s.deliveries).toHaveLength(0);
+    expect(s.hens.length).toBe(before + 12);
+    expect(A.coopRoom(s, 'rousse')).toBe(room);
+  });
+
+  it('un lot trop gros pour les poulaillers est refusé', () => {
+    const s = createNewGame(100);
+    s.money = 1e7;
+    expect(A.buyHenPack(s, 'rousse', 24).ok).toBe(false);
   });
 });

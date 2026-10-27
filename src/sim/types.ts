@@ -379,6 +379,14 @@ export interface Customer {
   qt?: number;
 }
 
+/** Lot de poules en route : le camion arrive au portail à l'heure `eta` (temps simulé). */
+export interface Delivery {
+  id: number;
+  breed: BreedId;
+  count: number;
+  eta: number;
+}
+
 /** Bouton proposé dans une notification (ex. : livrer une commande dont le stock est prêt). */
 export interface NotifyAction {
   kind: 'deliverOrder';
@@ -603,6 +611,8 @@ export interface GameState {
   fenceH: number[];
   fenceV: number[];
   robots: Robot[];
+  /** Lots de poules commandés, livrés en camion au portail. */
+  deliveries: Delivery[];
   dog: GuardDog | null;
   /** Concours agricole : catégorie, inscription, palmarès. */
   show: ShowState;

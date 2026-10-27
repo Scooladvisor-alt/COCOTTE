@@ -6696,3 +6696,25 @@ img.pi {
 .settings details.legal p {
   margin: 0 0 8px;
 }
+
+/* lots de poules dans la boutique */
+.packs { margin-top: 8px; }
+.packs small { display: block; color: var(--muted, #6b6f7a); font-size: 11.5px; margin-bottom: 5px; }
+.pack-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.pack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 6px 4px;
+  border-radius: 10px;
+  border: 1px solid rgba(47, 107, 255, 0.25);
+  background: rgba(47, 107, 255, 0.06);
+  font: inherit;
+  cursor: pointer;
+}
+.pack b { font-size: 13px; color: #2f6bff; }
+.pack span { font-size: 11.5px; font-weight: 700; }
+.pack em { font-style: normal; font-size: 10.5px; color: #2e9d57; font-weight: 700; }
+.pack:hover:not(:disabled) { background: rgba(47, 107, 255, 0.12); }
+.pack:disabled { opacity: 0.45; cursor: default; }

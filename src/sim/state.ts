@@ -65,6 +65,7 @@ export function createNewGame(seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0)
     fenceH: new Array(GRID_W * (GRID_H + 1)).fill(0),
     fenceV: new Array((GRID_W + 1) * GRID_H).fill(0),
     robots: [],
+    deliveries: [],
     dog: null,
     loans: [],
     show: { tier: 0, entryId: -1, lastDay: 0, remindDay: 0, trophies: [] },

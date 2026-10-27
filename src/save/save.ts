@@ -408,8 +408,15 @@ export function sanitize(input: unknown): GameState | null {
     if (bool(staff.seller, false)) s.workers.push(createWorker(s, 'seller'));
   }
 
+  // Lots de poules en route
+  for (const rd of arr(raw.deliveries).slice(0, 30)) {
+    const d = obj(rd);
+    if (!BREEDS[d.breed as BreedId]) continue;
+    s.deliveries.push({ id: int(d.id, s.nextId++), breed: d.breed as BreedId, count: int(d.count, 1, 1, 200), eta: num(d.eta, s.clock.t, 0) });
+  }
+
   // Robots ramasseurs
-  for (const rr of arr(raw.robots).slice(0, 5)) {
+  for (const rr of arr(raw.robots).slice(0, 60)) {
     const r = obj(rr);
     s.robots.push({
       id: int(r.id, s.nextId++),

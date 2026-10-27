@@ -2,7 +2,7 @@
 // illustrées par les modèles 3D du jeu, l'essentiel en deux ou trois chiffres, le prix bien visible.
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { BREEDING, COSTS, DOG, EGG_TYPES, GRAIN_BINS, GRAIN_SACKS, PARCELS, ROBOT, UNLOCKS, WATER, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice, type StoreLevel, COMPOST, NATURE } from '../config/balance';
+import { BREEDING, COSTS, HEN_PACKS, DOG, EGG_TYPES, GRAIN_BINS, GRAIN_SACKS, PARCELS, ROBOT, UNLOCKS, WATER, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice, type StoreLevel, COMPOST, NATURE } from '../config/balance';
 import { grainBinDef, grainPerDay, waterPerDay, waterTankDef } from '../sim/stocks';
 import { BREEDS, BREED_ORDER, ROOSTER_TITLES } from '../config/breeds';
 import { BUILDINGS, BUILD_ORDER } from '../config/buildings';
@@ -240,6 +240,13 @@ function HensTab() {
           </button>
         </div>
       )}
+      {s.deliveries.length > 0 && (
+        <div class="notice">
+          <span>
+            🚚 En route : <b>{s.deliveries.map((d) => `${d.count} ${BREEDS[d.breed].name}`).join(', ')}</b> — le camion arrive au portail.
+          </span>
+        </div>
+      )}
       <div class="tiles">
         {BREED_ORDER.map((id) => (
           <BreedTile key={id} id={id} />
@@ -326,7 +333,12 @@ function BreedTile({ id }: { id: BreedId }) {
           </>,
         ],
       ]}
-      extra={<GeneRange breed={id} />}
+      extra={
+        <>
+          <GeneRange breed={id} />
+          <PackRow id={id} />
+        </>
+      }
       price={b.price}
       cta="Acheter"
       ok={chk.ok}
@@ -335,6 +347,35 @@ function BreedTile({ id }: { id: BreedId }) {
       onBuy={() => game.act(() => A.buyHen(s, id), 'buy')}
       tut={id === 'rousse' ? 'buy-rousse' : undefined}
     />
+  );
+}
+
+/** Lots de 6, 12 ou 24 poules : moins chers à l'unité, livrés en camion au portail. */
+function PackRow({ id }: { id: BreedId }) {
+  const game = useGame();
+  const s = game.state;
+  return (
+    <div class="packs">
+      <small>Par lot, livré en camion :</small>
+      <div class="pack-btns">
+        {HEN_PACKS.map((p) => {
+          const chk = A.checkBuyHenPack(s, id, p.count);
+          return (
+            <button
+              key={p.count}
+              class="pack"
+              disabled={!chk.ok}
+              title={chk.ok ? `${p.count} poules pour ${fmtMoney(A.henPackPrice(id, p.count))} (−${Math.round(p.discount * 100)} %)` : chk.reason}
+              onClick={() => game.act(() => A.buyHenPack(s, id, p.count), 'buy')}
+            >
+              <b>×{p.count}</b>
+              <span>{fmtMoney(A.henPackPrice(id, p.count))}</span>
+              <em>−{Math.round(p.discount * 100)} %</em>
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -400,7 +441,7 @@ function BuildTab() {
               desc={def.description}
               stats={[...keyStat(type), ['Emprise', `${def.w} × ${def.d} cases`], ['Entretien', `${fmtMoney(L.upkeep)} / jour`]]}
               price={L.cost}
-              count={`${countOfType(s, type)} / ${A.maxCount(s, type)}`}
+              count={Number.isFinite(A.maxCount(s, type)) ? `${countOfType(s, type)} / ${A.maxCount(s, type)}` : countOfType(s, type) ? `${countOfType(s, type)} construit${countOfType(s, type) > 1 ? 's' : ''}` : undefined}
               cta="Construire"
               ok={chk.ok}
               why={chk.ok ? undefined : chk.reason}
@@ -452,11 +493,11 @@ function GearTab() {
             ['Électricité', `${fmtMoney(ROBOT.upkeepPerDay)} / jour`],
           ]}
           price={ROBOT.price}
-          count={`${s.robots.length} / ${ROBOT.max(level)}`}
+          count={s.robots.length ? `${s.robots.length} en service` : undefined}
           cta="Acheter"
           ok={robot.ok}
           why={robot.ok ? undefined : robot.reason}
-          locked={level < ROBOT.reqLevel ? ROBOT.reqLevel : undefined}
+          locked={undefined}
           onBuy={() => game.act(() => buyRobot(s), 'buy')}
         />
       </div>

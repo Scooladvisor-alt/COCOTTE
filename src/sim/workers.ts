@@ -112,10 +112,8 @@ export function isArmed(w: Worker) {
 
 // ------------------------------------------------------------ Embauche ----
 export function checkHire(s: GameState, role: WorkerRole): ActionResult {
+  // on embauche à n'importe quel niveau, autant qu'on veut : seul le salaire compte
   const def = ROLES[role];
-  const level = buyLevel(s);
-  if (level < def.reqLevel) return { ok: false, reason: `Débloqué au niveau ${def.reqLevel}` };
-  if (workersOf(s, role).length >= def.max(level)) return { ok: false, reason: `Maximum ${def.max(level)} à ce niveau` };
   if (s.money < def.wage) return { ok: false, reason: `Il faut ${fmtMoney(def.wage)} pour la première paie` };
   return { ok: true };
 }

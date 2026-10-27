@@ -1,11 +1,11 @@
 // Toutes les commandes du joueur. Chaque action valide ses préconditions AVANT de
 // modifier l'état : une action refusée ne laisse aucune trace (ni argent, ni objet).
-import { BREEDING, COSTS, GRAIN_BINS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
+import { BREEDING, COSTS, DELIVERY, GRAIN_BINS, HEN_PACKS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
 import { grainCapacity, takeGrain, takeWater, waterCapacity } from './stocks';
 import { BREEDS } from '../config/breeds';
 import { BUILDINGS } from '../config/buildings';
-import { buildingCenter, emit, invalidateLayout, isWalkable, nearestWalkable, newId, notify, parcelCoords, pick } from './core';
-import { addXp, earn, levelReached, maxCoopsOf, maxParcelsOf, spend } from './economy';
+import { GATE, buildingCenter, emit, invalidateLayout, isWalkable, nearestWalkable, newId, notify, parcelCoords, pick } from './core';
+import { addXp, earn, levelReached, maxParcelsOf, spend } from './economy';
 import { canPlace, cleaningCost, countOfType } from './buildings';
 import { collectEggs, collectNest } from './eggs';
 import { reseedParcel } from './grass';
@@ -23,8 +23,8 @@ export function checkBuyHen(s: GameState, breed: BreedId): ActionResult {
   const def = BREEDS[breed];
   if (!def) return fail('Race inconnue');
   if (!levelReached(s, def.reqLevel)) return fail(`Débloquée au niveau ${def.reqLevel}`);
-  if (adultCount(s) >= landCapacity(s)) return fail('Terrain plein : achetez une parcelle');
-  if (!coopFor(s, breed)) {
+  if (adultCount(s) + pendingHens(s) >= landCapacity(s)) return fail('Terrain plein : achetez une parcelle');
+  if (coopRoom(s, breed) <= 0 || !coopFor(s, breed)) {
     return fail(def.reqCoop > 1 ? `Il faut une place dans un poulailler niv. ${def.reqCoop}+` : 'Poulailler plein : améliorez-le ou construisez-en un');
   }
   if (s.money < def.price) return fail('Fonds insuffisants');
@@ -44,6 +44,72 @@ export function buyHen(s: GameState, breed: BreedId): ActionResult {
   emit(s, { kind: 'henArrived', henId: h.id });
   emit(s, { kind: 'purchase', amount: def.price, label: def.name });
   return OK;
+}
+
+// ------------------------------------------------------- Lots de poules ----
+/** Poules commandées en lot, pas encore livrées. */
+export function pendingHens(s: GameState) {
+  return s.deliveries.reduce((a, d) => a + d.count, 0);
+}
+/** Places libres dans les poulaillers qui acceptent la race (moins les poules attendues). */
+export function coopRoom(s: GameState, breed: BreedId) {
+  let free = 0;
+  for (const c of s.buildings) if (c.type === 'coop' && c.level >= BREEDS[breed].reqCoop) free += Math.max(0, lvl(c).capacity - coopOccupancy(s, c.id));
+  return free - pendingHens(s);
+}
+/** Prix d'un lot : chaque poule revient moins cher. */
+export function henPackPrice(breed: BreedId, count: number) {
+  const pack = HEN_PACKS.find((p) => p.count === count);
+  return Math.round((BREEDS[breed].price * count * (1 - (pack?.discount ?? 0))) / 10) * 10;
+}
+
+export function checkBuyHenPack(s: GameState, breed: BreedId, count: number): ActionResult {
+  const def = BREEDS[breed];
+  if (!def || !HEN_PACKS.some((p) => p.count === count)) return fail('Lot inconnu');
+  const land = landCapacity(s) - adultCount(s) - pendingHens(s);
+  if (land < count) return fail(land > 0 ? `Terrain : place pour ${land} poule${land > 1 ? 's' : ''} seulement` : 'Terrain plein : achetez une parcelle');
+  const room = coopRoom(s, breed);
+  if (room < count) return fail(room > 0 ? `Poulaillers : place pour ${room} poule${room > 1 ? 's' : ''} seulement` : def.reqCoop > 1 ? `Il faut des places dans un poulailler niv. ${def.reqCoop}+` : 'Poulaillers pleins');
+  if (s.money < henPackPrice(breed, count)) return fail('Fonds insuffisants');
+  return OK;
+}
+
+/** Commande un lot : le camion du couvoir le livre au portail un peu plus tard. */
+export function buyHenPack(s: GameState, breed: BreedId, count: number): ActionResult {
+  const chk = checkBuyHenPack(s, breed, count);
+  if (!chk.ok) return chk;
+  const def = BREEDS[breed];
+  const price = henPackPrice(breed, count);
+  if (!spend(s, price, 'poules', `Lot de ${count} ${def.name}`)) return fail('Fonds insuffisants');
+  // les camions se suivent si plusieurs lots sont commandés d'affilée
+  const last = s.deliveries.reduce((a, d) => Math.max(a, d.eta), 0);
+  const eta = Math.max(s.clock.t + DELIVERY.delay, last + DELIVERY.drive * 2 + DELIVERY.unload);
+  s.deliveries.push({ id: newId(s), breed, count, eta });
+  emit(s, { kind: 'purchase', amount: price, label: `Lot de ${count} ${def.name}` });
+  notify(s, `Commande passée : le camion du couvoir livre vos ${count} ${def.name} au portail d’ici peu.`, 'good', '🚚');
+  return OK;
+}
+
+/** Arrivée des camions : les poules descendent au portail et rejoignent leur poulailler. */
+export function updateDeliveries(s: GameState) {
+  if (!s.deliveries.length) return;
+  for (const d of [...s.deliveries]) {
+    if (s.clock.t < d.eta) continue;
+    s.deliveries.splice(s.deliveries.indexOf(d), 1);
+    const def = BREEDS[d.breed];
+    let n = 0;
+    for (let i = 0; i < d.count; i++) {
+      const coop = coopFor(s, d.breed) ?? s.buildings.find((b) => b.type === 'coop');
+      if (!coop) break;
+      const h = createHen(s, d.breed, coop, s.stats.hensBought === 0, { at: [GATE.x + 0.5 + ((i % 5) - 2) * 0.22, GATE.z + 0.3 - Math.floor(i / 5) * 0.3] });
+      s.hens.push(h);
+      s.stats.hensBought++;
+      s.stats.boughtBreeds[d.breed] = (s.stats.boughtBreeds[d.breed] ?? 0) + 1;
+      emit(s, { kind: 'henArrived', henId: h.id });
+      n++;
+    }
+    notify(s, `Livraison : ${n} ${def.name} sont arrivées et rejoignent le poulailler.`, 'good', '🚚');
+  }
 }
 
 export const roosterPrice = (breed: BreedId) => Math.round((BREEDS[breed].price * BREEDING.roosterPriceMult) / 10) * 10;
@@ -261,13 +327,9 @@ export function collectAll(s: GameState): ActionResult {
 }
 
 // ----------------------------------------------------------- Bâtiments ----
-export function maxCount(s: GameState, type: BuildingType) {
-  if (type === 'coop') return maxCoopsOf(s);
-  if (BUILDINGS[type].unique) return 1;
-  if (type === 'dustbath' || type === 'compost') return Math.max(1, s.parcels.length);
-  if (type === 'pond') return 2 * s.parcels.length;
-  if (type === 'tree') return 15 * s.parcels.length;
-  return 2 + s.parcels.length * 2;
+/** Nombre maximal d'un bâtiment : aucune limite, sauf pour les installations uniques (réserve, étal). */
+export function maxCount(_s: GameState, type: BuildingType) {
+  return BUILDINGS[type].unique ? 1 : Infinity;
 }
 
 export function checkBuild(s: GameState, type: BuildingType): ActionResult {

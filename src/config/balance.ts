@@ -296,6 +296,15 @@ export const REPUTATION = {
 };
 
 // ------------------------------------------------- Commandes & contrats ----
+/** Lots de poules : plus le lot est gros, moins chaque poule coûte. Livrés en camion. */
+export const HEN_PACKS = [
+  { count: 6, discount: 0.08 },
+  { count: 12, discount: 0.15 },
+  { count: 24, discount: 0.22 },
+];
+/** Livraison des lots : délai avant l'arrivée du camion, trajet, déchargement (secondes simulées). */
+export const DELIVERY = { delay: 16, drive: 8, unload: 6 };
+
 export const ORDERS = {
   maxOffers: 3,
   maxActive: 3,

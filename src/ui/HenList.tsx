@@ -181,8 +181,8 @@ export function HenListPanel() {
           )}
           {old.length > 0 &&
             (!confirmOld ? (
-              <Btn small kind="ghost" onClick={() => setConfirmOld(true)}>
-                Réformer les {old.length} âgées
+              <Btn small kind="ghost" onClick={() => setConfirmOld(true)} title="Les vieilles poules (600 jours et plus) pondent moins : confiez-les à une association ou à des particuliers">
+                Réformer les {old.length} vieilles poules
               </Btn>
             ) : (
               <Btn
@@ -190,10 +190,10 @@ export function HenListPanel() {
                 kind="danger"
                 onClick={() => {
                   setConfirmOld(false);
-                  game.act(() => sellOld(game.state), 'coin');
+                  game.act(() => rehomeOld(game.state), 'pop');
                 }}
               >
-                Confirmer : vendre pour {fmtMoney(old.reduce((a, h) => a + henValue(h), 0))}
+                Confirmer : les confier à des associations et particuliers
               </Btn>
             ))}
         </div>
@@ -326,8 +326,9 @@ function healAll(s: import('../sim/types').GameState) {
   return n > 0 ? { ok: true } : { ok: false, reason: 'Fonds insuffisants' };
 }
 
-function sellOld(s: import('../sim/types').GameState) {
-  const old = s.hens.filter((h) => isLayer(h) && h.age > LAYING.declineStart).map((h) => h.id);
-  for (const id of old) A.sellHen(s, id);
-  return old.length ? { ok: true } : { ok: false, reason: 'Aucune poule âgée' };
+/** Réforme : les vieilles poules partent à la retraite chez des particuliers ou dans une association. */
+function rehomeOld(s: import('../sim/types').GameState) {
+  const old = s.hens.filter((h) => isLayer(h) && h.age >= LAYING.declineStart).map((h) => h.id);
+  for (const id of old) A.rehomeHen(s, id);
+  return old.length ? { ok: true } : { ok: false, reason: 'Aucune vieille poule' };
 }

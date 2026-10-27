@@ -497,6 +497,8 @@ export interface Stats {
   hensBought: number;
   hensDied: number;
   hensSold: number;
+  /** Vieilles poules confiées à une association ou à un particulier. */
+  hensRehomed: number;
   coopsCleaned: number;
   feederFills: number;
   /** Poules emportées par un prédateur (comptées à part des décès). */

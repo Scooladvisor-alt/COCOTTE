@@ -86,6 +86,7 @@ export function createNewGame(seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0)
       hensBought: 0,
       hensDied: 0,
       hensSold: 0,
+      hensRehomed: 0,
       coopsCleaned: 0,
       feederFills: 0,
       hensTaken: 0,

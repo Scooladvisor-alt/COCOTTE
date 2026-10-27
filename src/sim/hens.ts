@@ -186,7 +186,7 @@ export function henValue(h: Hen) {
     const grown = h.young ? 0.35 + 0.65 * (1 - h.young / BREEDING.growthDays) : 1;
     return Math.round((blackValue(h) * grown * (0.75 + 0.25 * h.health / 100)) / 100) * 100;
   }
-  const ageV = h.age < 60 ? 1 : clamp(1 - (h.age - 60) / 200, 0.25, 1);
+  const ageV = h.age < LAYING.declineStart ? 1 : clamp(1 - (h.age - LAYING.declineStart) / 250, 0.25, 1);
   const kind = h.young ? BREEDING.chickValue + (1 - BREEDING.chickValue) * (1 - h.young / BREEDING.growthDays) : 1;
   const sex = h.rooster ? BREEDING.roosterPriceMult : 1;
   return Math.round((b.price * sex * 0.55 * ageV * kind * beautyValue(h) * (0.4 + 0.6 * h.health / 100)) / 10) * 10;
@@ -310,14 +310,16 @@ function vitalsTick(s: GameState, dt: number) {
       notify(s, `${h.name} s’est remise de sa maladie.`, 'good', '💚');
     }
     if (v.caretaker) dh += STAFF.caretakerRegen;
-    if (h.satiety < 12) dh -= HEALTH.starvingLoss;
-    if (h.hydration < 12) dh -= HEALTH.thirstLoss;
+    if (h.satiety < HEALTH.starvingAt) dh -= HEALTH.starvingLoss;
+    if (h.hydration < HEALTH.starvingAt) dh -= HEALTH.thirstLoss;
     // une volaille robuste encaisse mieux la saleté, le stress et la maladie
     const frail = frailty(h);
     if (clean < 25) dh -= HEALTH.dirtyLoss * b.sensitivity * frail;
     if (h.wellbeing < 30) dh -= HEALTH.unhappyLoss * b.sensitivity * frail;
     if (h.sick) dh -= HEALTH.sickLoss * frail;
-    h.health = clamp(h.health + dh * dtDay, 0, 100);
+    // tant qu'elle n'est ni malade ni en manque, la fatigue ne descend pas sous un plancher : pas de mort sans raison
+    const floor = !h.sick && h.satiety >= HEALTH.starvingAt && h.hydration >= HEALTH.starvingAt ? Math.min(h.health, HEALTH.safeFloor) : 0;
+    h.health = clamp(h.health + dh * dtDay, floor, 100);
     h.protein = Math.max(0, (h.protein ?? 0) - COMPOST.proteinDecayPerDay * dtDay);
     h.age += dtDay;
     if (h.young) {
@@ -328,7 +330,7 @@ function vitalsTick(s: GameState, dt: number) {
       }
     }
     if (h.health <= 0) {
-      const cause = h.hydration < 12 ? 'de soif' : h.satiety < 12 ? 'de faim' : h.sick ? 'de maladie' : 'de mauvaises conditions';
+      const cause = h.hydration < HEALTH.starvingAt ? 'de soif' : h.satiety < HEALTH.starvingAt ? 'de faim' : h.sick ? 'de maladie' : 'de mauvaises conditions';
       dead.push([h, cause]);
     }
   }

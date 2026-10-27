@@ -277,7 +277,7 @@ function Need({ label, value, hint }: { label: string; value: number; hint?: str
 function ageLabel(age: number) {
   if (age < LAYING.rampDays) return 'Jeune pondeuse';
   if (age <= LAYING.declineStart) return 'Pleine ponte';
-  if (age <= LAYING.declineEnd) return 'Ponte en déclin';
+  if (age <= LAYING.declineEnd) return 'Vieille poule · ponte en baisse';
   return 'Poule âgée';
 }
 
@@ -493,6 +493,11 @@ function HenCard({ h }: { h: Hen }) {
         {(h.health < 95 || h.sick) && (
           <Btn kind={h.sick || h.health < HEALTH.warnAt ? 'primary' : 'soft'} onClick={() => game.act(() => A.healHen(s, h.id), 'buy')}>
             Soigner · {fmtMoney(HEALTH.vetCost)}
+          </Btn>
+        )}
+        {!h.young && h.age >= LAYING.declineStart && (
+          <Btn kind="soft" title="Elle pond moins : une association ou des particuliers seront heureux de l'accueillir" onClick={() => game.act(() => A.rehomeHen(s, h.id), 'pop')}>
+            Confier à une association
           </Btn>
         )}
         {!confirm ? (

@@ -43,7 +43,7 @@ import { hire } from '../src/sim/workers';
 import { distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
 import { buyDog } from '../src/sim/dog';
 import { crowdedChicks, eggHatchIn, fertileStock, fertility, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
-import { createHen, eggsPerDayOf, henValue, productivity, refreshVitals, wellbeingTarget } from '../src/sim/hens';
+import { ageFactor, createHen, eggsPerDayOf, henValue, productivity, refreshVitals, wellbeingTarget } from '../src/sim/hens';
 import { COMPOST, NATURE, RARE } from '../src/config/balance';
 import { parcelPerks, shelteredByTree } from '../src/sim/perks';
 import { inherit, shopGenes } from '../src/sim/genetics';
@@ -538,7 +538,7 @@ describe('Test 4 — dépenses', () => {
     A.buyHen(s, 'rousse');
     s.water = 0;
     for (const b of buildingsOf(s, 'drinker')) b.stock = 0;
-    run(s, TIME.DAY);
+    run(s, TIME.DAY * 1.5);
     expect(s.hens[0].hydration).toBeLessThan(20);
   });
 
@@ -652,8 +652,8 @@ describe('Test 7 — progression économique', () => {
 
   it('un gestionnaire négligent subit des conséquences claires', () => {
     const s = createNewGame(42);
-    run(s, TIME.DAY * 8, lazyPlayer, HOUR * 2);
-    // sans soins ni grillage, ses poules meurent ou s'échappent
+    run(s, TIME.DAY * 16, lazyPlayer, HOUR * 2);
+    // sans eau ni grain, ses poules finissent par mourir (plus résistantes, elles tiennent plus longtemps)
     expect(s.stats.hensDied + s.stats.hensEscaped).toBeGreaterThan(0);
     expect(s.stats.salesRevenue).toBe(0);
   });
@@ -2224,5 +2224,46 @@ describe('Poussins et réserve', () => {
 
   it('la réserve à œufs est plus grande', () => {
     expect(BUILDINGS.storage.levels.map((l) => l.capacity)).toEqual([100, 350, 900, 2500]);
+  });
+});
+
+describe('Vieillesse et réforme', () => {
+  it('une poule ne vieillit qu’à partir de 600 jours, puis pond moins', () => {
+    expect(ageFactor(300)).toBe(1);
+    expect(ageFactor(599)).toBe(1);
+    expect(ageFactor(700)).toBeLessThan(1);
+    expect(ageFactor(900)).toBeCloseTo(0.35);
+    expect(BREEDING.incubationDays).toBeGreaterThan(0);
+  });
+
+  it('une vieille poule peut être confiée à une association', () => {
+    const s = createNewGame(96);
+    A.buyHen(s, 'rousse');
+    const h = s.hens[0];
+    h.age = 650;
+    const rep = s.reputation;
+    expect(A.rehomeHen(s, h.id).ok).toBe(true);
+    expect(s.hens).toHaveLength(0);
+    expect(s.stats.hensRehomed).toBe(1);
+    expect(s.reputation).toBeGreaterThan(rep);
+  });
+
+  it('bien nourrie et abreuvée, une poule stressée ne meurt pas', () => {
+    const s = createNewGame(97);
+    A.buyHen(s, 'rousse');
+    const h = s.hens[0];
+    h.wellbeing = 5;
+    h.health = 40;
+    for (const b of s.buildings) if (b.type === 'coop') b.cleanliness = 5;
+    for (let i = 0; i < TIME.DAY * 5; i += 1) {
+      h.satiety = 60;
+      h.hydration = 60;
+      h.sick = false;
+      h.wellbeing = 5;
+      step(s, 1);
+      drainEvents(s);
+    }
+    expect(s.hens).toHaveLength(1);
+    expect(h.health).toBeGreaterThanOrEqual(35);
   });
 });

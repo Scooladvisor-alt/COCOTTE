@@ -86,8 +86,8 @@ export const ROOSTER_FIGHTS = {
 
 export const NEEDS = {
   /** Perte de satiété par jour (x appétit de la race). */
-  satietyPerDay: 100,
-  hydrationPerDay: 115,
+  satietyPerDay: 75,
+  hydrationPerDay: 85,
   /** Multiplicateur de consommation pendant le sommeil (une poule qui dort ne boit presque pas). */
   nightFactor: 0.2,
   /** Satiété gagnée par seconde à la mangeoire. */
@@ -124,12 +124,20 @@ export const GRASS = {
 
 // ------------------------------------------------------- Santé / bien-être ----
 export const HEALTH = {
-  regenPerDay: 6,
-  starvingLoss: 30,
-  thirstLoss: 40,
-  dirtyLoss: 10,
-  unhappyLoss: 6,
-  sickLoss: 12,
+  /** Une poule robuste : elle récupère vite et n'encaisse de vraies pertes qu'en cas de manque réel. */
+  regenPerDay: 12,
+  starvingLoss: 14,
+  thirstLoss: 18,
+  /** En dessous de ce niveau de satiété ou d'hydratation, la poule s'affaiblit. */
+  starvingAt: 6,
+  dirtyLoss: 5,
+  unhappyLoss: 3,
+  sickLoss: 6,
+  /**
+   * Plancher de santé tant que la poule n'est ni malade ni affamée ni assoiffée : le stress ou un
+   * poulailler un peu sale la fatiguent, mais ne la tuent jamais.
+   */
+  safeFloor: 35,
   sickChancePerDay: 0.008,
   /** Guérison spontanée par jour d'une poule malade bien tenue (×2 avec un soigneur). */
   recoverPerDay: 0.7,
@@ -162,10 +170,10 @@ export const COOP_HYGIENE = {
 export const LAYING = {
   /** Durée de l'animation de ponte (s simulées). */
   layDuration: 3.2,
-  /** Âge (jours) à partir duquel la ponte décline. */
-  declineStart: 90,
-  declineEnd: 220,
-  declineFloor: 0.4,
+  /** Âge (jours) à partir duquel une poule est vieille : sa ponte décline doucement. */
+  declineStart: 600,
+  declineEnd: 800,
+  declineFloor: 0.35,
   /** Montée en ponte des jeunes poules. */
   rampDays: 6,
   rampStart: 0.85,
@@ -279,6 +287,8 @@ export const REPUTATION = {
   orderFailed: -4,
   /** Annuler une commande acceptée (le client est prévenu à temps) ; résilier un contrat. */
   orderCancelled: -1.5,
+  /** Vieille poule confiée à une association ou à un particulier. */
+  rehomed: 1.2,
   contractCancelled: -2.5,
   contractDay: 0.4,
   contractMiss: -2,

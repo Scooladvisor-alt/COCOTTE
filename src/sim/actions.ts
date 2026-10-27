@@ -1,10 +1,10 @@
 // Toutes les commandes du joueur. Chaque action valide ses préconditions AVANT de
 // modifier l'état : une action refusée ne laisse aucune trace (ni argent, ni objet).
-import { BREEDING, COSTS, GRAIN_BINS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
+import { BREEDING, COSTS, GRAIN_BINS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
 import { grainCapacity, takeGrain, takeWater, waterCapacity } from './stocks';
 import { BREEDS } from '../config/breeds';
 import { BUILDINGS } from '../config/buildings';
-import { buildingCenter, emit, invalidateLayout, isWalkable, nearestWalkable, newId, notify, parcelCoords } from './core';
+import { buildingCenter, emit, invalidateLayout, isWalkable, nearestWalkable, newId, notify, parcelCoords, pick } from './core';
 import { addXp, earn, levelReached, maxCoopsOf, maxParcelsOf, spend } from './economy';
 import { canPlace, cleaningCost, countOfType } from './buildings';
 import { collectEggs, collectNest } from './eggs';
@@ -82,6 +82,20 @@ export function sellHen(s: GameState, henId: number): ActionResult {
   emit(s, { kind: 'money', amount: value, x: h.x, z: h.z });
   return OK;
 }
+
+/** Vieille poule confiée à une association ou à un particulier : elle coulera une retraite paisible. */
+export function rehomeHen(s: GameState, henId: number): ActionResult {
+  const h = getHen(s, henId);
+  if (!h) return fail('Poule introuvable');
+  if (h.young) return fail('Un poussin reste à la ferme');
+  s.hens.splice(s.hens.indexOf(h), 1);
+  s.stats.hensRehomed++;
+  s.reputation = Math.min(100, s.reputation + REPUTATION.rehomed);
+  emit(s, { kind: 'henGone', henId, reason: 'sold' });
+  notify(s, `${h.name} part couler une retraite paisible ${pick(s, ADOPTERS)}.`, 'good', '🏡');
+  return OK;
+}
+const ADOPTERS = ['chez une famille du village', 'dans un refuge de l’association « Poules heureuses »', 'chez une institutrice qui a un grand jardin', 'chez des particuliers qui voulaient des poules', 'dans la ferme pédagogique voisine'];
 
 export function healHen(s: GameState, henId: number): ActionResult {
   const h = getHen(s, henId);

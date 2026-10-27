@@ -55,6 +55,8 @@ export interface BuildingDef {
  * trappe au milieu de la façade.
  */
 export const COOP_SCALE = 2;
+/** La réserve à œufs aussi : modèles de 2 × 2 agrandis, emprise de 4 × 4 cases. */
+export const STORAGE_SCALE = 2;
 
 export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   coop: {
@@ -130,8 +132,8 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     type: 'storage',
     name: 'Stockage des œufs',
     description: 'Conserve les œufs ramassés avant la vente. Les niveaux supérieurs ralentissent leur vieillissement.',
-    w: 2,
-    d: 2,
+    w: 2 * STORAGE_SCALE,
+    d: 2 * STORAGE_SCALE,
     access: 'none',
     unique: true,
     buildable: false,

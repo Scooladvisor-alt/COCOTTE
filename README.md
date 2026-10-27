@@ -28,6 +28,12 @@ La ferme continue de tourner quand l'onglet est caché, la fenêtre réduite ou 
 Site statique (aucun serveur) : `npm run build` produit `dist/`, à publier tel quel (Vercel, Netlify, GitHub Pages…). Sur Vercel : importer le dépôt GitHub, le préréglage Vite est détecté (build `npm run build`, dossier `dist`).
 - **Sauvegarde** dans le navigateur du joueur (stockage local + copie de secours, stockage « persistant » demandé au lancement). Réglages → « Télécharger ma sauvegarde » / « Charger un fichier » pour la garder à l'abri ou changer d'appareil.
 - **Aucune donnée envoyée** : ni compte, ni cookie, ni mesure d'audience ; les polices (Nunito, Fredoka) sont fournies avec le jeu.
+- **Sur téléphone, à l'horizontale, comme une application** :
+  - mise en page dédiée aux écrans bas (de 667 à 932 px de large) : tableau de bord replié, horloge compacte, menu en colonne d'icônes à droite, fiches en colonne pleine hauteur (l'horloge glisse alors à gauche), boutique et fenêtres en plein écran, tutoriel et notifications en bas, encoche évitée ;
+  - bouton **plein écran** (verrouille l'écran à l'horizontale quand le téléphone le permet) ; musique et son passent dans les Réglages ;
+  - **installable** sur l'écran d'accueil (« Ajouter à l'écran d'accueil ») : `public/manifest.webmanifest`, icônes `public/icon-*.png`, s'ouvre en plein écran et à l'horizontale ;
+  - téléphone tenu en hauteur : une invitation à le tourner (on peut passer outre d'un toucher) ;
+  - pas de zoom ni de défilement parasite du navigateur, pas de sélection de texte ou de menu au toucher long.
 - **Mentions légales** dans les Réglages : compléter le contact dans `LEGAL` (src/config/balance.ts) avant de publier.
 
 ## Commandes
@@ -141,7 +147,7 @@ De temps en temps, un **renard** (surtout au crépuscule, la nuit et à l'aube) 
 - **Vieillesse à 600 jours** : avant, pleine ponte ; ensuite la ponte baisse peu à peu (jusqu'à 35 % vers 800 jours). Une vieille poule peut être **confiée à une association ou à des particuliers** (fiche de la poule, ou « Réformer les vieilles poules » dans la liste) : elle part à la retraite et la ferme gagne un peu de réputation. Durée d'incubation inchangée.
 - **Faune sauvage** (render/wildlife.ts) : de temps en temps (rarement), une laie et ses marcassins, un sanglier ou des biches (parfois avec un faon) sortent du bois, longent la ferme par l'extérieur du grillage, s'arrêtent pour fouiller le sol ou brouter, puis repartent ; une notification signale leur passage. Décor seul, ils n'entrent jamais dans l'enclos.
 - **Poussins** : ils ne prennent pas de place, ni au poulailler ni sur le terrain (ils se blottissent sous les adultes) ; ils comptent à partir du moment où ils deviennent adultes.
-- **Réserve à œufs agrandie** : 100, 350, 900 puis 2 500 œufs selon le niveau.
+- **Réserve à œufs agrandie** : 100, 350, 900 puis 2 500 œufs selon le niveau ; le bâtiment est deux fois plus grand (4 × 4 cases, comme les poulaillers), les anciennes parties sont réaménagées au chargement.
 - **Dézoom** : on peut reculer deux fois plus loin (zoom minimal 0,28) ; la campagne, la route et la circulation s'étendent en conséquence.
 - **Sélection plus sobre** : léger éclaircissement, fin liseré semi-transparent et halo discret ; l'élément sélectionné reste parfaitement lisible.
 

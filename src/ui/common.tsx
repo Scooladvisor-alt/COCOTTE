@@ -273,6 +273,12 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
           <path d="M5 21V4M5 4h11l-2 4 2 4H5" />
         </svg>
       );
+    case 'fullscreen':
+      return (
+        <svg {...p}>
+          <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+        </svg>
+      );
     case 'gear':
       return (
         <svg {...p}>

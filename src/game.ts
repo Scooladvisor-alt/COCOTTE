@@ -1,6 +1,6 @@
 // Contrôleur : boucle de jeu, entrées, évènements → effets, sauvegarde automatique.
 import { AUTOSAVE_SECONDS, EGG_TYPES, FRESHNESS, LEVELS, TIME } from './config/balance';
-import { BUILDINGS, COOP_SCALE, STAND_POS } from './config/buildings';
+import { BUILDINGS, COOP_SCALE, STAND_POS, STORAGE_SCALE } from './config/buildings';
 import { sound } from './audio/sound';
 import { music } from './audio/music';
 import { FarmRenderer, type PickResult } from './render/farmRenderer';
@@ -109,7 +109,7 @@ export class Game {
     });
     window.setInterval(() => this.background(), 1000);
     window.addEventListener('beforeunload', () => this.save());
-    this.renderer.focusOn(15, 25.5);
+    this.goHome();
     this.raf = requestAnimationFrame((t) => this.frame(t));
   }
 
@@ -204,14 +204,14 @@ export class Game {
     R.hoverParcel = '';
     this.landingT += dt;
     const t = this.landingT;
-    R.zoom = (window.innerWidth > 820 ? 1.8 : 1.4) + Math.sin(t * 0.07) * 0.12;
+    R.zoom = (window.innerWidth > 820 || window.innerWidth > window.innerHeight ? 1.8 : 1.4) + Math.sin(t * 0.07) * 0.12;
     // la ferme se place à côté du titre (à droite sur grand écran, en haut sur téléphone)
     const q = R.camera.quaternion;
     const right = new THREE_V(1, 0, 0).applyQuaternion(q).setY(0).normalize();
     const down = new THREE_V(0, -1, 0).applyQuaternion(q).setY(0).normalize();
     const aspect = window.innerWidth / Math.max(1, window.innerHeight);
     const halfH = R.viewHeight / 2 / R.zoom;
-    const wide = window.innerWidth > 820;
+    const wide = window.innerWidth > 820 || window.innerWidth > window.innerHeight;
     const cx = 15 + Math.sin(t * 0.05) * 1.8;
     const cz = 25.2 + Math.sin(t * 0.037 + 1) * 1.3;
     const off = wide ? -halfH * aspect * 0.36 : 0;
@@ -222,13 +222,22 @@ export class Game {
     R.render(dt);
   }
 
+  /**
+   * Recentre la vue sur la ferme. Sur un téléphone à l'horizontale, l'écran est bas : on recule un
+   * peu et on vise plus haut, pour voir les bâtiments plutôt que la route.
+   */
+  goHome(resetZoom = false) {
+    const short = window.innerHeight <= 540 && window.innerWidth > window.innerHeight;
+    if (resetZoom) this.renderer.zoom = short ? 1.15 : 1.35;
+    this.renderer.focusOn(short ? 13 : 15, short ? 23 : 25.5);
+  }
+
   start(offlineSeconds = 0) {
     if (this.showcase) {
       // fin de l'accueil : place à la vraie ferme
       this.showcase = null;
       this.renderer.resetWorld();
-      this.renderer.zoom = 1.35;
-      this.renderer.focusOn(15, 25.5);
+      this.goHome(true);
     }
     this.started = true;
     // demande au navigateur de ne pas effacer la sauvegarde pour faire de la place
@@ -551,7 +560,7 @@ export class Game {
       const L1 = lvl(b);
       let info = '';
       let cls = '';
-      const height = b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 : b.type === 'stand' ? 1.9 : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.1;
+      const height = b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 * STORAGE_SCALE : b.type === 'stand' ? 1.9 : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.1;
       if (b.type === 'nest') {
         if (b.eggIds.length > 0) {
           info = `<em>${b.eggIds.length} œuf${b.eggIds.length > 1 ? 's' : ''}</em>`;
@@ -705,7 +714,7 @@ export class Game {
       else if (b.type === 'storage' && storedCount(s) >= storageCapacity(s)) text = 'Stockage plein';
       else continue;
       const c = buildingCenter(b);
-      const y = b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.05;
+      const y = b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 * STORAGE_SCALE : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.05;
       L.set(`b${b.id}`, c.x, y, c.z, `<i></i>${text}`, `todo ${urgent ? 'urgent' : ''}`);
     }
     // œufs pondus au sol qui vont bientôt pourrir

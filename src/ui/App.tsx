@@ -1,3 +1,4 @@
+import { useState } from 'preact/hooks';
 import type { Game } from '../game';
 import { hasSave } from '../save/save';
 import { GameCtx, useGame } from './common';
@@ -30,12 +31,28 @@ function Hud({ fromSave }: { fromSave: boolean }) {
   );
 }
 
+/** Téléphone tenu en hauteur : le jeu se joue à l'horizontale (on peut passer outre). */
+function RotateHint() {
+  const [skip, setSkip] = useState(false);
+  if (skip) return null;
+  return (
+    <div class="rotate-hint" onClick={() => setSkip(true)}>
+      <div class="rh-box">
+        <div class="rh-phone" />
+        <b>Tournez votre téléphone</b>
+        <span>Cocotte se joue à l’horizontale, comme une application. Touchez l’écran pour continuer quand même.</span>
+      </div>
+    </div>
+  );
+}
+
 export function App({ game, fromSave }: { game: Game; fromSave: boolean }) {
   return (
     <GameCtx.Provider value={game}>
       <div class="hud">
         <Hud fromSave={fromSave} />
       </div>
+      <RotateHint />
     </GameCtx.Provider>
   );
 }

@@ -10,7 +10,7 @@ import type { BreedId, Building, BuildingType, EggType, GameState, Grade, Hen, H
 import { ROLES } from '../config/staff';
 import { createWorker } from '../sim/workers';
 import { autoEnclose } from '../sim/fences';
-import { refitCoops } from '../sim/buildings';
+import { refitCoops, refitStorage } from '../sim/buildings';
 import { decodeGenes } from '../sim/genetics';
 
 export const SAVE_KEY = 'cocotte-co.save';
@@ -555,6 +555,8 @@ export function sanitize(input: unknown): GameState | null {
   s.nextId = maxId;
   // v7 -> v8 : poulaillers deux fois plus grands, reposés là où ils tiennent
   if (fromVersion < 8) refitCoops(s);
+  // v8 -> v9 : réserve à œufs deux fois plus grande
+  if (fromVersion < 9) refitStorage(s);
   s.version = SAVE_VERSION;
   invalidateLayout(s);
   return s;

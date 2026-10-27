@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { EGG_TYPES } from '../config/balance';
 import { BREEDS } from '../config/breeds';
-import { COOP_SCALE } from '../config/buildings';
+import { COOP_SCALE, STORAGE_SCALE } from '../config/buildings';
 import { HEN_MAT, HEN_PIVOT, type HenGeo } from './henModel';
 import type { BreedId, BuildingType, EggType } from '../sim/types';
 import { C, CREATURE_MAT, GLOW, MAT, box, cone, cyl, finalizeExport, ico, merge, mesh, prism, sph } from './geo';
@@ -521,10 +521,14 @@ function groupOf(parts: THREE.BufferGeometry[], ...extra: THREE.Object3D[]) {
 }
 
 function storageModel(level: number): BuildingView {
+  // dessinée sur 2 × 2, puis agrandie (le groupe extérieur reste libre pour l'animation de pose)
+  const outer = new THREE.Group();
   const parts: THREE.BufferGeometry[] = [slab(2, 2, level >= 3 ? 0xd6d8da : 0xe0d4bc)];
   const windows: THREE.Mesh[] = [];
   const spots = level === 1 ? storeLarder(parts, windows) : level === 2 ? storeVented(parts, windows) : level === 3 ? storeCold(parts, windows) : storeWarehouse(parts, windows);
   const g = new THREE.Group();
+  g.scale.setScalar(STORAGE_SCALE);
+  outer.add(g);
   g.add(mesh(merge(parts)));
   for (const w of windows) g.add(w);
   // cageots d'œufs devant la réserve : on en voit plus quand le stock se remplit
@@ -537,7 +541,7 @@ function storageModel(level: number): BuildingView {
     g.add(c);
     return c;
   });
-  return { group: g, eggSlots: [], eggMeshes: [], crates, key: `storage${level}` };
+  return { group: outer, eggSlots: [], eggMeshes: [], crates, key: `storage${level}` };
 }
 
 function dustbathModel(level: number): BuildingView {

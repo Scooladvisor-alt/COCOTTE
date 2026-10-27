@@ -143,8 +143,8 @@ export function createNewGame(seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0)
     return b;
   };
   add('coop', 5, 19);
-  add('nest', 15, 21);
-  add('storage', 17, 21);
+  add('nest', 12, 21);
+  add('storage', 16, 20);
   add('feeder', 12, 26);
   add('drinker', 16, 26);
   const stand = add('stand', Math.floor(STAND_POS.x), Math.floor(STAND_POS.z));

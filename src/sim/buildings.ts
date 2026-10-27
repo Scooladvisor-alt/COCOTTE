@@ -152,6 +152,30 @@ export function refitCoops(s: GameState) {
   invalidateLayout(s);
 }
 
+/** Anciennes parties : la réserve à œufs passe de 2 × 2 à 4 × 4 cases, reposée au plus près. */
+export function refitStorage(s: GameState) {
+  const { w, d } = BUILDINGS.storage;
+  for (const b of s.buildings) {
+    if (b.type !== 'storage') continue;
+    invalidateLayout(s);
+    const x0 = Math.round(b.x + 1 - w / 2);
+    const z0 = Math.round(b.z + 1 - d / 2);
+    let best: [number, number] | null = null;
+    let bd = Infinity;
+    for (let dz = -12; dz <= 12; dz++)
+      for (let dx = -14; dx <= 14; dx++) {
+        const dist = Math.hypot(dx, dz);
+        if (dist >= bd) continue;
+        if (canPlace(s, 'storage', x0 + dx, z0 + dz, b.id).ok) {
+          bd = dist;
+          best = [x0 + dx, z0 + dz];
+        }
+      }
+    if (best) [b.x, b.z] = best;
+  }
+  invalidateLayout(s);
+}
+
 export function coopDirt(s: GameState, dt: number) {
   const dtDay = dt / TIME.DAY;
   for (const b of s.buildings) {

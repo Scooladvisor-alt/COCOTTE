@@ -21,7 +21,8 @@ import { RoleIcon, Bar, Icon, useGame } from './common';
 export function LeftPanel() {
   const game = useGame();
   const s = game.state;
-  const [open, setOpen] = useState(() => typeof window === 'undefined' || window.innerWidth > 820);
+  // replié par défaut sur téléphone (en hauteur comme à l'horizontale)
+  const [open, setOpen] = useState(() => typeof window === 'undefined' || (window.innerWidth > 820 && window.innerHeight > 540));
   const lv = levelDef(s);
   const next = nextLevelDef(s);
   const xpRatio = next ? (s.xp - lv.xp) / (next.xp - lv.xp) : 1;
@@ -377,6 +378,20 @@ export function TopRight() {
         >
           <Icon name={s.settings.sound ? 'sound' : 'mute'} />
         </button>
+        <button
+          class={`card icon-btn fs-btn ${document.fullscreenEnabled ? 'can' : ''}`}
+          title="Plein écran"
+          onClick={() => {
+            if (document.fullscreenElement) void document.exitFullscreen();
+            else
+              void document.documentElement
+                .requestFullscreen({ navigationUI: 'hide' })
+                .then(() => (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.('landscape'))
+                .catch(() => undefined);
+          }}
+        >
+          <Icon name="fullscreen" />
+        </button>
         <button class="card icon-btn" title="Réglages" onClick={() => game.openPanel('settings')}>
           <Icon name="gear" />
         </button>
@@ -415,7 +430,7 @@ export function Dock() {
       <button title="Zoom arrière" onClick={() => game.renderer.setZoom(game.renderer.zoom / 1.25)}>
         <Icon name="zoomout" size={18} />
       </button>
-      <button title="Recentrer sur la ferme" onClick={() => game.renderer.focusOn(15, 25.5)}>
+      <button title="Recentrer sur la ferme" onClick={() => game.goHome()}>
         <Icon name="home" size={18} />
       </button>
     </nav>

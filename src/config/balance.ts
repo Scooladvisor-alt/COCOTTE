@@ -667,7 +667,7 @@ export function parcelPrice(owned: number): number {
 }
 
 export const AUTOSAVE_SECONDS = 15;
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 
 /**
  * Mentions légales (obligatoires en France, même pour un site personnel non commercial).

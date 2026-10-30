@@ -150,6 +150,8 @@ const COOP_DOORS: Record<number, { door: number; sill: number; foot: number }> =
     2: { door: 1.65, sill: 0.22, foot: 2.11 },
     3: { door: 1.72, sill: 0.1, foot: 2.12 },
     4: { door: 1.78, sill: 0.05, foot: 2.15 },
+    5: { door: 2.2, sill: 0.12, foot: 2.62 },
+    6: { door: 2.66, sill: 0.1, foot: 3.1 },
     // modèles dessinés à l'échelle 1, agrandis COOP_SCALE fois
   }).map(([k, d]) => [k, { door: d.door * COOP_SCALE, sill: d.sill * COOP_SCALE, foot: d.foot * COOP_SCALE }]),
 );

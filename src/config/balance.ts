@@ -205,10 +205,12 @@ export const EGG_TYPES: Record<EggType, EggTypeDef> = {
   mini: { id: 'mini', name: 'Petit œuf de Soie', short: 'Mini', ref: 95, specialty: false, color: 0xf3e6cf },
   bleu: { id: 'bleu', name: 'Œuf bleu', short: 'Bleu', ref: 280, specialty: true, color: 0x9fcad6 },
   chocolat: { id: 'chocolat', name: 'Œuf chocolat', short: 'Choco', ref: 330, specialty: true, color: 0x7b4a2d },
+  // les oies (niveau 10) : un gros œuf blanc très recherché par les pâtissiers
+  oie: { id: 'oie', name: 'Œuf d’oie', short: 'Oie', ref: 650, specialty: true, color: 0xf3f0e8 },
   // pondu par la poule aux œufs d'or ; il ne passe ni par le stockage ni par le marché (voir sim/eggs.ts)
   or: { id: 'or', name: 'Œuf d’or', short: 'Or', ref: 15000, specialty: true, color: 0xf2c230 },
 };
-export const EGG_ORDER: EggType[] = ['roux', 'blanc', 'creme', 'mini', 'bleu', 'chocolat'];
+export const EGG_ORDER: EggType[] = ['roux', 'blanc', 'creme', 'mini', 'bleu', 'chocolat', 'oie'];
 
 export const GRADES: Record<Grade, { name: string; mult: number; min: number }> = {
   extra: { name: 'Extra', mult: 1.15, min: 0.8 },

@@ -1,7 +1,8 @@
 // Logique financière centralisée : toutes les entrées/sorties d'argent passent ici.
 import { LEVELS, LEVEL_GATES, WORLD } from '../config/balance';
+import { BREEDS } from '../config/breeds';
 import { currentDay, currentHour, emit } from './core';
-import type { DayFinance, ExpenseCat, GameState, IncomeCat } from './types';
+import type { DayFinance, ExpenseCat, GameState, IncomeCat, BreedId } from './types';
 
 export const INCOME_LABELS: Record<IncomeCat, string> = {
   etal: 'Ventes à l’étal',
@@ -141,6 +142,15 @@ export function buyLevel(s: GameState) {
 /** Niveau suffisant pour un achat ? (toujours vrai quand les niveaux requis sont désactivés) */
 export function levelReached(s: GameState, req: number) {
   return !LEVEL_GATES || farmLevel(s) >= req;
+}
+/** Une race s'achète-t-elle déjà ? (les oies exigent vraiment le niveau 10) */
+export function breedUnlocked(s: GameState, breed: BreedId) {
+  const def = BREEDS[breed];
+  return def.strictLevel ? farmLevel(s) >= def.reqLevel : levelReached(s, def.reqLevel);
+}
+/** Niveau qui verrouille l'achat d'une race, ou undefined. */
+export function breedLockedAt(s: GameState, breed: BreedId): number | undefined {
+  return breedUnlocked(s, breed) ? undefined : BREEDS[breed].reqLevel;
 }
 /** Niveau qui verrouille un achat, ou undefined s'il est accessible. */
 export function lockedAt(s: GameState, req: number): number | undefined {

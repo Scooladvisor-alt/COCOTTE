@@ -509,6 +509,191 @@ export function coopModern(parts: Parts, windows: THREE.Mesh[]) {
   parts.push(box(0.56, 0.05, 0.4, 0xc4c7cb, [1.5, 0.05, 1.93]));
 }
 
+/** Fenêtre à petits carreaux et cadre blanc, sur une façade tournée vers +z (ou +x). */
+function farmWindow(parts: Parts, windows: THREE.Mesh[], x: number, y: number, z: number, w: number, h: number, onX = false) {
+  const ry = onX ? Math.PI / 2 : 0;
+  const B = (bw: number, bh: number, bd: number, c: number, p: V3) => parts.push(onX ? box(bd, bh, bw, c, p) : box(bw, bh, bd, c, p));
+  windows.push(glassPane(w, h, [x, y, z], ry, 0.02));
+  const n = onX ? [z, y] : [x, y];
+  const at = (u: number, v: number, o: number): V3 => (onX ? [x + o, v, u] : [u, v, z + o]);
+  B(w + 0.08, 0.04, 0.035, TRIM, at(n[0], y + h / 2 + 0.02, 0.012));
+  B(w + 0.12, 0.045, 0.06, TRIM, at(n[0], y - h / 2 - 0.02, 0.022));
+  for (const s2 of [-1, 1]) B(0.04, h + 0.06, 0.035, TRIM, at(n[0] + s2 * (w / 2 + 0.02), y, 0.012));
+  B(0.022, h, 0.03, TRIM, at(n[0], y, 0.016));
+  B(w, 0.022, 0.03, TRIM, at(n[0], y + h * 0.1, 0.016));
+}
+
+/**
+ * Niveau 5 — grand poulailler de ferme (dessiné sur 4 × 2,5) : longue grange sur soubassement de
+ * pierre, bardage de planches rouge sombre aux angles blancs, grand toit de tuiles avec lanterneau
+ * d'aération et girouette, fenêtres à carreaux, porte coulissante sur le côté, trappe et rampe au
+ * centre de la façade, lampe, enseigne et bottes de paille.
+ */
+export function coopFarm(parts: Parts, windows: THREE.Mesh[]) {
+  const x0 = 0.12;
+  const x1 = 3.88;
+  const zb = 0.18;
+  const zf = 2.18;
+  const yb = 0.34;
+  const y1 = 1.42;
+  const cx = 2;
+  const cz = (zb + zf) / 2;
+  const RED = 0x9c3f2c;
+  const RED2 = 0x873524;
+  // soubassement de pierre (moellons en relief sur la façade et le côté)
+  parts.push(box(x1 - x0 + 0.06, yb, zf - zb + 0.06, STONE, [cx, yb / 2, cz]));
+  for (let i = 0; i < 26; i++) {
+    const x = x0 + 0.1 + rnd(i) * (x1 - x0 - 0.2);
+    parts.push(box(0.14 + rnd(i + 40) * 0.1, 0.07 + rnd(i + 80) * 0.04, 0.02, rnd(i + 9) < 0.5 ? STONE_DARK : 0xcabfad, [x, 0.06 + rnd(i + 3) * (yb - 0.12), zf + 0.035]));
+  }
+  for (let i = 0; i < 14; i++) {
+    const z = zb + 0.1 + rnd(i + 200) * (zf - zb - 0.2);
+    parts.push(box(0.02, 0.07 + rnd(i + 230) * 0.04, 0.14 + rnd(i + 260) * 0.1, rnd(i + 290) < 0.5 ? STONE_DARK : 0xcabfad, [x1 + 0.035, 0.06 + rnd(i + 300) * (yb - 0.12), z]));
+  }
+  // murs de planches
+  parts.push(box(x1 - x0, y1 - yb, zf - zb, RED2, [cx, (yb + y1) / 2, cz]));
+  boardsZ(parts, x0, x1, yb, y1, zf, RED, RED2, 0.15);
+  boardsX(parts, zb, zf, yb, y1, x1, RED, RED2, 0.15);
+  for (const [x, z] of [
+    [x0, zf],
+    [x1, zf],
+    [x1, zb],
+  ])
+    parts.push(box(0.07, y1 - yb + 0.02, 0.07, TRIM, [x, (yb + y1) / 2, z]));
+  parts.push(box(x1 - x0 + 0.02, 0.06, 0.05, TRIM, [cx, yb + 0.02, zf + 0.03]));
+  // grand toit de tuiles, lanterneau d'aération sur le faîtage, girouette
+  const roof = gableRoof(parts, { cx, cz, y: y1, w: x1 - x0, d: zf - zb, h: 0.78, over: 0.16, side: 0.14, a: 0xb5573b, b: 0xa24b33, n: 8, ridge: 0x8a3c29, rive: TIMBER, gable: RED });
+  const ry = roof.ridgeY;
+  parts.push(box(0.62, 0.36, 0.46, RED, [cx, ry + 0.16, cz]));
+  for (const s2 of [-1, 1]) for (let k = 0; k < 4; k++) parts.push(box(0.5, 0.025, 0.04, TRIM, [cx, ry + 0.06 + k * 0.08, cz + s2 * 0.235], [s2 * 0.5, 0, 0]));
+  parts.push(prism(0.78, 0.26, 0.64, 0xa24b33, [cx, ry + 0.34, cz]));
+  weathervane(parts, cx, ry + 0.6, cz, 1.1);
+  // fenêtres à carreaux sur la façade et le côté
+  for (const x of [0.62, 1.32, 2.68, 3.38]) farmWindow(parts, windows, x, 0.98, zf + 0.012, 0.36, 0.34);
+  for (const z of [0.7, 1.66]) farmWindow(parts, windows, x1 + 0.012, 0.98, z, 0.34, 0.32, true);
+  // porte coulissante sur le côté (rail, croix de Saint-André)
+  const dz = 1.18;
+  parts.push(box(0.04, 0.82, 0.72, 0xb04a33, [x1 + 0.03, yb + 0.41, dz]));
+  parts.push(box(0.05, 0.05, 0.74, TRIM, [x1 + 0.055, yb + 0.41, dz]));
+  for (const a of [0.85, -0.85]) parts.push(box(0.05, 0.05, 1.0, TRIM, [x1 + 0.055, yb + 0.41, dz], [a, 0, 0]));
+  for (const y of [yb + 0.02, yb + 0.8]) parts.push(box(0.05, 0.05, 0.76, TRIM, [x1 + 0.055, y, dz]));
+  parts.push(box(0.04, 0.04, 1.2, IRON, [x1 + 0.065, yb + 0.86, dz - 0.18]));
+  // trappe et rampe au centre, lampe, enseigne
+  henDoor(parts, cx, 0.12, 0.62, 0.44, zf + 0.012, TRIM);
+  ramp(parts, cx, 0.12, zf + 0.02, 2.62, 0.4, C.wood, C.woodDark);
+  parts.push(box(0.09, 0.14, 0.09, IRON, [cx + 0.42, 0.86, zf + 0.06]));
+  windows.push(glassPane(0.06, 0.08, [cx + 0.42, 0.85, zf + 0.11], 0, 0.06));
+  eggSign(parts, cx, 1.3, zf + 0.04, 0xe7d5b0);
+  // gouttière, descente, bottes de paille contre le pignon
+  const [ey, ez] = roof.at(1, roof.len, 0);
+  parts.push(box(x1 - x0 + 0.3, 0.06, 0.08, 0x9aa0a6, [cx, ey - 0.045, ez - 0.02]));
+  parts.push(cyl(0.025, 0.025, ey - 0.05, 8, 0x9aa0a6, [x1 + 0.08, ey / 2, zf + 0.08]));
+  for (const [x, y] of [
+    [0.42, 0.13],
+    [0.82, 0.13],
+    [0.62, 0.38],
+  ]) {
+    parts.push(box(0.36, 0.24, 0.24, C.straw, [x, y, zf + 0.2]));
+    for (const dx of [-0.08, 0.08]) parts.push(box(0.012, 0.25, 0.25, 0xc9a640, [x + dx, y, zf + 0.2]));
+  }
+}
+
+/**
+ * Niveau 6 — bâtiment avicole plein air (dessiné sur 5 × 3) : long bâtiment en panneaux isolants
+ * sur longrine de béton, bandeaux vitrés, plusieurs trappes de sortie (celle du centre a sa rampe),
+ * toit en bac acier avec cheminées d'extraction et panneaux solaires, silo à grain et local
+ * technique au bout, avec sa vis d'alimentation.
+ */
+export function coopAviary(parts: Parts, windows: THREE.Mesh[]) {
+  const x0 = 0.1;
+  const x1 = 4.25;
+  const zb = 0.22;
+  const zf = 2.64;
+  const y0 = 0.12;
+  const y1 = 1.32;
+  const cx = (x0 + x1) / 2;
+  const cz = (zb + zf) / 2;
+  const PANEL = 0xdfe6df;
+  const SEAM = 0xc6cfc7;
+  const FRAME = 0x55606b;
+  parts.push(box(x1 - x0 + 0.08, y0, zf - zb + 0.08, 0x9aa0a6, [cx, y0 / 2, cz]));
+  parts.push(box(x1 - x0, y1 - y0, zf - zb, PANEL, [cx, (y0 + y1) / 2, cz]));
+  for (let x = x0 + 0.3; x < x1 - 0.1; x += 0.3) parts.push(box(0.02, y1 - y0, 0.014, SEAM, [x, (y0 + y1) / 2, zf + 0.007]));
+  for (let z = zb + 0.3; z < zf - 0.1; z += 0.3) parts.push(box(0.014, y1 - y0, 0.02, SEAM, [x1 + 0.007, (y0 + y1) / 2, z]));
+  parts.push(box(x1 - x0 + 0.02, 0.08, zf - zb + 0.02, 0x3f6b4f, [cx, y1 - 0.04, cz]));
+  parts.push(box(x1 - x0 + 0.02, 0.06, 0.04, 0x3f6b4f, [cx, y0 + 0.06, zf + 0.02]));
+  for (const [x, z] of [
+    [x0, zf],
+    [x1, zf],
+    [x1, zb],
+  ])
+    parts.push(box(0.05, y1 - y0, 0.05, 0xc9ced4, [x, (y0 + y1) / 2, z]));
+  // bandeaux vitrés hauts (lumière naturelle) sur la façade et le côté
+  for (const [a, b] of [
+    [0.3, 1.95],
+    [3.05, 4.05],
+  ]) {
+    windows.push(glassPane(b - a, 0.18, [(a + b) / 2, 1.06, zf + 0.012]));
+    for (const y of [0.96, 1.16]) parts.push(box(b - a + 0.06, 0.035, 0.035, FRAME, [(a + b) / 2, y, zf + 0.02]));
+    for (let x = a; x <= b + 1e-3; x += (b - a) / 5) parts.push(box(0.03, 0.22, 0.03, FRAME, [x, 1.06, zf + 0.022]));
+  }
+  windows.push(glassPane(1.8, 0.18, [x1 + 0.012, 1.06, cz], Math.PI / 2));
+  for (const y of [0.96, 1.16]) parts.push(box(0.035, 0.035, 1.86, FRAME, [x1 + 0.02, y, cz]));
+  // trappes de sortie : trois sur la façade (celle du centre a sa rampe, x = 2,5), volets relevés
+  for (const x of [1.0, 2.5, 3.6]) {
+    henDoor(parts, x, 0.1, 0.5, 0.38, zf + 0.012, FRAME);
+    parts.push(box(0.42, 0.03, 0.1, 0x8e939b, [x, 0.55, zf + 0.06], [0.6, 0, 0]));
+  }
+  ramp(parts, 2.5, 0.1, zf + 0.02, 3.1, 0.42, 0xb7c0c7, 0x8e939b);
+  for (const x of [1.0, 3.6]) parts.push(box(0.5, 0.04, 0.32, 0xc4c7cb, [x, 0.02, zf + 0.2]));
+  // toit en bac acier : cheminées d'extraction, panneaux solaires, faîtière
+  const roof = gableRoof(parts, { cx, cz, y: y1, w: x1 - x0, d: zf - zb, h: 0.5, over: 0.12, side: 0.1, a: 0x8c979f, b: 0x7c868e, style: 'ribs', ridge: 0x5f6870, rive: 0x5f6870, gable: PANEL });
+  const r: V3 = [roof.slope, 0, 0];
+  for (const px of [0.7, 1.55, 2.4, 3.25]) {
+    const [y, z] = roof.at(1, roof.len * 0.48, 0.1);
+    parts.push(box(0.78, 0.03, 0.7, 0xc9ced4, [px, y - 0.012, z], r));
+    parts.push(box(0.72, 0.03, 0.64, 0x22407a, [px, y, z], r));
+    const [gy, gz] = roof.at(1, roof.len * 0.48, 0.117);
+    for (const dx of [-0.18, 0, 0.18]) parts.push(box(0.012, 0.01, 0.64, 0x4a6fb5, [px + dx, gy, gz], r));
+  }
+  for (const px of [0.9, 2.17, 3.45]) {
+    parts.push(cyl(0.13, 0.13, 0.42, 14, 0xb7c0c7, [px, roof.ridgeY + 0.16, cz]));
+    parts.push(cyl(0.2, 0.2, 0.04, 14, 0x8e939b, [px, roof.ridgeY + 0.4, cz]));
+    parts.push(cone(0.21, 0.1, 14, 0x8e939b, [px, roof.ridgeY + 0.47, cz]));
+  }
+  const [ey, ez] = roof.at(1, roof.len, 0);
+  parts.push(box(x1 - x0 + 0.2, 0.06, 0.08, 0xc9ccd1, [cx, ey - 0.045, ez - 0.02]));
+  parts.push(cyl(0.025, 0.025, ey - 0.1, 8, 0xc9ccd1, [x1 + 0.06, (ey + 0.05) / 2, zf + 0.06]));
+  // local technique au bout (porte, fenêtre, climatiseur)
+  const ax0 = x1 + 0.08;
+  const ax1 = 4.92;
+  parts.push(box(ax1 - ax0, 0.95, 0.9, 0xe9ece8, [(ax0 + ax1) / 2, 0.475, zf - 0.5]));
+  parts.push(box(ax1 - ax0 + 0.1, 0.06, 1.0, 0x5f6870, [(ax0 + ax1) / 2, 0.98, zf - 0.5]));
+  parts.push(box(0.3, 0.62, 0.03, FRAME, [(ax0 + ax1) / 2, 0.33, zf - 0.04]));
+  parts.push(box(0.03, 0.03, 0.035, 0xd9b35a, [(ax0 + ax1) / 2 + 0.1, 0.33, zf - 0.02]));
+  parts.push(box(0.26, 0.16, 0.12, 0xd8dcdf, [ax1 + 0.06, 0.7, zf - 0.6]));
+  // silo à grain sur pieds, échelle, vis d'alimentation vers le bâtiment
+  const sx = 4.55;
+  const sz = 0.75;
+  for (const [dx, dz2] of [
+    [-0.2, -0.2],
+    [0.2, -0.2],
+    [-0.2, 0.2],
+    [0.2, 0.2],
+  ])
+    parts.push(box(0.04, 0.55, 0.04, 0x8e939b, [sx + dx, 0.27, sz + dz2]));
+  parts.push(cone(0.3, 0.3, 18, 0xd9dee2, [sx, 0.68, sz], [Math.PI, 0, 0]));
+  parts.push(cyl(0.31, 0.31, 1.45, 20, 0xeef1f3, [sx, 1.55, sz]));
+  for (let i = 0; i < 6; i++) parts.push(cyl(0.313, 0.313, 0.02, 20, i === 3 ? 0x3f6b4f : 0xc9ced3, [sx, 0.92 + i * 0.25, sz]));
+  parts.push(cone(0.34, 0.32, 20, 0xc9ced3, [sx, 2.43, sz]));
+  for (const dx of [-0.07, 0.07]) parts.push(box(0.015, 1.9, 0.015, 0x8e939b, [sx + dx, 1.45, sz + 0.33]));
+  for (let i = 0; i < 11; i++) parts.push(box(0.15, 0.012, 0.012, 0x8e939b, [sx, 0.6 + i * 0.17, sz + 0.33]));
+  parts.push(cyl(0.04, 0.04, 0.8, 8, 0x8e939b, [sx - 0.42, 1.3, sz], [0, 0, 1.0]));
+  // trappe du centre : moteur et capteur de la porte automatique
+  parts.push(box(0.4, 0.11, 0.08, IRON, [2.5, 0.6, zf + 0.045]));
+  parts.push(box(0.03, 0.03, 0.02, 0x4ade80, [2.66, 0.6, zf + 0.09]));
+}
+
 // ================================================================ RÉSERVES ====
 /** Cageot d'œufs (une rangée de six œufs sur alvéoles). Hauteur 0,17 : on les empile de 0,17 en 0,17. */
 export function eggCrate() {

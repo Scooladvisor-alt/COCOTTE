@@ -166,7 +166,7 @@ function StandTab() {
 }
 
 /** Couleurs des courbes du marché (les teintes réelles des œufs blancs ou crème seraient illisibles). */
-const EGG_LINE: Record<EggType, string> = { roux: '#c46a32', blanc: '#7d8ea6', creme: '#d6a43a', mini: '#a985c9', bleu: '#3a9cc0', chocolat: '#6b3f24', or: '#d4a017' };
+const EGG_LINE: Record<EggType, string> = { roux: '#c46a32', blanc: '#7d8ea6', creme: '#d6a43a', mini: '#a985c9', bleu: '#3a9cc0', chocolat: '#6b3f24', oie: '#7f95a8', or: '#d4a017' };
 
 /** Cours de l'œuf au fil des jours (prix de référence du marché, pour chaque type produit). */
 function MarketChart({ types }: { types: EggType[] }) {

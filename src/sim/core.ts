@@ -106,12 +106,13 @@ export function buildingCenter(b: Placed) {
   const { w, d } = sizeOf(b.type, b.level);
   return { x: b.x + w / 2, z: b.z + d / 2 };
 }
-/** Milieu de la trappe d'un poulailler (x) et pied de sa façade (z). */
-export function coopDoor(b: Pick<Building, 'x' | 'z'>) {
-  return { x: b.x + BUILDINGS.coop.w / 2, z: b.z + BUILDINGS.coop.d };
+/** Milieu de la trappe d'un poulailler (x) et pied de sa façade (z) ; les grands poulaillers sont plus larges et profonds. */
+export function coopDoor(b: Pick<Building, 'x' | 'z'> & { level?: number }) {
+  const { w, d } = sizeOf('coop', b.level);
+  return { x: b.x + w / 2, z: b.z + d };
 }
 /** Cases juste devant la trappe d'un poulailler (à garder libres). */
-export function coopDoorCells(b: Pick<Building, 'x' | 'z'>): Array<[number, number]> {
+export function coopDoorCells(b: Pick<Building, 'x' | 'z'> & { level?: number }): Array<[number, number]> {
   const d = coopDoor(b);
   return [
     [Math.floor(d.x - 0.3), d.z],

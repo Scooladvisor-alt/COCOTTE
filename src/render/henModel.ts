@@ -247,10 +247,11 @@ const DOWN: Record<BreedId, { top: number; belly: number; stripe?: number }> = {
   soie: { top: 0xfaf0c8, belly: 0xfdf8e6 },
   araucana: { top: 0xcfa766, belly: 0xf1deb2, stripe: 0x6e4b2a },
   marans: { top: 0x3b3431, belly: 0xe8d7a8 },
+  oie: { top: 0xd9cb63, belly: 0xefe6a6, stripe: 0x9a9054 },
 };
 
 /** Iris : orangé chez la plupart, rouge-brun chez la Marans, noir chez la soie. */
-const IRIS: Record<BreedId, number> = { rousse: 0xe2902a, leghorn: 0xe39a33, sussex: 0xd98a2b, soie: 0x1d1a1c, araucana: 0xd4932f, marans: 0xb4502a };
+const IRIS: Record<BreedId, number> = { rousse: 0xe2902a, leghorn: 0xe39a33, sussex: 0xd98a2b, soie: 0x1d1a1c, araucana: 0xd4932f, marans: 0xb4502a, oie: 0x2c2420 };
 
 const CLAW = 0x5e4d3a;
 
@@ -995,6 +996,11 @@ export function henGeometry(breed: BreedId, kind: HenKind = 'hen', stage = ADULT
     henCache.set(ck, g);
     return g;
   }
+  if (breed === 'oie') {
+    const g = gooseGeometry(skinLook(breed, skin), kind === 'rooster', stage);
+    henCache.set(ck, g);
+    return g;
+  }
   const rooster = kind === 'rooster';
   const J = JUVENILE[stage] ?? { down: 0, comb: 1, tail: 1, sickle: 1 };
   const L = juvenileLook(skinLook(breed, skin), breed, J.down);
@@ -1031,4 +1037,193 @@ export function henGeometry(breed: BreedId, kind: HenKind = 'hen', stage = ADULT
   };
   henCache.set(ck, g);
   return g;
+}
+
+// ---------------------------------------------------------------- Oies ----
+/** Yeux de l'oie (repère du cou) : haut sur la tête, au bout du long cou. */
+const GOOSE_EYE: [number, number] = [0.282, 0.062];
+
+/**
+ * Oie (et jars, un peu plus massif), dans le même style que les poules et sur les mêmes pivots
+ * d'animation : long corps horizontal au ventre bas (fanon des Toulouse), poitrine ronde, queue
+ * courte et pointue, long cou en S, tête allongée, bec plat orange à onglet clair, ailes repliées
+ * aux plumes bordées de clair, pattes courtes et pieds palmés orange.
+ */
+function gooseGeometry(L: HenLook, gander: boolean, stage: number): HenGeo {
+  const k = gander ? 1.08 : 1;
+  // les jeunes (stades 3 à 6) gardent un peu de duvet jaunâtre
+  const young = stage < ADULT_STAGE ? (ADULT_STAGE - stage) / 4 : 0;
+  const youngTint = (c: THREE.Color) => (young > 0 ? mixIn(c, 0xd9cb63, young * 0.45) : c);
+  // corps : un seul volume sculpté, le fanon pend sous le ventre, la croupe remonte vers la queue
+  const body = sculpt(new THREE.SphereGeometry(1, 28, 20), (v) => {
+    const front = Math.max(0, v.z);
+    const back = Math.max(0, -v.z);
+    let x = v.x * 0.118 * k;
+    let y = v.y * 0.098 * k;
+    const z = v.z * 0.225 * k;
+    // poitrine bombée, arrière effilé
+    x *= 1 - back * back * 0.45;
+    y *= 1 - back * back * 0.35;
+    // fanon : le ventre pend, surtout vers l'arrière
+    if (v.y < 0) y *= 1 + 0.38 * (1 - front) * Math.min(1, -v.y * 1.4);
+    // la croupe remonte un peu ; le corps est bas sur pattes
+    const lift = back * back * 0.04;
+    v.set(x, y + 0.21 + lift, z - 0.03);
+  });
+  const bodyParts: THREE.BufferGeometry[] = [
+    paint(body, (p, n, c) => {
+      c.setHex(L.body);
+      // poitrine plus claire, dos plus sombre, ventre et dessous blancs
+      mixIn(c, L.breast, ss(0.04, 0.16, p.z) * 0.8);
+      mixIn(c, L.cape, ss(0.25, 0.3, p.y) * 0.5);
+      mixIn(c, L.fluff ?? 0xf2efe9, ss(0.17, 0.12, p.y) * 0.95 + ss(-0.12, -0.22, p.z) * ss(0.22, 0.16, p.y) * 0.8);
+      // fines rangées de plumes sur les flancs
+      const band = (p.z * 1.0 + p.y * 0.6) * 30;
+      const f = band - Math.floor(band);
+      if (p.y > 0.15 && p.y < 0.28) c.multiplyScalar(f < 0.22 ? 0.9 : 1);
+      youngTint(c);
+      mottle(c, p, 0.05, 60);
+      occlude(c, n, 0.22);
+    }),
+    // queue courte et pointue, un peu relevée, dessous blanc
+    blob([0.05 * k, 0.022, 0.06], [0, 0.262 * k, -0.25 * k], (p, n, c) => {
+      c.setHex(n.y < -0.2 ? L.tail2 : L.body);
+      mixIn(c, L.tail, ss(-0.27, -0.3, p.z) * 0.8);
+      occlude(c, n, 0.2);
+    }, 12, (v) => {
+      v.x *= 1 - Math.max(0, -v.z) * 0.7;
+    }, [-0.3, 0, 0]),
+  ];
+  const bodyGeo = merge(bodyParts);
+  bodyGeo.translate(0, -HEN_PIVOT.body, 0);
+
+  // cou en S (repère du cou) : épais à la base, fin sous la tête
+  const neckAt = (t: number): V3 => [0, 0.27 * t, -0.01 + 0.07 * t * t - 0.035 * Math.sin(Math.PI * t)];
+  const neck = sculpt(new THREE.CylinderGeometry(1, 1, 1, 14, 18, true), (v) => {
+    const t = v.y + 0.5;
+    const [cx, cy, cz] = neckAt(t);
+    const r = (0.042 - 0.02 * t - 0.006 * Math.sin(Math.PI * t)) * k;
+    v.set(cx + v.x * r, cy - 0.02, cz + v.z * r * 1.1);
+  });
+  const neckC = (p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color) => {
+    c.setHex(L.hackle);
+    // le bas du cou rejoint la poitrine ; quelques sillons de plumes
+    mixIn(c, L.breast, ss(0.06, -0.01, p.y) * 0.6);
+    const f = (p.y * 70) % 1;
+    c.multiplyScalar(f < 0.2 ? 0.93 : 1);
+    youngTint(c);
+    occlude(c, n, 0.2);
+  };
+  const head: THREE.BufferGeometry[] = [
+    paint(neck, neckC),
+    // base du cou fondue dans la poitrine
+    blob([0.06 * k, 0.05, 0.055 * k], [0, -0.01, -0.01], neckC, 14),
+    // tête allongée
+    blob([0.031 * k, 0.03 * k, 0.05], [0, 0.272, 0.046], (p, n, c) => {
+      c.setHex(L.hackle);
+      mixIn(c, L.cape, ss(0.28, 0.3, p.y) * 0.5);
+      youngTint(c);
+      occlude(c, n, 0.2);
+    }, 16, (v) => {
+      // front qui descend en pente douce vers le bec
+      if (v.z > 0) v.y -= v.z * 0.18;
+    }),
+    // bec plat orange, plus large à la base
+    blob([0.018 * k, 0.013, 0.048], [0, 0.258, 0.108], (_p, n, c) => {
+      c.setHex(L.beak);
+      occlude(c, n, 0.15);
+    }, 12, (v) => {
+      v.x *= 1 - Math.max(0, v.z) * 0.35;
+      v.y *= 1 - Math.max(0, v.z) * 0.3;
+      if (v.y < 0) v.y *= 0.65;
+    }),
+    // onglet (bout du bec) et commissure
+    blob([0.01, 0.0075, 0.01], [0, 0.259, 0.152], 0xe8dcc0, 8),
+    blob([0.019, 0.003, 0.03], [0, 0.252, 0.102], (_p, _n, c) => c.setHex(L.beak).multiplyScalar(0.72), 8),
+  ];
+  // narines
+  for (const sx of [1, -1]) head.push(blob([0.0035, 0.0025, 0.007], [sx * 0.008, 0.265, 0.12], 0x3b2a20, 6));
+  const eyes: THREE.BufferGeometry[] = [];
+  for (const sx of [1, -1]) {
+    eyes.push(blob([0.008, 0.008, 0.007], [sx * 0.028, GOOSE_EYE[0], GOOSE_EYE[1]], L.iris ?? 0x2c2420, 8));
+    eyes.push(blob([0.0028, 0.0028, 0.002], [sx * 0.033, GOOSE_EYE[0] + 0.003, GOOSE_EYE[1] + 0.004], 0xffffff, 6));
+  }
+
+  // ailes repliées le long du dos : couvertures bordées de clair, rémiges sombres qui se croisent sur la croupe
+  const wing = (side: 1 | -1) => {
+    // le pivot d'aile (calé sur la poule) est loin du flanc de l'oie, plus étroite en haut : on ramène
+    // l'aile contre le dos, et elle suit l'affinement du corps vers la queue
+    const w = sculpt(new THREE.SphereGeometry(1, 20, 12), (v) => {
+      const back = Math.max(0, -v.z);
+      let x = v.x * 0.022;
+      let y = v.y * 0.055 * k;
+      const z = v.z * 0.19 * k;
+      y *= 1 - back * 0.45;
+      x *= 1 - back * 0.3;
+      v.set(x - side * (0.03 + back * 0.04), y - 0.055 - back * 0.012, z - 0.12);
+    });
+    return paint(w, (p, n, c) => {
+      c.setHex(L.wing);
+      mixIn(c, L.primaries, ss(-0.17, -0.27, p.z) * 0.9);
+      // rangées de plumes aux bords clairs (le dessin « écaillé » des oies grises)
+      const band = (p.z * 1.1 - p.y * 0.8) * 24;
+      const f = band - Math.floor(band);
+      if (f < 0.24 && p.z > -0.22) mixIn(c, L.scales ?? L.wing, 0.75);
+      youngTint(c);
+      mottle(c, p, 0.05, 60);
+      occlude(c, n, 0.22);
+    });
+  };
+
+  // pattes courtes, pieds palmés
+  const legParts: THREE.BufferGeometry[] = [];
+  const legPaint: Paint = (p, n, c) => {
+    c.setHex(L.legs);
+    const f = (p.y * 80) % 1;
+    c.multiplyScalar(f < 0.2 ? 0.9 : 1);
+    occlude(c, n, 0.2);
+  };
+  legParts.push(blob([0.036, 0.05, 0.04], [0, -0.02, 0.004], (_p, n, c) => {
+    c.setHex(L.fluff ?? L.body);
+    occlude(c, n, 0.3);
+  }, 10));
+  legParts.push(
+    paint(
+      sculpt(new THREE.CylinderGeometry(1, 1, 1, 10, 6, true), (v) => {
+        const t = v.y + 0.5;
+        const r = 0.02 + t * 0.006;
+        v.set(v.x * r, -0.158 + t * 0.12, 0.006 + v.z * r);
+      }),
+      legPaint,
+    ),
+  );
+  // palmure : trois doigts réunis par une membrane, griffes sombres
+  const web = new THREE.Shape();
+  web.moveTo(0, -0.012);
+  web.lineTo(-0.044, 0.062);
+  web.quadraticCurveTo(-0.022, 0.05, 0, 0.074);
+  web.quadraticCurveTo(0.022, 0.05, 0.044, 0.062);
+  web.lineTo(0, -0.012);
+  const foot = new THREE.ExtrudeGeometry(web, { depth: 0.007, bevelEnabled: false, curveSegments: 6 });
+  foot.rotateX(Math.PI / 2);
+  foot.translate(0, -0.158, 0.004);
+  legParts.push(paint(sculpt(foot), (p, n, c) => {
+    c.setHex(L.legs);
+    // nervures des doigts plus marquées
+    const a = Math.atan2(p.x, p.z - 0.0);
+    const ridge = Math.min(Math.abs(a), Math.abs(a - 0.6), Math.abs(a + 0.6));
+    c.multiplyScalar(ridge < 0.06 ? 0.86 : 1.02);
+    occlude(c, n, 0.15);
+  }));
+  for (const a of [-0.6, 0, 0.6]) legParts.push(blob([0.005, 0.004, 0.008], [Math.sin(a) * 0.072, -0.158, Math.cos(a) * 0.072 + 0.004], 0x4a3a2c, 6));
+
+  return {
+    body: bodyGeo,
+    head: merge(head),
+    eyes: merge(eyes),
+    eyeAt: GOOSE_EYE,
+    wingL: merge([wing(1)]),
+    wingR: merge([wing(-1)]),
+    leg: merge(legParts),
+  };
 }

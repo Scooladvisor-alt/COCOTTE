@@ -78,6 +78,8 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Poulailler en bois', cost: 4500, reqLevel: 2, upkeep: 45, capacity: 16, comfort: 0.55, dirtFactor: 1, perk: 'Accueille les Araucana' },
       { name: 'Poulailler isolé', cost: 16000, reqLevel: 3, upkeep: 100, capacity: 28, comfort: 0.78, dirtFactor: 0.9, perk: 'Accueille les Marans' },
       { name: 'Poulailler moderne', cost: 45000, reqLevel: 5, upkeep: 200, capacity: 45, comfort: 1, dirtFactor: 0.6, perk: 'Ventilation : s’encrasse moins vite' },
+      { name: 'Grand poulailler de ferme', cost: 120000, reqLevel: 7, upkeep: 320, capacity: 80, comfort: 1, dirtFactor: 0.5, w: 8, d: 5, perk: 'Grange de 8 × 5 cases : 80 places' },
+      { name: 'Bâtiment avicole plein air', cost: 280000, reqLevel: 9, upkeep: 520, capacity: 140, comfort: 1, dirtFactor: 0.4, w: 10, d: 6, perk: 'Grand bâtiment de 10 × 6 cases : 140 places, silo et ventilation' },
     ],
   },
   nest: {

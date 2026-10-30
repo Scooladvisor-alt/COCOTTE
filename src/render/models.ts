@@ -14,6 +14,8 @@ import {
   coopBarn,
   coopCabin,
   coopModern,
+  coopFarm,
+  coopAviary,
   coopNormand,
   dustbathShelter,
   dustbathSleepers,
@@ -171,6 +173,8 @@ export function eggGeometry(type: EggType) {
       pts.push(new THREE.Vector2(r, -Math.cos(a) * 0.088 + 0.088));
     }
     const lathe = new THREE.LatheGeometry(pts, 8);
+    // l'œuf d'oie est bien plus gros que celui de la poule
+    if (type === 'oie') lathe.scale(1.45, 1.5, 1.45);
     g = merge([lathe].map((l) => {
       const c = new THREE.Color(EGG_TYPES[type].color);
       const n = l.attributes.position.count;
@@ -243,12 +247,16 @@ function coopModel(level: number): BuildingView {
   const g = new THREE.Group();
   g.scale.setScalar(COOP_SCALE);
   outer.add(g);
-  const parts: THREE.BufferGeometry[] = [slab(3, 2, level === 4 ? 0xd6d8da : 0xe2d3b5)];
+  // les grands poulaillers sont dessinés sur 4 × 2,5 (niveau 5) et 5 × 3 (niveau 6)
+  const [W, D] = level === 5 ? [4, 2.5] : level === 6 ? [5, 3] : [3, 2];
+  const parts: THREE.BufferGeometry[] = [slab(W, D, level >= 4 ? 0xd6d8da : 0xe2d3b5)];
   const windows: THREE.Mesh[] = [];
   if (level === 1) coopCabin(parts, windows);
   else if (level === 2) coopBarn(parts, windows);
   else if (level === 3) coopNormand(parts, windows);
-  else coopModern(parts, windows);
+  else if (level === 4) coopModern(parts, windows);
+  else if (level === 5) coopFarm(parts, windows);
+  else coopAviary(parts, windows);
   g.add(mesh(merge(parts)));
   for (const w of windows) g.add(w);
   const door =
@@ -258,7 +266,11 @@ function coopModel(level: number): BuildingView {
         ? trapDoor(0.34, 0.52, 1.5, 0.78, 1.692)
         : level === 3
           ? trapDoor(0.38, 0.58, 1.5, 0.74, 1.758)
-          : trapDoor(0.34, 0.38, 1.5, 0.46, 1.81);
+          : level === 4
+            ? trapDoor(0.34, 0.38, 1.5, 0.46, 1.81)
+            : level === 5
+              ? trapDoor(0.44, 0.5, 2, 0.62, 2.22)
+              : trapDoor(0.38, 0.4, 2.5, 0.5, 2.68);
   g.add(door);
   return { group: outer, eggSlots: [], eggMeshes: [], key: `coop${level}`, door };
 }

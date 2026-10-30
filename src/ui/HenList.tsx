@@ -68,6 +68,7 @@ export function HenListPanel() {
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
   const [confirmOld, setConfirmOld] = useState(false);
+  const [confirmRoosters, setConfirmRoosters] = useState(false);
   // vente rapide depuis la liste : premier clic « Vendre », second clic pour confirmer
   const [sellId, setSellId] = useState<number | null>(null);
   useEffect(() => {
@@ -172,6 +173,32 @@ export function HenListPanel() {
         </select>
         <input class="search" placeholder="Rechercher…" value={query} onInput={(e) => setQuery((e.target as HTMLInputElement).value)} />
       </div>
+      {filter === 'roosters' &&
+        (() => {
+          const extra = A.extraRoosters(game.state);
+          if (!extra.length) return null;
+          const total = extra.reduce((a, h) => a + henValue(h), 0);
+          return (
+            <div class="bulk">
+              {!confirmRoosters ? (
+                <Btn small kind="soft" onClick={() => setConfirmRoosters(true)} title="Garde le meilleur reproducteur (un coq pour les poules, un jars pour les oies). Les coqs entièrement noirs ne sont jamais vendus d’office.">
+                  Vendre les {extra.length} coq{extra.length > 1 ? 's' : ''} en trop · garder le meilleur · +{fmtMoney(total)}
+                </Btn>
+              ) : (
+                <Btn
+                  small
+                  kind="danger"
+                  onClick={() => {
+                    setConfirmRoosters(false);
+                    game.act(() => A.sellExtraRoosters(game.state), 'coin');
+                  }}
+                >
+                  Confirmer : vendre {extra.length} coq{extra.length > 1 ? 's' : ''} pour {fmtMoney(total)}
+                </Btn>
+              )}
+            </div>
+          );
+        })()}
       {(sick.length > 0 || old.length > 0) && (
         <div class="bulk">
           {sick.length > 0 && (

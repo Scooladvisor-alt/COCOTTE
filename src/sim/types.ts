@@ -1,8 +1,8 @@
 // Types partagés de la simulation. Toute la logique de jeu manipule ces structures,
 // le rendu et l'interface ne font que les lire (et passer par actions.ts pour les modifier).
 
-export type BreedId = 'rousse' | 'leghorn' | 'sussex' | 'soie' | 'araucana' | 'marans';
-export type EggType = 'roux' | 'blanc' | 'creme' | 'mini' | 'bleu' | 'chocolat' | 'or';
+export type BreedId = 'rousse' | 'leghorn' | 'sussex' | 'soie' | 'araucana' | 'marans' | 'oie';
+export type EggType = 'roux' | 'blanc' | 'creme' | 'mini' | 'bleu' | 'chocolat' | 'oie' | 'or';
 export type Grade = 'extra' | 'A' | 'B';
 export type BuildingType = 'coop' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'pond' | 'tree';
 

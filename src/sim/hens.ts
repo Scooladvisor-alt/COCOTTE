@@ -20,8 +20,8 @@ import {
   clamp,
   smoothstep,
 } from '../config/balance';
-import { BREEDS, HEN_NAMES, ROOSTER_NAMES, pickSkin } from '../config/breeds';
-import { COOP_SCALE } from '../config/buildings';
+import { BREEDS, HEN_NAMES, ROOSTER_NAMES, pickSkin, GANDER_NAMES, GOOSE_NAMES, isGoose } from '../config/breeds';
+import { sizeOf } from '../config/buildings';
 import { STAFF } from '../config/staff';
 import { recordUse } from './stocks';
 import {
@@ -85,10 +85,10 @@ export interface NewHenOptions {
 
 export function createHen(s: GameState, breed: BreedId, coop: Building, quickFirstEgg = false, opts: NewHenOptions = {}): Hen {
   const used = new Set(s.hens.map((h) => h.name));
-  const names = opts.rooster ? ROOSTER_NAMES : HEN_NAMES;
+  const names = isGoose(breed) ? (opts.rooster ? GANDER_NAMES : GOOSE_NAMES) : opts.rooster ? ROOSTER_NAMES : HEN_NAMES;
   const free = names.filter((n) => !used.has(n));
   let name = free.length ? pick(s, free) : `${pick(s, names)} ${s.hens.length + 1}`;
-  if (!opts.rooster && !opts.young && s.stats.hensBought === 0 && !used.has('Cocotte')) name = 'Cocotte';
+  if (!opts.rooster && !opts.young && !isGoose(breed) && s.stats.hensBought === 0 && !used.has('Cocotte')) name = 'Cocotte';
   const [sx, sz] = opts.at ?? [GATE.x + 0.5, GATE.z + 0.6];
   const h: Hen = {
     id: newId(s),
@@ -124,7 +124,7 @@ export function createHen(s: GameState, breed: BreedId, coop: Building, quickFir
   if (skin > 0) h.skin = skin;
   // rarissime : un coq entièrement noir
   // encore plus rare : une poussine aux plumes d'or, future poule aux œufs d'or
-  if (!opts.rooster && (opts.golden ?? (!!opts.young && rand(s) < RARE.goldenHenHatch))) {
+  if (!opts.rooster && !isGoose(breed) && (opts.golden ?? (!!opts.young && rand(s) < RARE.goldenHenHatch))) {
     h.golden = true;
     notify(
       s,
@@ -133,7 +133,7 @@ export function createHen(s: GameState, breed: BreedId, coop: Building, quickFir
       '✨',
     );
   }
-  if (opts.rooster && (opts.black ?? rand(s) < (opts.young ? RARE.blackRoosterHatch : RARE.blackRoosterBuy))) {
+  if (opts.rooster && !isGoose(breed) && (opts.black ?? rand(s) < (opts.young ? RARE.blackRoosterHatch : RARE.blackRoosterBuy))) {
     h.black = true;
     const v = fmtMoney(blackValue(h));
     notify(
@@ -857,7 +857,8 @@ function approachPoint(s: GameState, b: Building, spot: [number, number]): [numb
 }
 
 function coopInside(b: Building): [number, number] {
-  return [coopDoor(b).x, b.z + 1.15 * COOP_SCALE];
+  // au milieu du perchoir, un peu en arrière de la façade (quelle que soit la taille du poulailler)
+  return [coopDoor(b).x, b.z + sizeOf('coop', b.level).d * 0.575];
 }
 
 /** Une place est utilisable si son point d'approche est praticable et relié au bâtiment. */

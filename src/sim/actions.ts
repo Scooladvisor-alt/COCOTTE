@@ -2,11 +2,11 @@
 // modifier l'état : une action refusée ne laisse aucune trace (ni argent, ni objet).
 import { BREEDING, COSTS, DELIVERY, GRAIN_BINS, HEN_PACKS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
 import { grainCapacity, takeGrain, takeWater, waterCapacity } from './stocks';
-import { BREEDS } from '../config/breeds';
+import { BREEDS, ROOSTER_TITLES, isGoose } from '../config/breeds';
 import { BUILDINGS, sizeOf } from '../config/buildings';
 import { buildingCenter, emit, invalidateLayout, isWalkable, nearestWalkable, newId, notify, parcelCoords, pick, rand } from './core';
 import { GATE_IN, arriveAt, scheduleTruck, syncWaveLeave } from './deliveries';
-import { addXp, earn, levelReached, maxParcelsOf, spend } from './economy';
+import { addXp, breedUnlocked, earn, fmtMoney, levelReached, maxParcelsOf, spend } from './economy';
 import { canPlace, cleaningCost, countOfType } from './buildings';
 import { collectEggs, collectNest } from './eggs';
 import { reseedParcel } from './grass';
@@ -23,7 +23,7 @@ const OK: ActionResult = { ok: true };
 export function checkBuyHen(s: GameState, breed: BreedId): ActionResult {
   const def = BREEDS[breed];
   if (!def) return fail('Race inconnue');
-  if (!levelReached(s, def.reqLevel)) return fail(`Débloquée au niveau ${def.reqLevel}`);
+  if (!breedUnlocked(s, breed)) return fail(`Débloquée au niveau ${def.reqLevel}`);
   if (adultCount(s) + pendingHens(s) >= landCapacity(s)) return fail('Terrain plein : achetez une parcelle');
   if (coopRoom(s, breed) <= 0 || !coopFor(s, breed)) {
     return fail(def.reqCoop > 1 ? `Il faut une place dans un poulailler niv. ${def.reqCoop}+` : 'Poulailler plein : améliorez-le ou construisez-en un');
@@ -68,6 +68,7 @@ export function henPackPrice(breed: BreedId, count: number) {
 export function checkBuyHenPack(s: GameState, breed: BreedId, count: number, trucks = 1): ActionResult {
   const def = BREEDS[breed];
   if (!def || !HEN_PACKS.some((p) => p.count === count)) return fail('Lot inconnu');
+  if (!breedUnlocked(s, breed)) return fail(`Débloquée au niveau ${def.reqLevel}`);
   if (trucks < 1 || trucks > DELIVERY.slots) return fail('Trop de camions');
   const total = count * trucks;
   const land = landCapacity(s) - adultCount(s) - pendingHens(s);
@@ -154,15 +155,14 @@ export function checkBuyRooster(s: GameState, breed: BreedId): ActionResult {
 export function buyRooster(s: GameState, breed: BreedId): ActionResult {
   const chk = checkBuyRooster(s, breed);
   if (!chk.ok) return chk;
-  const def = BREEDS[breed];
   const price = roosterPrice(breed);
   const coop = coopFor(s, breed)!;
-  if (!spend(s, price, 'poules', `Achat coq ${def.name}`)) return fail('Fonds insuffisants');
+  if (!spend(s, price, 'poules', `Achat ${ROOSTER_TITLES[breed].toLowerCase()}`)) return fail('Fonds insuffisants');
   const h = createHen(s, breed, coop, false, { rooster: true });
   s.hens.push(h);
   s.stats.roostersBought++;
   emit(s, { kind: 'henArrived', henId: h.id });
-  emit(s, { kind: 'purchase', amount: price, label: `Coq ${def.name}` });
+  emit(s, { kind: 'purchase', amount: price, label: ROOSTER_TITLES[breed] });
   return OK;
 }
 
@@ -175,6 +175,39 @@ export function sellHen(s: GameState, henId: number): ActionResult {
   s.stats.hensSold++;
   emit(s, { kind: 'henGone', henId, reason: 'sold' });
   emit(s, { kind: 'money', amount: value, x: h.x, z: h.z });
+  return OK;
+}
+
+/**
+ * Coqs en trop : on garde le meilleur reproducteur (le plus beau, le plus pondeur, le plus robuste
+ * et en bonne santé) — un coq pour les poules et un jars pour les oies — et on vend les autres.
+ * Les coqs entièrement noirs, rarissimes, ne partent jamais d'office.
+ */
+export function extraRoosters(s: GameState) {
+  const adults = s.hens.filter((h) => h.rooster && !h.young);
+  const score = (h: (typeof adults)[number]) => {
+    const g = h.genes ?? { p: 2, r: 2, b: 2 };
+    return g.p + g.r + g.b + h.health / 100 + (h.sick ? -5 : 0);
+  };
+  const out: typeof adults = [];
+  for (const goose of [false, true]) {
+    const group = adults.filter((h) => isGoose(h.breed) === goose).sort((a, b) => score(b) - score(a));
+    // le gardien : le meilleur coq ordinaire (s'il n'y a que des coqs noirs, l'un d'eux reste)
+    const keeper = group.find((h) => !h.black) ?? group[0];
+    for (const h of group) if (h !== keeper && !h.black) out.push(h);
+  }
+  return out;
+}
+
+export function sellExtraRoosters(s: GameState): ActionResult {
+  const extra = extraRoosters(s);
+  if (!extra.length) return fail('Un seul coq : rien à vendre');
+  let total = 0;
+  for (const h of extra) {
+    total += henValue(h);
+    sellHen(s, h.id);
+  }
+  notify(s, `${extra.length} coq${extra.length > 1 ? 's' : ''} vendu${extra.length > 1 ? 's' : ''} pour ${fmtMoney(total)} : vous gardez votre meilleur reproducteur.`, 'good', '🐓');
   return OK;
 }
 

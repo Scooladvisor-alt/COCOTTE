@@ -1,6 +1,6 @@
 // Sauvegarde locale robuste : double emplacement (principal + secours), versionnage,
 // et assainissement complet des données lues (valeurs manquantes, corrompues ou obsolètes).
-import { DELIVERY, EGG_ORDER, GRAIN_BINS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, SAVE_VERSION, WATER, WATER_TANKS, WORLD, clamp } from '../config/balance';
+import { DELIVERY, EGG_ORDER, EGG_TYPES, GRAIN_BINS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, SAVE_VERSION, WATER, WATER_TANKS, WORLD, clamp } from '../config/balance';
 import { BREEDS } from '../config/breeds';
 import { BUILDINGS } from '../config/buildings';
 import { MISSIONS } from '../config/missions';
@@ -339,6 +339,8 @@ export function sanitize(input: unknown): GameState | null {
     .map((rh) => {
       const h = obj(rh);
       const p = arr(h.p).map((v) => int(v, 0, 0, 100000));
+      // un type d'œuf ajouté depuis (œuf d'oie) : on complète l'historique avec son prix de référence
+      while (p.length < EGG_ORDER.length) p.push(EGG_TYPES[EGG_ORDER[p.length]].ref);
       return { d: int(h.d, 1, 0), p };
     })
     .filter((h) => h.p.length === EGG_ORDER.length)

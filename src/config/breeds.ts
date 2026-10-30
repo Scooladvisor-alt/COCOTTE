@@ -73,7 +73,51 @@ export interface BreedDef {
    * poules d'une race ne se ressemblent pas. Sans cette liste, la race n'a qu'un plumage (look).
    */
   skins?: Array<{ name: string; weight: number; look: HenLook }>;
+  /** Niveau exigé même quand les niveaux requis sont désactivés (les oies : niveau 10). */
+  strictLevel?: boolean;
 }
+
+/**
+ * Oie de Toulouse : dos et ailes gris-brun aux plumes bordées de clair, cou gris, poitrine plus
+ * pâle, ventre et dessous de queue blancs, bec et pattes orange. (Les champs de crête servent au bec.)
+ */
+const GOOSE_TOULOUSE: HenLook = {
+  body: 0x8a857e,
+  breast: 0xa39e97,
+  hackle: 0x7b766f,
+  cape: 0x6d6862,
+  tail: 0x5c5853,
+  tail2: 0xd9d5cd,
+  wing: 0x75706a,
+  primaries: 0x4b4845,
+  comb: 0xf09a3c,
+  lobes: 0xf09a3c,
+  legs: 0xf0863a,
+  beak: 0xf0963c,
+  combType: 'single',
+  fluff: 0xf2efe9,
+  scales: 0xcfc9bf,
+  iris: 0x2c2420,
+};
+/** Oie blanche d'Emden : tout blanc, bec et pattes orange vif. */
+const GOOSE_EMDEN: HenLook = {
+  body: 0xf2f0ea,
+  breast: 0xf6f4ef,
+  hackle: 0xf4f2ec,
+  cape: 0xeceae3,
+  tail: 0xe6e3dc,
+  tail2: 0xf6f4ef,
+  wing: 0xeeece5,
+  primaries: 0xdedad2,
+  comb: 0xf29a3a,
+  lobes: 0xf29a3a,
+  legs: 0xf0863a,
+  beak: 0xf29a3a,
+  combType: 'single',
+  fluff: 0xfaf9f6,
+  scales: 0xfdfcfa,
+  iris: 0x3a5f8a,
+};
 
 export const BREEDS: Record<BreedId, BreedDef> = {
   rousse: {
@@ -227,9 +271,37 @@ export const BREEDS: Record<BreedId, BreedDef> = {
     trait: 'Œufs chocolat',
     genes: { p: [2, 3], r: [2, 3], b: [3, 3] },
   },
+  oie: {
+    id: 'oie',
+    name: 'Oie de Toulouse',
+    description: 'Grande oie grise au ventre blanc (ou blanche d’Emden), bec et pattes orange. Elle broute beaucoup, monte la garde en criant et pond de gros œufs d’oie très recherchés. Réservée aux grandes exploitations.',
+    price: 9000,
+    eggsPerDay: 1.3,
+    egg: 'oie',
+    appetite: 1.5,
+    forage: 1.8,
+    sensitivity: 0.8,
+    qualityBonus: 0.06,
+    reqLevel: 10,
+    strictLevel: true,
+    reqCoop: 1,
+    speed: 0.75,
+    colors: { body: 0x8c8780, wing: 0x6f6a65, tail: 0x5e5a56, comb: 0xf08a3a, legs: 0xf08a3a, neck: 0x7e7973 },
+    look: GOOSE_TOULOUSE,
+    skins: [
+      { name: 'Grise de Toulouse', weight: 0.65, look: GOOSE_TOULOUSE },
+      { name: 'Blanche d’Emden', weight: 0.35, look: GOOSE_EMDEN },
+    ],
+    scale: 1.55,
+    trait: 'Grands œufs',
+    genes: { p: [2, 3], r: [3, 3], b: [2, 3] },
+  },
 };
 
-export const BREED_ORDER: BreedId[] = ['rousse', 'leghorn', 'sussex', 'soie', 'araucana', 'marans'];
+/** Les oies : une autre espèce (elles ne se croisent pas avec les poules). */
+export const isGoose = (b: BreedId) => b === 'oie';
+
+export const BREED_ORDER: BreedId[] = ['rousse', 'leghorn', 'sussex', 'soie', 'araucana', 'marans', 'oie'];
 
 /** Nom du coq de chaque race (accordé au masculin). */
 export const ROOSTER_TITLES: Record<BreedId, string> = {
@@ -239,7 +311,12 @@ export const ROOSTER_TITLES: Record<BreedId, string> = {
   soie: 'Coq soie',
   araucana: 'Coq Araucana',
   marans: 'Coq Marans noir cuivré',
+  oie: 'Jars de Toulouse',
 };
+
+/** Noms des oies et des jars. */
+export const GOOSE_NAMES = ['Gertrude', 'Augustine', 'Pétronille', 'Hortense', 'Philomène', 'Berthe', 'Mélisande', 'Clotilde', 'Ernestine', 'Léontine', 'Séraphine', 'Hermine', 'Bérénice', 'Joséphine', 'Eulalie', 'Adélaïde'];
+export const GANDER_NAMES = ['Barnabé', 'Anatole', 'Isidore', 'Hippolyte', 'Onésime', 'Fulbert', 'Aristide', 'Bertrand', 'Casimir', 'Gédéon'];
 
 /** Noms des coqs (achetés ou nés à la ferme). */
 export const ROOSTER_NAMES = ['Gaston', 'Marcel', 'Hector', 'Fernand', 'Léon', 'Firmin', 'Albert', 'Achille', 'Barnabé', 'Célestin', 'Désiré', 'Eugène', 'Félix', 'Gustave', 'Honoré', 'Jules', 'Lucien', 'Maurice', 'Narcisse', 'Octave', 'Prosper', 'Raoul', 'Sosthène', 'Théodule', 'Victor', 'Zéphirin'];

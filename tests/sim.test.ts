@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { BREEDING, DELIVERY, EGG_TYPES, HOUR, LEVELS, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, waterPrice } from '../src/config/balance';
+import { BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, HOUR, LEVELS, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, waterPrice } from '../src/config/balance';
 import { GATE_EDGE, farmEnclosed, perimeter } from '../src/sim/fences';
 import { waterCapacity } from '../src/sim/stocks';
-import { BREEDS, BREED_ORDER } from '../src/config/breeds';
-import { BUILDINGS, COOP_SCALE, STAND_POS } from '../src/config/buildings';
+import { BREEDS, BREED_ORDER, GOOSE_NAMES } from '../src/config/breeds';
+import { BUILDINGS, COOP_SCALE, STAND_POS, sizeOf } from '../src/config/buildings';
 import { BACKUP_KEY, SAVE_KEY, deserialize, loadGame, saveGame, serialize, type Storage } from '../src/save/save';
 import * as A from '../src/sim/actions';
 import { canPlace } from '../src/sim/buildings';
@@ -28,6 +28,7 @@ import {
   standCounters,
   updateCustomers,
   wholesaleQuote,
+  sellGoldEggs,
 } from '../src/sim/market';
 import { FEED_REACH, feedLayout, feedPose } from '../src/sim/feeding';
 import { updateVaults, vaultOf } from '../src/sim/vault';
@@ -42,7 +43,7 @@ import { hire } from '../src/sim/workers';
 import { distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
 import { buyDog } from '../src/sim/dog';
 import { buyRobot, dockOf } from '../src/sim/robots';
-import { crowdedChicks, eggHatchIn, fertileStock, fertility, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
+import { crowdedChicks, eggHatchIn, fertileStock, fertility, fertilize, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
 import { ageFactor, createHen, eggsPerDayOf, henValue, productivity, refreshVitals, wellbeingTarget } from '../src/sim/hens';
 import { COMPOST, NATURE, RARE } from '../src/config/balance';
 import { parcelPerks, shelteredByTree } from '../src/sim/perks';
@@ -2427,5 +2428,105 @@ describe('Une borne par robot', () => {
       expect(Math.hypot(r.x - x, r.z - z)).toBeLessThan(0.4);
       expect(r.battery).toBeGreaterThan(10);
     }
+  });
+});
+
+describe('Grands poulaillers, oies, coqs en trop et poule aux œufs d’or', () => {
+  it('les poulaillers des niveaux 5 et 6 sont plus grands et les poules y rentrent la nuit', () => {
+    const s = newFarm(501);
+    s.money = 1e8;
+    s.xp = 99999;
+    const coop = buildingsOf(s, 'coop')[0];
+    while (coop.level < 6) expect(A.upgrade(s, coop.id).ok).toBe(true);
+    expect(sizeOf('coop', 6)).toEqual({ w: 10, d: 6 });
+    expect(coopCapacity(s)).toBeGreaterThanOrEqual(140);
+    // l'emprise agrandie est bien occupée
+    expect(canPlace(s, 'tree', coop.x + 9, coop.z + 5).ok).toBe(false);
+    for (let i = 0; i < 6; i++) A.buyHen(s, 'rousse');
+    // le soir venu, toutes rentrent par la trappe du grand bâtiment
+    const day = Math.floor(s.clock.t / TIME.DAY);
+    s.clock.t = day * TIME.DAY + 17.5 * HOUR;
+    s.clock.lastHourTick = Math.floor(s.clock.t / HOUR);
+    run(s, 6 * HOUR);
+    expect(s.hens.every((h) => h.act === 'sleep')).toBe(true);
+  });
+
+  it('les oies ne s’achètent qu’au niveau 10 et pondent des œufs d’oie qui se vendent', () => {
+    const s = newFarm(502);
+    morning(s);
+    s.money = 1e8;
+    const coop = buildingsOf(s, 'coop')[0];
+    s.xp = 99999;
+    while (A.upgrade(s, coop.id).ok);
+    s.xp = 0;
+    expect(A.checkBuyHen(s, 'oie').ok).toBe(false);
+    s.xp = 99999;
+    expect(A.buyHen(s, 'oie').ok).toBe(true);
+    const goose = s.hens[s.hens.length - 1];
+    expect(GOOSE_NAMES).toContain(goose.name);
+    goose.layProgress = 1.2;
+    run(s, 3 * HOUR, undefined, 0.5);
+    expect(s.stats.eggsLaid).toBeGreaterThan(0);
+    const laid = s.worldEggs.some((e) => e.type === 'oie') || s.lots.some((l) => l.type === 'oie');
+    expect(laid).toBe(true);
+    expect(EGG_ORDER).toContain('oie');
+    expect(refPrice(s, 'oie')).toBeGreaterThan(refPrice(s, 'roux') * 3);
+  });
+
+  it('un coq ne féconde pas une oie (ni un jars une poule)', () => {
+    const s = newFarm(503);
+    s.money = 1e8;
+    s.xp = 99999;
+    const coop = buildingsOf(s, 'coop')[0];
+    while (A.upgrade(s, coop.id).ok);
+    A.buyHen(s, 'oie');
+    const goose = s.hens[s.hens.length - 1];
+    // seuls des coqs de poule à la ferme : aucun œuf d'oie fécondé
+    for (let i = 0; i < 200; i++) expect(fertilize(s, goose)).toBeUndefined();
+  });
+
+  it('« vendre les coqs en trop » garde le meilleur coq et le coq noir', () => {
+    const s = newFarm(504);
+    s.money = 1e8;
+    s.xp = 99999;
+    const coop = buildingsOf(s, 'coop')[0];
+    while (A.upgrade(s, coop.id).ok);
+    for (let i = 0; i < 4; i++) A.buyRooster(s, 'rousse');
+    const roosters = () => s.hens.filter((h) => h.rooster && !h.young);
+    const black = roosters()[1];
+    black.black = true;
+    const best = roosters().filter((h) => !h.black)[2];
+    best.genes = { p: 3, r: 3, b: 3 };
+    const before = s.money;
+    expect(A.sellExtraRoosters(s).ok).toBe(true);
+    expect(s.money).toBeGreaterThan(before);
+    const left = roosters();
+    expect(left).toHaveLength(2);
+    expect(left).toContain(best);
+    expect(left).toContain(black);
+    expect(A.sellExtraRoosters(s).ok).toBe(false);
+  });
+
+  it('la poule aux œufs d’or pond des œufs d’or qu’on vend au collectionneur', () => {
+    const s = newFarm(505);
+    morning(s);
+    const coop = buildingsOf(s, 'coop')[0];
+    const h = createHen(s, 'rousse', coop, false, { golden: true });
+    s.hens.push(h);
+    expect(h.golden).toBe(true);
+    // elle vaut une vingtaine d'œufs d'or
+    expect(henValue(h)).toBeGreaterThan(RARE.goldEggPrice * 15);
+    expect(henValue(h)).toBeLessThanOrEqual(RARE.goldEggPrice * RARE.goldHenEggs);
+    // ses œufs vont au coffre, pas au stockage
+    const stored = storedCount(s);
+    addToStorage(s, 'or', 'extra', 100, 2);
+    expect(s.goldEggs).toBe(2);
+    expect(storedCount(s)).toBe(stored);
+    const m = s.money;
+    expect(sellGoldEggs(s).ok).toBe(true);
+    expect(s.money - m).toBe(2 * RARE.goldEggPrice);
+    expect(s.goldEggs).toBe(0);
+    // les poussines dorées restent très rares : dix fois moins que le coq noir
+    expect(RARE.goldenHenHatch).toBeCloseTo(RARE.blackRoosterHatch / 10);
   });
 });

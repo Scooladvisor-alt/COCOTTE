@@ -1,7 +1,7 @@
 // Reproduction : les coqs fécondent une partie des œufs ; mis en couveuse, ces œufs éclosent
 // au bout de 15 jours ; les poussins grandissent avec les poules et pondent à 30 jours.
 import { BREEDING, TIME } from '../config/balance';
-import { BREEDS } from '../config/breeds';
+import { BREEDS, isGoose } from '../config/breeds';
 import { buildingCenter, currentHour, emit, notify, rand, randRange } from './core';
 import { createHen } from './hens';
 import { GENE_INFO, decodeGenes, encodeGenes, genesOf, inherit } from './genetics';
@@ -25,7 +25,9 @@ export function fertilize(s: GameState, h: Hen): { breed: BreedId; genes: string
   if (h.rooster || h.young) return undefined;
   const p = fertility(s);
   if (p <= 0 || rand(s) >= p) return undefined;
-  const dads = s.hens.filter(isRooster);
+  // les oies ne se croisent qu'avec un jars, les poules qu'avec un coq
+  const dads = s.hens.filter((d) => isRooster(d) && isGoose(d.breed) === isGoose(h.breed));
+  if (!dads.length) return undefined;
   const dad = dads[Math.floor(rand(s) * dads.length)];
   const breed = !dad || rand(s) < 0.5 ? h.breed : dad.breed;
   // le poussin hérite des qualités de sa mère et du coq

@@ -9,7 +9,7 @@ import { BUILDINGS, BUILD_ORDER } from '../config/buildings';
 import * as A from '../sim/actions';
 import { parcelCenter } from '../sim/core';
 import { countOfType } from '../sim/buildings';
-import { buyLevel, fmtMoney, levelReached, lockedAt, maxParcelsOf } from '../sim/economy';
+import { breedLockedAt, buyLevel, fmtMoney, levelReached, lockedAt, maxParcelsOf } from '../sim/economy';
 import { adultCount, buildingsOf, coopCapacity, flockCapacity, landCapacity } from '../sim/queries';
 import { fertility } from '../sim/breeding';
 import { buyRobot, checkBuyRobot } from '../sim/robots';
@@ -253,8 +253,8 @@ function HensTab() {
         ))}
       </div>
       <Head
-        title="Coqs"
-        sub={`Un coq féconde les œufs d’une dizaine de poules. Mis en couveuse, ces œufs éclosent en ${BREEDING.incubationDays} jours ; les poussins pondent à ${BREEDING.growthDays} jours.`}
+        title="Coqs et jars"
+        sub={`Un coq féconde les œufs d’une dizaine de poules (un jars, ceux des oies). Mis en couveuse, ces œufs éclosent en ${BREEDING.incubationDays} jours ; les poussins pondent à ${BREEDING.growthDays} jours.`}
       >
         <div class="meter-pill">
           <span>Œufs fécondés</span>
@@ -290,9 +290,8 @@ function HensTab() {
 function RoosterTile({ id }: { id: BreedId }) {
   const game = useGame();
   const s = game.state;
-  const b = BREEDS[id];
   const chk = A.checkBuyRooster(s, id);
-  const locked = lockedAt(s, b.reqLevel);
+  const locked = breedLockedAt(s, id);
   const owned = s.hens.filter((h) => h.rooster && h.breed === id).length;
   return (
     <Tile
@@ -316,7 +315,7 @@ function BreedTile({ id }: { id: BreedId }) {
   const s = game.state;
   const b = BREEDS[id];
   const chk = A.checkBuyHen(s, id);
-  const locked = lockedAt(s, b.reqLevel);
+  const locked = breedLockedAt(s, id);
   const egg = EGG_TYPES[b.egg];
   return (
     <Tile

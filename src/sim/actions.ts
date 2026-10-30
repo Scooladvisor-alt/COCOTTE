@@ -4,15 +4,15 @@ import { BREEDING, COSTS, DELIVERY, GRAIN_BINS, HEN_PACKS, GRAIN_SACKS, GRASS, H
 import { grainCapacity, takeGrain, takeWater, waterCapacity } from './stocks';
 import { BREEDS, ROOSTER_TITLES, isGoose } from '../config/breeds';
 import { BUILDINGS, sizeOf } from '../config/buildings';
-import { buildingCenter, emit, invalidateLayout, isWalkable, nearestWalkable, newId, notify, parcelCoords, pick, rand } from './core';
+import { buildingCenter, emit, invalidateLayout, isShelter, isWalkable, nearestWalkable, newId, notify, parcelCoords, pick, rand } from './core';
 import { GATE_IN, arriveAt, scheduleTruck, syncWaveLeave } from './deliveries';
-import { addXp, breedUnlocked, earn, fmtMoney, levelReached, maxParcelsOf, spend } from './economy';
+import { addXp, breedUnlocked, earn, farmLevel, fmtMoney, levelReached, maxParcelsOf, spend } from './economy';
 import { canPlace, cleaningCost, countOfType } from './buildings';
 import { collectEggs, collectNest } from './eggs';
 import { reseedParcel } from './grass';
 import { createHen, henValue, recallHen, resetHenAfterLayout } from './hens';
 import { autoEnclose } from './fences';
-import { adultCount, coopFor, coopOccupancy, getBuilding, getHen, landCapacity, lvl, storageFree } from './queries';
+import { adultCount, coopFor, coopOccupancy, getBuilding, getHen, landCapacity, lvl, shelterType, storageFree } from './queries';
 import { makeBuilding } from './state';
 import type { ActionResult, BreedId, BuildingType, GameState } from './types';
 
@@ -26,6 +26,7 @@ export function checkBuyHen(s: GameState, breed: BreedId): ActionResult {
   if (!breedUnlocked(s, breed)) return fail(`Débloquée au niveau ${def.reqLevel}`);
   if (adultCount(s) + pendingHens(s) >= landCapacity(s)) return fail('Terrain plein : achetez une parcelle');
   if (coopRoom(s, breed) <= 0 || !coopFor(s, breed)) {
+    if (isGoose(breed)) return fail(s.buildings.some((b) => b.type === 'goosehouse') ? 'Abri à oies plein : agrandissez-le ou construisez-en un autre' : 'Construisez d’abord un abri à oies');
     return fail(def.reqCoop > 1 ? `Il faut une place dans un poulailler niv. ${def.reqCoop}+` : 'Poulailler plein : améliorez-le ou construisez-en un');
   }
   if (s.money < def.price) return fail('Fonds insuffisants');
@@ -55,7 +56,8 @@ export function pendingHens(s: GameState) {
 /** Places libres dans les poulaillers qui acceptent la race (moins les poules attendues). */
 export function coopRoom(s: GameState, breed: BreedId) {
   let free = 0;
-  for (const c of s.buildings) if (c.type === 'coop' && c.level >= BREEDS[breed].reqCoop) free += Math.max(0, lvl(c).capacity - coopOccupancy(s, c.id));
+  const need = isGoose(breed) ? 1 : BREEDS[breed].reqCoop;
+  for (const c of s.buildings) if (c.type === shelterType(breed) && c.level >= need) free += Math.max(0, lvl(c).capacity - coopOccupancy(s, c.id));
   return free - pendingHens(s);
 }
 /** Prix d'un lot : chaque poule revient moins cher. */
@@ -74,7 +76,10 @@ export function checkBuyHenPack(s: GameState, breed: BreedId, count: number, tru
   const land = landCapacity(s) - adultCount(s) - pendingHens(s);
   if (land < total) return fail(land > 0 ? `Terrain : place pour ${land} poule${land > 1 ? 's' : ''} seulement` : 'Terrain plein : achetez une parcelle');
   const room = coopRoom(s, breed);
-  if (room < total) return fail(room > 0 ? `Poulaillers : place pour ${room} poule${room > 1 ? 's' : ''} seulement` : def.reqCoop > 1 ? `Il faut des places dans un poulailler niv. ${def.reqCoop}+` : 'Poulaillers pleins');
+  if (room < total) {
+    if (isGoose(breed)) return fail(!s.buildings.some((b) => b.type === 'goosehouse') ? 'Construisez d’abord un abri à oies' : room > 0 ? `Abris à oies : place pour ${room} oie${room > 1 ? 's' : ''} seulement` : 'Abris à oies pleins');
+    return fail(room > 0 ? `Poulaillers : place pour ${room} poule${room > 1 ? 's' : ''} seulement` : def.reqCoop > 1 ? `Il faut des places dans un poulailler niv. ${def.reqCoop}+` : 'Poulaillers pleins');
+  }
   if (s.money < henPackPrice(breed, count) * trucks) return fail('Fonds insuffisants');
   return OK;
 }
@@ -116,7 +121,7 @@ export function updateDeliveries(s: GameState) {
     if (s.clock.t < d.eta) continue;
     let out = d.out ?? 0;
     while (out < d.count && s.clock.t >= arriveAt(d, out)) {
-      const coop = coopFor(s, d.breed) ?? s.buildings.find((b) => b.type === 'coop');
+      const coop = coopFor(s, d.breed) ?? s.buildings.find((b) => b.type === shelterType(d.breed)) ?? s.buildings.find((b) => b.type === 'coop');
       if (!coop) {
         out = d.count;
         break;
@@ -209,6 +214,25 @@ export function sellExtraRoosters(s: GameState): ActionResult {
   }
   notify(s, `${extra.length} coq${extra.length > 1 ? 's' : ''} vendu${extra.length > 1 ? 's' : ''} pour ${fmtMoney(total)} : vous gardez votre meilleur reproducteur.`, 'good', '🐓');
   return OK;
+}
+
+/**
+ * Les oies dorment dans leur abri, pas avec les poules : celles qui logeaient encore au poulailler
+ * (anciennes parties, ou avant le premier abri) y déménagent dès qu'il y a de la place.
+ */
+export function rehouseGeese(s: GameState) {
+  for (const h of s.hens) {
+    if (!isGoose(h.breed)) continue;
+    const cur = getBuilding(s, h.coopId);
+    if (cur?.type === 'goosehouse') continue;
+    const home = coopFor(s, h.breed);
+    if (!home) continue;
+    h.coopId = home.id;
+    if (h.act === 'sleep' && cur) {
+      h.act = 'idle';
+      h.actT = 0;
+    }
+  }
 }
 
 /** Vieille poule confiée à une association ou à un particulier : elle coulera une retraite paisible. */
@@ -336,7 +360,7 @@ export function refillAll(s: GameState): ActionResult {
 
 export function cleanCoop(s: GameState, id: number): ActionResult {
   const b = getBuilding(s, id);
-  if (!b || b.type !== 'coop') return fail('Poulailler introuvable');
+  if (!b || !isShelter(b)) return fail('Poulailler introuvable');
   if (b.cleanliness > 92) return fail('Déjà propre');
   if (!spend(s, cleaningCost(b), 'litiere', `Litière ${lvl(b).name}`)) return fail('Fonds insuffisants');
   b.cleanliness = 100;
@@ -347,7 +371,7 @@ export function cleanCoop(s: GameState, id: number): ActionResult {
 /** Le joueur ferme (ou rouvre) lui-même la trappe : à l'abri du renard pour la nuit. */
 export function toggleCoopDoor(s: GameState, id: number): ActionResult {
   const b = getBuilding(s, id);
-  if (!b || b.type !== 'coop') return fail('Poulailler introuvable');
+  if (!b || !isShelter(b)) return fail('Poulailler introuvable');
   b.closed = !b.closed;
   if (b.closed) {
     const outside = s.hens.filter((h) => h.coopId === b.id && h.act !== 'sleep' && h.act !== 'enter').length;
@@ -398,7 +422,7 @@ export function checkBuild(s: GameState, type: BuildingType): ActionResult {
   const def = BUILDINGS[type];
   if (!def.buildable) return fail('Non constructible');
   const L = def.levels[0];
-  if (!levelReached(s, L.reqLevel)) return fail(`Débloqué au niveau ${L.reqLevel}`);
+  if (def.strictLevel ? farmLevel(s) < L.reqLevel : !levelReached(s, L.reqLevel)) return fail(`Débloqué au niveau ${L.reqLevel}`);
   if (countOfType(s, type) >= maxCount(s, type)) return fail(`Maximum atteint (${maxCount(s, type)})`);
   if (s.money < L.cost) return fail('Fonds insuffisants');
   return OK;
@@ -421,6 +445,8 @@ export function build(s: GameState, type: BuildingType, x: number, z: number): A
   resetHenAfterLayout(s);
   emit(s, { kind: 'build', buildingId: b.id });
   addXp(s, 5);
+  // un nouvel abri à oies : les oies qui dormaient au poulailler y emménagent
+  if (type === 'goosehouse') rehouseGeese(s);
   return OK;
 }
 
@@ -471,7 +497,7 @@ export function upgrade(s: GameState, id: number): ActionResult {
     resetHenAfterLayout(s);
   }
   b.invested += next.cost;
-  if (b.type === 'coop') b.cleanliness = Math.max(b.cleanliness, 90);
+  if (isShelter(b)) b.cleanliness = Math.max(b.cleanliness, 90);
   emit(s, { kind: 'upgrade', buildingId: b.id });
   addXp(s, 8 + b.level * 4);
   return OK;
@@ -509,15 +535,15 @@ export function checkDemolish(s: GameState, id: number): ActionResult {
   const b = getBuilding(s, id);
   if (!b) return fail('Bâtiment introuvable');
   if (BUILDINGS[b.type].unique) return fail('Installation indispensable');
-  if (b.type === 'coop') {
+  if (isShelter(b)) {
     const hens = s.hens.filter((h) => h.coopId === b.id);
     if (hens.length > 0) {
-      // les autres poulaillers peuvent-ils accueillir ces poules ?
+      // les autres abris de la même espèce peuvent-ils accueillir ces volailles ?
       const free = new Map<number, number>();
-      for (const c of s.buildings) if (c.type === 'coop' && c.id !== b.id) free.set(c.id, lvl(c).capacity - coopOccupancy(s, c.id));
+      for (const c of s.buildings) if (c.type === b.type && c.id !== b.id) free.set(c.id, lvl(c).capacity - coopOccupancy(s, c.id));
       for (const h of hens) {
-        const target = [...free.entries()].find(([cid, f]) => f > 0 && getBuilding(s, cid)!.level >= BREEDS[h.breed].reqCoop);
-        if (!target) return fail('Relogez ou vendez d’abord ses poules');
+        const target = [...free.entries()].find(([cid, f]) => f > 0 && (b.type === 'goosehouse' || getBuilding(s, cid)!.level >= BREEDS[h.breed].reqCoop));
+        if (!target) return fail(b.type === 'goosehouse' ? 'Relogez ou vendez d’abord ses oies' : 'Relogez ou vendez d’abord ses poules');
         free.set(target[0], target[1] - 1);
       }
     }
@@ -529,9 +555,9 @@ export function demolish(s: GameState, id: number): ActionResult {
   const chk = checkDemolish(s, id);
   if (!chk.ok) return chk;
   const b = getBuilding(s, id)!;
-  if (b.type === 'coop') {
+  if (isShelter(b)) {
     for (const h of s.hens.filter((x) => x.coopId === b.id)) {
-      const others = s.buildings.filter((c) => c.type === 'coop' && c.id !== b.id && c.level >= BREEDS[h.breed].reqCoop);
+      const others = s.buildings.filter((c) => c.type === b.type && c.id !== b.id && (b.type === 'goosehouse' || c.level >= BREEDS[h.breed].reqCoop));
       const target = others.find((c) => lvl(c).capacity - coopOccupancy(s, c.id) > 0);
       if (target) h.coopId = target.id;
     }

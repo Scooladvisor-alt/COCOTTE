@@ -9,7 +9,7 @@ import { BUILDINGS, BUILD_ORDER } from '../config/buildings';
 import * as A from '../sim/actions';
 import { parcelCenter } from '../sim/core';
 import { countOfType } from '../sim/buildings';
-import { breedLockedAt, buyLevel, fmtMoney, levelReached, lockedAt, maxParcelsOf } from '../sim/economy';
+import { breedLockedAt, buyLevel, farmLevel, fmtMoney, levelReached, lockedAt, maxParcelsOf } from '../sim/economy';
 import { adultCount, buildingsOf, coopCapacity, flockCapacity, landCapacity } from '../sim/queries';
 import { fertility } from '../sim/breeding';
 import { buyRobot, checkBuyRobot } from '../sim/robots';
@@ -334,6 +334,7 @@ function BreedTile({ id }: { id: BreedId }) {
       ]}
       extra={
         <>
+          <SkinRow id={id} />
           <GeneRange breed={id} />
           <PackRow id={id} />
         </>
@@ -346,6 +347,29 @@ function BreedTile({ id }: { id: BreedId }) {
       onBuy={() => game.act(() => A.buyHen(s, id), 'buy')}
       tut={id === 'rousse' ? 'buy-rousse' : undefined}
     />
+  );
+}
+
+/** Plumages possibles d'une race, tirés au hasard à l'achat (l'oie : grise ou blanche). */
+function SkinRow({ id }: { id: BreedId }) {
+  const skins = BREEDS[id].skins;
+  if (!skins || skins.length < 2) return null;
+  const total = skins.reduce((a, k) => a + k.weight, 0);
+  return (
+    <div class="skins">
+      <small>Plumage au hasard :</small>
+      <div class="skin-list">
+        {skins.map((k, i) => (
+          <span key={k.name} class="skin" title={k.name}>
+            <img src={henThumb(id, i)} alt="" />
+            <em>
+              {k.name}
+              <b>{Math.round((k.weight / total) * 100)} %</b>
+            </em>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -446,7 +470,8 @@ function BuildTab() {
           const def = BUILDINGS[type];
           const L = def.levels[0];
           const chk = A.checkBuild(s, type);
-          const locked = lockedAt(s, L.reqLevel);
+          // l'abri à oies exige vraiment le niveau 10, comme les oies
+          const locked = def.strictLevel ? (farmLevel(s) < L.reqLevel ? L.reqLevel : undefined) : lockedAt(s, L.reqLevel);
           return (
             <Tile
               key={type}

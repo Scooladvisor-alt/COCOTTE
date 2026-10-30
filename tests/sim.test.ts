@@ -80,6 +80,12 @@ function runEvents(s: GameState, seconds: number) {
 }
 
 /** Fixe l'heure au matin du jour courant (utile pour éviter la nuit). */
+/** Pose un abri à oies au premier emplacement libre (les oies en ont besoin pour s'acheter). */
+function buildGooseHouse(s: GameState) {
+  for (let z = -29; z < 29; z++) for (let x = 0; x < 80; x++) if (canPlace(s, 'goosehouse', x, z).ok) return A.build(s, 'goosehouse', x, z).ok;
+  return false;
+}
+
 function morning(s: GameState) {
   const day = Math.floor(s.clock.t / TIME.DAY);
   s.clock.t = day * TIME.DAY + 8 * HOUR;
@@ -2232,7 +2238,7 @@ describe('Poussins et réserve', () => {
   });
 
   it('la réserve à œufs est plus grande', () => {
-    expect(BUILDINGS.storage.levels.map((l) => l.capacity)).toEqual([100, 350, 900, 2500]);
+    expect(BUILDINGS.storage.levels.map((l) => l.capacity)).toEqual([100, 350, 900, 2500, 6000]);
   });
 });
 
@@ -2465,6 +2471,8 @@ describe('Grands poulaillers, oies, coqs en trop et poule aux œufs d’or', () 
     s.xp = 0;
     expect(A.checkBuyHen(s, 'oie').ok).toBe(false);
     s.xp = 99999;
+    expect(A.checkBuyHen(s, 'oie').reason).toMatch(/abri à oies/);
+    expect(buildGooseHouse(s)).toBe(true);
     expect(A.buyHen(s, 'oie').ok).toBe(true);
     const goose = s.hens[s.hens.length - 1];
     expect(GOOSE_NAMES).toContain(goose.name);
@@ -2483,6 +2491,7 @@ describe('Grands poulaillers, oies, coqs en trop et poule aux œufs d’or', () 
     s.xp = 99999;
     const coop = buildingsOf(s, 'coop')[0];
     while (A.upgrade(s, coop.id).ok);
+    buildGooseHouse(s);
     A.buyHen(s, 'oie');
     const goose = s.hens[s.hens.length - 1];
     // seuls des coqs de poule à la ferme : aucun œuf d'oie fécondé
@@ -2545,5 +2554,97 @@ describe('Grands poulaillers, oies, coqs en trop et poule aux œufs d’or', () 
     expect(s.money - before).toBeGreaterThanOrEqual(12000);
     // les poussines dorées restent très rares : dix fois moins que le coq noir
     expect(RARE.goldenHenHatch).toBeCloseTo(RARE.blackRoosterHatch / 10);
+  });
+});
+
+describe('Plateforme frigorifique', () => {
+  it('le stockage passe au niveau 5 : plus long, 6 000 œufs, fraîcheur prolongée', () => {
+    const s = newFarm(601);
+    s.money = 1e8;
+    s.xp = 99999;
+    const st = buildingsOf(s, 'storage')[0];
+    while (st.level < 5) expect(A.upgrade(s, st.id).ok).toBe(true);
+    expect(sizeOf('storage', 5)).toEqual({ w: 6, d: 4 });
+    expect(storageCapacity(s)).toBe(6000);
+    expect(BUILDINGS.storage.levels[4].decay).toBeLessThan(BUILDINGS.storage.levels[3].decay!);
+    // toute la nouvelle longueur est occupée
+    expect(canPlace(s, 'tree', st.x + 5, st.z + 1).ok).toBe(false);
+  });
+});
+
+describe('Abri à oies', () => {
+  const gooseFarm = (seed: number) => {
+    const s = newFarm(seed);
+    morning(s);
+    s.money = 1e8;
+    s.xp = 99999;
+    return s;
+  };
+
+  it('il faut le niveau 10 et un abri à oies avant d’acheter des oies', () => {
+    const s = gooseFarm(701);
+    s.xp = 0;
+    expect(A.checkBuild(s, 'goosehouse').ok).toBe(false);
+    s.xp = 99999;
+    expect(A.checkBuyHen(s, 'oie').ok).toBe(false);
+    expect(A.checkBuyHenPack(s, 'oie', 6).reason).toMatch(/abri à oies/);
+    expect(buildGooseHouse(s)).toBe(true);
+    const house = buildingsOf(s, 'goosehouse')[0];
+    for (let i = 0; i < 8; i++) expect(A.buyHen(s, 'oie').ok).toBe(true);
+    // l'abri est plein : on l'agrandit pour en loger plus
+    expect(A.checkBuyHen(s, 'oie').reason).toMatch(/plein/);
+    expect(A.upgrade(s, house.id).ok).toBe(true);
+    expect(A.buyHen(s, 'oie').ok).toBe(true);
+    // toutes logent dans l'abri à oies, pas au poulailler
+    for (const h of s.hens.filter((x) => x.breed === 'oie')) expect(h.coopId).toBe(house.id);
+  });
+
+  it('les oies dorment dans leur abri et restent près de chez elles le jour', () => {
+    const s = gooseFarm(702);
+    buildGooseHouse(s);
+    const house = buildingsOf(s, 'goosehouse')[0];
+    for (let i = 0; i < 5; i++) A.buyHen(s, 'oie');
+    const geese = s.hens.filter((h) => h.breed === 'oie');
+    const door = { x: house.x + sizeOf('goosehouse', 1).w / 2, z: house.z + sizeOf('goosehouse', 1).d };
+    // elles arrivent au portail : on les laisse rejoindre leur abri avant de mesurer
+    run(s, 2 * HOUR);
+    let near = 0;
+    let total = 0;
+    run(
+      s,
+      6 * HOUR,
+      () => {
+        for (const g of geese) {
+          // quand elles flânent (picorer, gratter, se reposer), c'est devant chez elles ; elles ne
+          // s'éloignent que pour manger, boire ou pondre
+          if (!['peck', 'scratch', 'rest', 'idle', 'preen'].includes(g.act)) continue;
+          total++;
+          if (Math.hypot(g.x - door.x, g.z - door.z) < 9) near++;
+        }
+      },
+      0.5,
+    );
+    expect(total).toBeGreaterThan(20);
+    expect(near / total).toBeGreaterThan(0.85);
+    // le soir, elles rentrent dans l'abri à oies
+    const day = Math.floor(s.clock.t / TIME.DAY);
+    s.clock.t = day * TIME.DAY + 17.5 * HOUR;
+    s.clock.lastHourTick = Math.floor(s.clock.t / HOUR);
+    // (l'abri est loin de l'abreuvoir sur cette ferme : la dernière à boire rentre tard)
+    run(s, 8.5 * HOUR);
+    for (const g of geese) {
+      expect(g.act).toBe('sleep');
+      expect(g.coopId).toBe(house.id);
+    }
+  });
+
+  it('les oies qui dormaient au poulailler emménagent dans le nouvel abri', () => {
+    const s = gooseFarm(703);
+    const coop = buildingsOf(s, 'coop')[0];
+    const g = createHen(s, 'oie', coop);
+    s.hens.push(g);
+    expect(g.coopId).toBe(coop.id);
+    buildGooseHouse(s);
+    expect(g.coopId).toBe(buildingsOf(s, 'goosehouse')[0].id);
   });
 });

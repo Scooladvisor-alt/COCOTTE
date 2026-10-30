@@ -6,7 +6,7 @@ import { BREEDS } from '../config/breeds';
 import { buyGrain, fillTank } from './actions';
 import { autoRefill, compostTick, coopDirt } from './buildings';
 import { autoIncubate, breedingHourly, incubatorTick } from './breeding';
-import { currentDay, currentHour, emit, notify, rand } from './core';
+import { currentDay, currentHour, emit, notify, rand, isShelter } from './core';
 import { farmLevel, fmtMoney, levelReached, spend, today, withBookingDay } from './economy';
 import { ageEggs, collectNest } from './eggs';
 import { regrowGrass } from './grass';
@@ -166,7 +166,7 @@ function hourly(s: GameState) {
     const onGround = s.worldEggs.filter((e) => e.where === 'ground').length;
     if (onGround >= 3)
       warnOnce(s, 'ground', `${onGround} œufs pondus par terre : ramassez-les dans la journée avant qu’ils ne pourrissent${buildingsOf(s, 'nest').length ? ', et ajoutez un pondoir si les vôtres débordent' : ''}.`, 8, 'warn', '🥚');
-    const dirty = buildingsOf(s, 'coop').find((c) => c.cleanliness < 35);
+    const dirty = s.buildings.find((c) => isShelter(c) && c.cleanliness < 35);
     if (dirty) warnOnce(s, 'dirty', 'Un poulailler est sale : nettoyez-le pour éviter les maladies.', 6, 'warn', '🧹');
     const fragile = s.hens.find((x) => x.health < HEALTH.warnAt);
     if (fragile) warnOnce(s, 'health', `${fragile.name} est en mauvaise santé.`, 6, 'bad', '❤️');

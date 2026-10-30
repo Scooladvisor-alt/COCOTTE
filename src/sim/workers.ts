@@ -3,7 +3,7 @@
 import { FRESHNESS, GRAIN_SACKS, GRID_H, GRID_W, PREDATORS, WORLD, clamp, gradeOf, sackPrice } from '../config/balance';
 import { BUILDINGS, STAND_POS, sizeOf } from '../config/buildings';
 import { ROLES, STAFF, WORKER_NAMES } from '../config/staff';
-import { buildingCenter, canStand, cellIndex, coopDoor, cellX, cellZ, crossesFence, currentDay, currentHour, emit, inGrid, isWalkable, nearestWalkable, newId, notify, pick, planPath, rand, randRange, rt } from './core';
+import { buildingCenter, canStand, cellIndex, coopDoor, cellX, cellZ, crossesFence, currentDay, currentHour, emit, inGrid, isWalkable, nearestWalkable, newId, notify, pick, planPath, rand, randRange, rt, isShelter } from './core';
 import { PREDATOR_INFO, damagePredator, distanceToFarm, predatorAimY } from './predators';
 import { henMovable } from './hens';
 import { addXp, buyLevel, fmtMoney, spend } from './economy';
@@ -83,7 +83,7 @@ export function endLabel(role: WorkerRole) {
 }
 /** Poulaillers encore ouverts (le commis ne rentre pas tant qu'il en reste). */
 function openCoops(s: GameState) {
-  return s.buildings.filter((b) => b.type === 'coop' && !b.closed);
+  return s.buildings.filter((b) => isShelter(b) && !b.closed);
 }
 
 export const JOB_LABELS: Record<WorkerJobKind, string> = {
@@ -178,7 +178,7 @@ export function fire(s: GameState, id: number): ActionResult {
   s.workers.splice(s.workers.indexOf(w), 1);
   notify(s, `${w.name} a quitté la ferme.`, 'info', '👋');
   // plus personne pour ouvrir les trappes : on les laisse ouvertes
-  if (!hasRole(s, 'farmhand')) for (const b of s.buildings) if (b.type === 'coop') b.closed = false;
+  if (!hasRole(s, 'farmhand')) for (const b of s.buildings) if (isShelter(b)) b.closed = false;
   return { ok: true };
 }
 
@@ -228,7 +228,7 @@ function humanPath(s: GameState, fx: number, fz: number, tx: number, tz: number)
 /** Point accessible devant un bâtiment, du côté du salarié. */
 function besideBuilding(s: GameState, b: Building, w: Worker): [number, number] | null {
   const def = BUILDINGS[b.type];
-  if (b.type === 'coop') return [coopDoor(b).x, coopDoor(b).z + 0.75];
+  if (isShelter(b)) return [coopDoor(b).x, coopDoor(b).z + 0.75];
   if (b.type === 'nest') return [b.x + 1, b.z + def.d + 0.55];
   const c = buildingCenter(b);
   const { w: bw, d: bd0 } = sizeOf(b.type, b.level);
@@ -304,7 +304,7 @@ function careTask(s: GameState, w: Worker): CareTask | null {
     if (at) return { kind: 'refillFeeder', b, at, time: STAFF.refillTime };
   }
   const coops = s.buildings
-    .filter((b) => b.type === 'coop' && b.cleanliness < STAFF.cleanBelow && s.money >= cleaningCost(b) && !taken.has(`clean:${b.id}`))
+    .filter((b) => isShelter(b) && b.cleanliness < STAFF.cleanBelow && s.money >= cleaningCost(b) && !taken.has(`clean:${b.id}`))
     .sort((a, b) => a.cleanliness - b.cleanliness);
   for (const b of coops) {
     const at = besideBuilding(s, b, w);
@@ -373,7 +373,7 @@ function chooseFarmhandJob(s: GameState, w: Worker) {
   // 1. le matin : ouvrir les trappes pour libérer les poules (l'après-midi, une trappe
   //    fermée par le joueur le reste)
   for (const b of s.buildings) {
-    if (currentHour(s) >= 12 || b.type !== 'coop' || !b.closed || taken.has(`openCoop:${b.id}`)) continue;
+    if (currentHour(s) >= 12 || !isShelter(b) || !b.closed || taken.has(`openCoop:${b.id}`)) continue;
     const [x, z] = coopDoorPoint(b);
     if (assign(s, w, 'openCoop', b.id, x, z, STAFF.openTime)) return;
   }
@@ -571,7 +571,7 @@ function complete(s: GameState, w: Worker, j: WorkerJob) {
     }
     case 'clean': {
       const b = getBuilding(s, j.targetId);
-      if (!b || b.type !== 'coop') return;
+      if (!b || !isShelter(b)) return;
       if (spend(s, cleaningCost(b), 'litiere', `Litière (${w.name})`)) {
         b.cleanliness = 100;
         s.stats.coopsCleaned++;
@@ -609,7 +609,7 @@ function complete(s: GameState, w: Worker, j: WorkerJob) {
     }
     case 'closeCoop': {
       const b = getBuilding(s, j.targetId);
-      if (!b || b.type !== 'coop' || b.closed) return;
+      if (!b || !isShelter(b) || b.closed) return;
       b.closed = true;
       const outside = s.hens.filter((h) => h.coopId === b.id && h.act !== 'sleep' && h.act !== 'enter');
       if (outside.length)
@@ -619,7 +619,7 @@ function complete(s: GameState, w: Worker, j: WorkerJob) {
     }
     case 'openCoop': {
       const b = getBuilding(s, j.targetId);
-      if (b && b.type === 'coop') b.closed = false;
+      if (b && isShelter(b)) b.closed = false;
       return;
     }
     case 'stand':
@@ -764,7 +764,7 @@ export function updateWorkers(s: GameState, dt: number) {
   }
   // filet de sécurité : sans commis sur place, les trappes sont rouvertes le matin
   if (hour >= 7.5 && hour < 12 && !s.workers.some((w) => w.role === 'farmhand' && w.onSite)) {
-    const closed = s.buildings.filter((b) => b.type === 'coop' && b.closed);
+    const closed = s.buildings.filter((b) => isShelter(b) && b.closed);
     if (closed.length) {
       for (const b of closed) b.closed = false;
       notify(s, 'Les trappes des poulaillers ont été rouvertes (aucun commis sur place).', 'info', '🔓');

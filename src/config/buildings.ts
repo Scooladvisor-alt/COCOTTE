@@ -51,6 +51,8 @@ export interface BuildingDef {
   movable: boolean;
   icon: string;
   levels: BuildingLevel[];
+  /** Niveau de ferme exigé même quand les niveaux requis sont désactivés (l'abri à oies : niveau 10). */
+  strictLevel?: boolean;
 }
 
 /**
@@ -153,6 +155,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Étagère ventilée', cost: 7000, reqLevel: 2, upkeep: 15, capacity: 350, decay: 0.8 },
       { name: 'Chambre froide', cost: 30000, reqLevel: 4, upkeep: 60, capacity: 900, decay: 0.35, perk: 'Œufs frais 3× plus longtemps' },
       { name: 'Entrepôt réfrigéré', cost: 120000, reqLevel: 7, upkeep: 150, capacity: 2500, decay: 0.25 },
+      { name: 'Plateforme frigorifique', cost: 300000, reqLevel: 9, upkeep: 320, capacity: 6000, decay: 0.15, w: 6, d: 4, perk: 'Trois quais de chargement : 6 000 œufs, fraîcheur prolongée (6 × 4 cases)' },
     ],
   },
   dustbath: {
@@ -216,6 +219,24 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Composteur en bois', cost: 12000, reqLevel: 4, upkeep: 4, capacity: 60, slots: 6, regen: 80, perk: 'Deux fois plus de vers' },
     ],
   },
+  goosehouse: {
+    type: 'goosehouse',
+    name: 'Abri à oies',
+    description: 'La maison des oies : elles y dorment à l’abri du renard, sans se mêler aux poules. Il en faut un avant d’acheter des oies ; sa capacité limite leur nombre.',
+    w: 4,
+    d: 3,
+    access: 'front',
+    unique: false,
+    buildable: true,
+    movable: true,
+    icon: '🪿',
+    strictLevel: true,
+    levels: [
+      { name: 'Abri à oies', cost: 15000, reqLevel: 10, upkeep: 40, capacity: 8, comfort: 0.8, dirtFactor: 0.8, perk: 'Loge en bois basse et paillée : 8 oies' },
+      { name: 'Grande loge à oies', cost: 40000, reqLevel: 10, upkeep: 80, capacity: 16, comfort: 0.95, dirtFactor: 0.7, w: 5, d: 3, perk: 'Deux fois plus de place, abreuvoir de bac : 16 oies' },
+      { name: 'Maison des oies', cost: 90000, reqLevel: 10, upkeep: 140, capacity: 30, comfort: 1, dirtFactor: 0.55, w: 6, d: 4, perk: 'Grande maison de pierre et de bois, petite mare : 30 oies' },
+    ],
+  },
   incubator: {
     type: 'incubator',
     name: 'Couveuse',
@@ -259,7 +280,7 @@ export function sizeOf(type: BuildingType, level = 1): { w: number; d: number } 
   return { w: L?.w ?? def.w, d: L?.d ?? def.d };
 }
 
-export const BUILD_ORDER: BuildingType[] = ['coop', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'incubator'];
+export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'incubator'];
 
 /** Position fixe de l'étal (hors parcelles, sur la place pavée qui donne sur le trottoir). */
 export const STAND_POS = { x: 17.2, z: 31.8 };

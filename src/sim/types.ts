@@ -4,7 +4,7 @@
 export type BreedId = 'rousse' | 'leghorn' | 'sussex' | 'soie' | 'araucana' | 'marans' | 'oie';
 export type EggType = 'roux' | 'blanc' | 'creme' | 'mini' | 'bleu' | 'chocolat' | 'oie' | 'or';
 export type Grade = 'extra' | 'A' | 'B';
-export type BuildingType = 'coop' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'pond' | 'tree';
+export type BuildingType = 'coop' | 'goosehouse' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'pond' | 'tree';
 
 export type HenAct =
   | 'idle'

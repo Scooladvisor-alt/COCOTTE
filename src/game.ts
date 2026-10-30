@@ -560,7 +560,7 @@ export class Game {
       const L1 = lvl(b);
       let info = '';
       let cls = '';
-      const height = b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 * STORAGE_SCALE : b.type === 'stand' ? 1.9 : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.1;
+      const height = b.type === 'goosehouse' ? 2.2 + b.level * 0.25 : b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 * STORAGE_SCALE : b.type === 'stand' ? 1.9 : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.1;
       if (b.type === 'nest') {
         if (b.eggIds.length > 0) {
           info = `<em>${b.eggIds.length} œuf${b.eggIds.length > 1 ? 's' : ''}</em>`;
@@ -568,7 +568,7 @@ export class Game {
         } else if (!show || z < 1) continue;
         else info = `<em>vide</em>`;
       } else if (!show) continue;
-      else if (b.type === 'coop') {
+      else if (b.type === 'coop' || b.type === 'goosehouse') {
         const occ = s.hens.filter((h) => h.coopId === b.id).length;
         info = `<em>${occ}/${L1.capacity}</em>`;
         if (b.closed) info += '<em>fermé</em>';
@@ -696,7 +696,7 @@ export class Game {
         // un équipement automatique vide signifie que la réserve elle-même est à sec
         if (L1.auto) text = b.type === 'feeder' ? 'Plus de grain' : 'Plus d’eau';
         else text = urgent ? 'Vide · à remplir' : 'À remplir';
-      } else if (b.type === 'coop' && b.cleanliness < 35) {
+      } else if ((b.type === 'coop' || b.type === 'goosehouse') && b.cleanliness < 35) {
         text = 'À nettoyer';
         urgent = b.cleanliness < 20;
       } else if (b.type === 'nest' && b.eggIds.length >= L1.capacity) text = 'Plein · à ramasser';
@@ -714,7 +714,7 @@ export class Game {
       else if (b.type === 'storage' && storedCount(s) >= storageCapacity(s)) text = 'Stockage plein';
       else continue;
       const c = buildingCenter(b);
-      const y = b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 * STORAGE_SCALE : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.05;
+      const y = b.type === 'goosehouse' ? 2.1 + b.level * 0.25 : b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 * STORAGE_SCALE : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.05;
       L.set(`b${b.id}`, c.x, y, c.z, `<i></i>${text}`, `todo ${urgent ? 'urgent' : ''}`);
     }
     // œufs pondus au sol qui vont bientôt pourrir

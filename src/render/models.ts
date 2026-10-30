@@ -15,6 +15,7 @@ import {
   coopCabin,
   coopModern,
   coopFarm,
+  gooseHouse,
   coopAviary,
   coopNormand,
   dustbathShelter,
@@ -27,6 +28,7 @@ import {
   storeLarder,
   storeVented,
   storeWarehouse,
+  storeColdHub,
 } from './farmBuildings';
 
 // ================================================================ POULES ====
@@ -275,6 +277,22 @@ function coopModel(level: number): BuildingView {
               : trapDoor(0.38, 0.4, 2.5, 0.5, 2.68);
   g.add(door);
   return { group: outer, eggSlots: [], eggMeshes: [], key: `coop${level}`, door };
+}
+
+/** Abri à oies : dessiné à l'échelle 1 (4 × 3, 5 × 3, 6 × 4) ; porte large que le commis ferme le soir. */
+function gooseHouseModel(level: number): BuildingView {
+  const W = level === 1 ? 4 : level === 2 ? 5 : 6;
+  const D = level === 3 ? 4 : 3;
+  const parts: THREE.BufferGeometry[] = [slab(W, D, 0xe2d3b5)];
+  const windows: THREE.Mesh[] = [];
+  gooseHouse(parts, windows, level);
+  const g = new THREE.Group();
+  g.add(mesh(merge(parts)));
+  for (const w of windows) g.add(w);
+  // porte coulissante de nuit (même animation que la trappe des poulaillers)
+  const door = trapDoor(0.95, level === 3 ? 0.95 : 0.78, W / 2, level === 3 ? 0.97 : 0.8, D - 0.5);
+  g.add(door);
+  return { group: g, eggSlots: [], eggMeshes: [], key: `goosehouse${level}`, door };
 }
 
 function nestModel(level: number): BuildingView {
@@ -713,11 +731,13 @@ function groupOf(parts: THREE.BufferGeometry[], ...extra: THREE.Object3D[]) {
 }
 
 function storageModel(level: number): BuildingView {
-  // dessinée sur 2 × 2, puis agrandie (le groupe extérieur reste libre pour l'animation de pose)
+  // dessinée sur 2 × 2 (3 × 2 pour la plateforme frigorifique), puis agrandie (le groupe
+  // extérieur reste libre pour l'animation de pose)
   const outer = new THREE.Group();
-  const parts: THREE.BufferGeometry[] = [slab(2, 2, level >= 3 ? 0xd6d8da : 0xe0d4bc)];
+  const parts: THREE.BufferGeometry[] = [slab(level === 5 ? 3 : 2, 2, level >= 3 ? 0xd6d8da : 0xe0d4bc)];
   const windows: THREE.Mesh[] = [];
-  const spots = level === 1 ? storeLarder(parts, windows) : level === 2 ? storeVented(parts, windows) : level === 3 ? storeCold(parts, windows) : storeWarehouse(parts, windows);
+  const spots =
+    level === 1 ? storeLarder(parts, windows) : level === 2 ? storeVented(parts, windows) : level === 3 ? storeCold(parts, windows) : level === 4 ? storeWarehouse(parts, windows) : storeColdHub(parts, windows);
   const g = new THREE.Group();
   g.scale.setScalar(STORAGE_SCALE);
   outer.add(g);
@@ -967,6 +987,8 @@ export function buildingModel(type: BuildingType, level: number): BuildingView {
       return shadeTreeModel();
     case 'coop':
       return coopModel(level);
+    case 'goosehouse':
+      return gooseHouseModel(level);
     case 'nest':
       return nestModel(level);
     case 'feeder':

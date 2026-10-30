@@ -1,7 +1,7 @@
 // Briques de base : hasard déterministe, horloge, grille et caches de navigation.
 import { GRID_H, GRID_W, GRID_Z0, GRID_Z1, HOUR, TIME, WORLD } from '../config/balance';
 import { BUILDINGS, sizeOf } from '../config/buildings';
-import type { Building, GameEvent, GameState, NotifyAction } from './types';
+import type { Building, BuildingType, GameEvent, GameState, NotifyAction } from './types';
 
 // ------------------------------------------------------------- Hasard ----
 /** Mulberry32 : générateur déterministe dont l'état est sauvegardé avec la partie. */
@@ -106,13 +106,17 @@ export function buildingCenter(b: Placed) {
   const { w, d } = sizeOf(b.type, b.level);
   return { x: b.x + w / 2, z: b.z + d / 2 };
 }
-/** Milieu de la trappe d'un poulailler (x) et pied de sa façade (z) ; les grands poulaillers sont plus larges et profonds. */
-export function coopDoor(b: Pick<Building, 'x' | 'z'> & { level?: number }) {
-  const { w, d } = sizeOf('coop', b.level);
+/** Abri où dorment les volailles : le poulailler (poules) ou l'abri à oies (oies). */
+export const isShelterType = (t: BuildingType) => t === 'coop' || t === 'goosehouse';
+export const isShelter = (b: Pick<Building, 'type'>) => isShelterType(b.type);
+
+/** Milieu de la trappe d'un abri (x) et pied de sa façade (z) ; les grands bâtiments sont plus larges et profonds. */
+export function coopDoor(b: Pick<Building, 'x' | 'z'> & { level?: number; type?: BuildingType }) {
+  const { w, d } = sizeOf(b.type ?? 'coop', b.level);
   return { x: b.x + w / 2, z: b.z + d };
 }
 /** Cases juste devant la trappe d'un poulailler (à garder libres). */
-export function coopDoorCells(b: Pick<Building, 'x' | 'z'> & { level?: number }): Array<[number, number]> {
+export function coopDoorCells(b: Pick<Building, 'x' | 'z'> & { level?: number; type?: BuildingType }): Array<[number, number]> {
   const d = coopDoor(b);
   return [
     [Math.floor(d.x - 0.3), d.z],

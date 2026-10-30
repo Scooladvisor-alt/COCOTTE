@@ -4,7 +4,7 @@ import { FRESHNESS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, NEEDS, TIME, WORLD, clamp,
 import { COOP_SCALE, STAND_POS, sizeOf } from '../config/buildings';
 import { feedPose, type FeedPose } from '../sim/feeding';
 import { vaultOf } from '../sim/vault';
-import { cellX, cellZ, currentHour, inGrid, parcelCenter, parcelCoords, parcelKeyOfCell, rt } from '../sim/core';
+import { cellX, cellZ, currentHour, inGrid, isShelter, parcelCenter, parcelCoords, parcelKeyOfCell, rt } from '../sim/core';
 import { lvl } from '../sim/queries';
 import { rtHen } from '../sim/hens';
 import { simAlpha } from '../sim/simulation';
@@ -163,9 +163,15 @@ const COOP_DOORS: Record<number, { door: number; sill: number; foot: number }> =
  * de poitrine (auge, abreuvoir en long) ou au ras du sol (assiettes, coupelles, mare).
  */
 const FEED_POSES: Record<FeedPose, { body: number; head: number }> = { mid: { body: 0.3, head: 1.25 }, low: { body: 0.45, head: 1.45 } };
+/** Abris à oies (échelle 1) : porte de plain-pied, juste un petit seuil. */
+const GOOSE_DOORS: Record<number, { door: number; sill: number; foot: number }> = {
+  1: { door: 2.45, sill: 0.03, foot: 2.75 },
+  2: { door: 2.45, sill: 0.03, foot: 2.75 },
+  3: { door: 3.45, sill: 0.03, foot: 3.75 },
+};
 /** Hauteur de la poule sur la rampe, pente, et si elle est déjà entièrement à l'intérieur. */
-function coopPassage(level: number, lz: number) {
-  const d = COOP_DOORS[level] ?? COOP_DOORS[1];
+function coopPassage(type: BuildingType, level: number, lz: number) {
+  const d = type === 'goosehouse' ? GOOSE_DOORS[level] ?? GOOSE_DOORS[1] : COOP_DOORS[level] ?? COOP_DOORS[1];
   if (lz >= d.foot) return { y: 0, slope: 0, inside: false };
   if (lz >= d.door) {
     const t = (d.foot - lz) / (d.foot - d.door);
@@ -1158,7 +1164,7 @@ export class FarmRenderer {
     const onNest = target?.type === 'nest' && (h.act === 'lay' || ((h.act === 'enter' || h.act === 'exit') && h.z < target.z + 1.02));
     const inBath = target?.type === 'dustbath' && (h.act === 'bathe' || h.act === 'enter' || h.act === 'exit');
     // poulailler : la poule gravit la rampe, passe le seuil de la trappe et disparaît derrière le mur
-    const coopWay = target?.type === 'coop' && (h.act === 'enter' || h.act === 'exit') ? coopPassage(target.level, z - target.z) : null;
+    const coopWay = target && isShelter(target) && (h.act === 'enter' || h.act === 'exit') ? coopPassage(target.type, target.level, z - target.z) : null;
     const yTarget = onNest ? 0.36 : inBath ? GRASS_TOP + 0.02 : coopWay ? GRASS_TOP - 0.02 + coopWay.y : GRASS_TOP;
     v.y += (yTarget - v.y) * Math.min(1, dt * (coopWay ? 30 : 14));
     // petit saut pour monter dans le nid

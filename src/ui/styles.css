@@ -7193,3 +7193,20 @@ body {
 .pcard2.gold .row-btns {
   margin-top: 6px;
 }
+
+/* plumages possibles d'une race (tirés au hasard à l'achat) */
+.skins { margin-top: 8px; }
+.skins small { display: block; color: var(--muted, #6b6f7a); font-size: 11.5px; margin-bottom: 4px; }
+.skin-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.skin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 2px;
+  border-radius: 99px;
+  background: #f6f3ec;
+  border: 1px solid var(--line, #ece7dd);
+}
+.skin img { width: 28px; height: 28px; object-fit: contain; }
+.skin em { font-style: normal; font-size: 11px; font-weight: 700; color: var(--ink2, #4a4f5c); display: flex; gap: 4px; }
+.skin em b { color: #2f6bff; }

@@ -516,7 +516,7 @@ function HenCard({ h }: { h: Hen }) {
 
 function levelDiff(type: Building['type'], cur: BuildingLevel, next: BuildingLevel): string[] {
   const out: string[] = [];
-  if (type === 'coop') out.push(`Capacité ${cur.capacity} → ${next.capacity} poules`, `Confort ${Math.round((cur.comfort ?? 0) * 100)} → ${Math.round((next.comfort ?? 0) * 100)} %`);
+  if (type === 'coop' || type === 'goosehouse') out.push(`Capacité ${cur.capacity} → ${next.capacity} ${type === 'goosehouse' ? 'oies' : 'poules'}`, `Confort ${Math.round((cur.comfort ?? 0) * 100)} → ${Math.round((next.comfort ?? 0) * 100)} %`);
   if (type === 'nest') out.push(`Capacité ${cur.capacity} → ${next.capacity} œufs`, `Qualité +${Math.round((next.quality ?? 0) * 100)} %`);
   if (type === 'feeder') out.push(`Capacité ${cur.capacity} → ${next.capacity} rations`, `Gaspillage ${Math.round((cur.waste ?? 0) * 100)} → ${Math.round((next.waste ?? 0) * 100)} %`, `${next.slots} places`);
   if (type === 'drinker') out.push(`Capacité ${cur.capacity} → ${next.capacity} L`, `${next.slots} places`);
@@ -559,12 +559,12 @@ function BuildingCard({ b }: { b: Building }) {
       </div>
       <p class="desc">{def.description}</p>
 
-      {b.type === 'coop' && (
+      {(b.type === 'coop' || b.type === 'goosehouse') && (
         <>
           <div class="kv">
             <span>Occupation</span>
             <b>
-              {coopOccupancy(s, b.id)} / {L.capacity} poules
+              {coopOccupancy(s, b.id)} / {L.capacity} {b.type === 'goosehouse' ? 'oies' : 'poules'}
             </b>
           </div>
           <div class="kv">

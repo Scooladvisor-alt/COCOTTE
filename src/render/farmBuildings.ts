@@ -509,18 +509,26 @@ export function coopModern(parts: Parts, windows: THREE.Mesh[]) {
   parts.push(box(0.56, 0.05, 0.4, 0xc4c7cb, [1.5, 0.05, 1.93]));
 }
 
-/** Fenêtre à petits carreaux et cadre blanc, sur une façade tournée vers +z (ou +x). */
+/**
+ * Fenêtre à petits carreaux et cadre blanc, sur une façade bardée tournée vers +z (ou +x) ; (x, z)
+ * est la surface du mur. Chaque couche est franchement devant la précédente — fond sombre, vitre,
+ * puis cadre et croisillons — et toutes devant les planches (2,2 cm) : rien ne scintille au zoom.
+ */
 function farmWindow(parts: Parts, windows: THREE.Mesh[], x: number, y: number, z: number, w: number, h: number, onX = false) {
   const ry = onX ? Math.PI / 2 : 0;
   const B = (bw: number, bh: number, bd: number, c: number, p: V3) => parts.push(onX ? box(bd, bh, bw, c, p) : box(bw, bh, bd, c, p));
-  windows.push(glassPane(w, h, [x, y, z], ry, 0.02));
-  const n = onX ? [z, y] : [x, y];
+  const u0 = onX ? z : x;
   const at = (u: number, v: number, o: number): V3 => (onX ? [x + o, v, u] : [u, v, z + o]);
-  B(w + 0.08, 0.04, 0.035, TRIM, at(n[0], y + h / 2 + 0.02, 0.012));
-  B(w + 0.12, 0.045, 0.06, TRIM, at(n[0], y - h / 2 - 0.02, 0.022));
-  for (const s2 of [-1, 1]) B(0.04, h + 0.06, 0.035, TRIM, at(n[0] + s2 * (w / 2 + 0.02), y, 0.012));
-  B(0.022, h, 0.03, TRIM, at(n[0], y, 0.016));
-  B(w, 0.022, 0.03, TRIM, at(n[0], y + h * 0.1, 0.016));
+  // embrasure sombre, puis la vitre (qui s'allume le soir)
+  B(w + 0.03, h + 0.03, 0.012, 0x2e2a28, at(u0, y, 0.028));
+  const pane = at(u0, y, 0.04);
+  windows.push(glassPane(w, h, pane, ry, 0.01));
+  // cadre, appui saillant, croisillons devant la vitre
+  B(w + 0.08, 0.045, 0.03, TRIM, at(u0, y + h / 2 + 0.022, 0.05));
+  B(w + 0.14, 0.05, 0.08, TRIM, at(u0, y - h / 2 - 0.024, 0.055));
+  for (const s2 of [-1, 1]) B(0.045, h + 0.07, 0.03, TRIM, at(u0 + s2 * (w / 2 + 0.022), y, 0.05));
+  B(0.022, h, 0.016, TRIM, at(u0, y, 0.052));
+  B(w, 0.022, 0.016, TRIM, at(u0, y + h * 0.1, 0.052));
 }
 
 /**
@@ -579,8 +587,9 @@ export function coopFarm(parts: Parts, windows: THREE.Mesh[]) {
   for (const y of [yb + 0.02, yb + 0.8]) parts.push(box(0.05, 0.05, 0.76, TRIM, [x1 + 0.055, y, dz]));
   parts.push(box(0.04, 0.04, 1.2, IRON, [x1 + 0.065, yb + 0.86, dz - 0.18]));
   // trappe et rampe au centre, lampe, enseigne
-  henDoor(parts, cx, 0.12, 0.62, 0.44, zf + 0.012, TRIM);
-  ramp(parts, cx, 0.12, zf + 0.02, 2.62, 0.4, C.wood, C.woodDark);
+  // devant le bardage (2,2 cm) : la trappe ne se confond pas avec les planches
+  henDoor(parts, cx, 0.12, 0.62, 0.44, zf + 0.035, TRIM);
+  ramp(parts, cx, 0.12, zf + 0.04, 2.62, 0.4, C.wood, C.woodDark);
   parts.push(box(0.09, 0.14, 0.09, IRON, [cx + 0.42, 0.86, zf + 0.06]));
   windows.push(glassPane(0.06, 0.08, [cx + 0.42, 0.85, zf + 0.11], 0, 0.06));
   eggSign(parts, cx, 1.3, zf + 0.04, 0xe7d5b0);
@@ -692,6 +701,122 @@ export function coopAviary(parts: Parts, windows: THREE.Mesh[]) {
   // trappe du centre : moteur et capteur de la porte automatique
   parts.push(box(0.4, 0.11, 0.08, IRON, [2.5, 0.6, zf + 0.045]));
   parts.push(box(0.03, 0.03, 0.02, 0x4ade80, [2.66, 0.6, zf + 0.09]));
+}
+
+// ============================================================ ABRIS À OIES ====
+/**
+ * Abri à oies, un modèle par niveau (dessiné à l'échelle 1, façade et porte vers +z, porte centrée
+ * en x = W/2) : les oies entrent de plain-pied par une porte large et basse (seuil presque nul).
+ * Niveau 1 : loge en planches au toit de bardeaux, vantail ouvert, paille, bassine.
+ * Niveau 2 : grande loge sur soubassement de pierre, planches gris-bleu, tuiles, abat-vent, bac.
+ * Niveau 3 : maison de pierre à pignons colombés, ardoises, grande porte cintrée, petite mare.
+ * Repères (profondeur de la façade, seuil, pied) dans GOOSE_DOORS (farmRenderer.ts).
+ */
+export function gooseHouse(parts: Parts, windows: THREE.Mesh[], level: number) {
+  const W = level === 1 ? 4 : level === 2 ? 5 : 6;
+  const D = level === 3 ? 4 : 3;
+  const x0 = 0.25;
+  const x1 = W - 0.25;
+  const zb = 0.3;
+  const zf = D - 0.55;
+  const cx = W / 2;
+  const cz = (zb + zf) / 2;
+  const yb = level === 1 ? 0.06 : 0.3;
+  const y1 = level === 3 ? 1.55 : level === 2 ? 1.25 : 1.05;
+  const doorW = 0.95;
+  const doorH = level === 3 ? 0.95 : 0.78;
+  // murs
+  if (level === 1) {
+    parts.push(box(x1 - x0, y1, zf - zb, 0x8a6a48, [cx, y1 / 2, cz]));
+    boardsZ(parts, x0, x1, 0.02, y1, zf, C.wood, 0xc2884d, 0.18);
+    boardsX(parts, zb, zf, 0.02, y1, x1, C.wood, 0xc2884d, 0.18);
+  } else if (level === 2) {
+    parts.push(box(x1 - x0 + 0.06, yb, zf - zb + 0.06, STONE, [cx, yb / 2, cz]));
+    parts.push(box(x1 - x0, y1 - yb, zf - zb, 0x5d6d78, [cx, (yb + y1) / 2, cz]));
+    boardsZ(parts, x0, x1, yb, y1, zf, 0x7b8d99, 0x6c7d89, 0.16);
+    boardsX(parts, zb, zf, yb, y1, x1, 0x7b8d99, 0x6c7d89, 0.16);
+    for (const [x, z] of [
+      [x0, zf],
+      [x1, zf],
+      [x1, zb],
+    ])
+      parts.push(box(0.07, y1 - yb, 0.07, TRIM, [x, (yb + y1) / 2, z]));
+  } else {
+    parts.push(box(x1 - x0, y1, zf - zb, STONE, [cx, y1 / 2, cz]));
+    // moellons en relief et chaînes d'angle
+    for (let i = 0; i < 40; i++) parts.push(box(0.16 + rnd(i) * 0.12, 0.08 + rnd(i + 50) * 0.06, 0.025, rnd(i + 90) < 0.5 ? STONE_DARK : 0xcabfad, [x0 + 0.12 + rnd(i + 7) * (x1 - x0 - 0.24), 0.08 + rnd(i + 13) * (y1 - 0.16), zf + 0.015]));
+    for (let i = 0; i < 24; i++) parts.push(box(0.025, 0.08 + rnd(i + 150) * 0.06, 0.16 + rnd(i + 170) * 0.12, rnd(i + 190) < 0.5 ? STONE_DARK : 0xcabfad, [x1 + 0.015, 0.08 + rnd(i + 210) * (y1 - 0.16), zb + 0.12 + rnd(i + 230) * (zf - zb - 0.24)]));
+    for (const sx of [-1, 1])
+      for (let y = 0.12, k = 0; y < y1 - 0.1; y += 0.2, k++) parts.push(box(k % 2 ? 0.18 : 0.3, 0.17, 0.04, 0xe4dccb, [cx + sx * (W / 2 - 0.25 - (k % 2 ? 0.09 : 0.15)), y + 0.08, zf + 0.02]));
+  }
+  // porte large et basse (plain-pied), encadrement
+  const frame = level === 3 ? 0xd8cfbd : TRIM;
+  parts.push(box(doorW, doorH, 0.03, 0x2f2620, [cx, doorH / 2 + 0.02, zf + 0.035]));
+  parts.push(box(doorW + 0.14, 0.08, 0.06, frame, [cx, doorH + 0.06, zf + 0.05]));
+  for (const s2 of [-1, 1]) parts.push(box(0.07, doorH + 0.06, 0.06, frame, [cx + s2 * (doorW / 2 + 0.035), doorH / 2 + 0.04, zf + 0.05]));
+  if (level === 3) parts.push(cyl(doorW / 2 + 0.07, doorW / 2 + 0.07, 0.06, 14, frame, [cx, doorH + 0.04, zf + 0.05], [Math.PI / 2, 0, 0], [1, 0.45, 1]));
+  // vantail grand ouvert, contre la façade
+  const leafC = level === 2 ? 0x6c7d89 : C.woodDark;
+  parts.push(box(0.04, doorH - 0.04, doorW * 0.95, leafC, [cx + doorW / 2 + 0.08, doorH / 2 + 0.03, zf + 0.05 + doorW * 0.47], [0, 0.12, 0]));
+  for (const y of [0.18, doorH - 0.15]) parts.push(box(0.05, 0.05, doorW * 0.9, IRON, [cx + doorW / 2 + 0.11, y, zf + 0.05 + doorW * 0.47], [0, 0.12, 0]));
+  // toit
+  if (level === 1) {
+    gableRoof(parts, { cx, cz, y: y1, w: x1 - x0, d: zf - zb, h: 0.62, over: 0.16, side: 0.12, a: 0x8b7458, b: 0x7a6449, n: 7, ridge: 0x5e4c38, rive: TIMBER, gable: C.wood });
+  } else if (level === 2) {
+    const roof = gableRoof(parts, { cx, cz, y: y1, w: x1 - x0, d: zf - zb, h: 0.72, over: 0.16, side: 0.14, a: 0xb5573b, b: 0xa24b33, n: 7, ridge: 0x8a3c29, rive: TIMBER, gable: 0x7b8d99 });
+    // abat-vent d'aération sur le faîtage
+    for (const ax of [cx - 1.1, cx + 1.1]) {
+      parts.push(box(0.36, 0.22, 0.3, 0x7b8d99, [ax, roof.ridgeY + 0.1, cz]));
+      for (let k = 0; k < 3; k++) parts.push(box(0.3, 0.025, 0.04, TRIM, [ax, roof.ridgeY + 0.04 + k * 0.06, cz + 0.155], [0.5, 0, 0]));
+      parts.push(prism(0.44, 0.16, 0.4, 0xa24b33, [ax, roof.ridgeY + 0.21, cz]));
+    }
+  } else {
+    const roof = gableRoof(parts, { cx, cz, y: y1, w: x1 - x0, d: zf - zb, h: 0.95, over: 0.18, side: 0.16, a: 0x5f6b78, b: 0x55606b, n: 9, ridge: 0x46505a, rive: 0x46505a, gable: 0xf1e8d6 });
+    // pignon à colombages et lucarne-girouette
+    for (const t of [0.3, 0.55, 0.8]) parts.push(box(0.05, 0.05, 0.05, TIMBER, [x1 + 0.02, y1 + t * 0.6, cz]));
+    weathervane(parts, cx, roof.ridgeY, cz, 1);
+  }
+  // fenêtres et aérations
+  if (level === 1) {
+    for (const z of [cz - 0.4, cz + 0.4]) {
+      parts.push(box(0.03, 0.18, 0.34, 0x2f2620, [x1 + 0.03, 0.72, z]));
+      for (let k = 0; k < 4; k++) parts.push(box(0.035, 0.02, 0.36, C.woodDark, [x1 + 0.04, 0.65 + k * 0.045, z]));
+    }
+  } else {
+    const fy = level === 3 ? 1.1 : 0.92;
+    for (const x of [cx - (level === 3 ? 1.75 : 1.4), cx + (level === 3 ? 1.75 : 1.4)]) farmWindow(parts, windows, x, fy, zf + 0.012, 0.4, 0.32);
+    farmWindow(parts, windows, x1 + 0.012, fy, cz, 0.36, 0.3, true);
+  }
+  // abords : paille devant la porte, plumes, bassine ou bac à eau, bottes de paille
+  for (let i = 0; i < 9; i++) parts.push(box(0.2 + rnd(i + 400) * 0.25, 0.015, 0.03, 0xe8cf7a, [cx + (rnd(i + 410) - 0.5) * 1.2, 0.012, zf + 0.15 + rnd(i + 420) * 0.35], [0, rnd(i + 430) * 3, 0]));
+  for (let i = 0; i < 5; i++) parts.push(box(0.05, 0.008, 0.02, 0xf4f2ec, [cx + (rnd(i + 500) - 0.5) * 2, 0.012, zf + 0.3 + rnd(i + 510) * 0.25], [0, rnd(i + 520) * 3, 0]));
+  if (level === 1) {
+    parts.push(cyl(0.22, 0.19, 0.12, 16, 0xc3cad0, [x0 + 0.45, 0.07, zf + 0.3]));
+    parts.push(cyl(0.2, 0.2, 0.01, 16, 0x7cc7ee, [x0 + 0.45, 0.12, zf + 0.3]));
+    parts.push(box(0.36, 0.24, 0.24, C.straw, [x1 - 0.35, 0.12, zf + 0.25]));
+  } else if (level === 2) {
+    parts.push(box(0.8, 0.2, 0.32, 0x3a3f46, [x0 + 0.65, 0.1, zf + 0.28]));
+    parts.push(box(0.72, 0.01, 0.24, 0x7cc7ee, [x0 + 0.65, 0.19, zf + 0.28]));
+    for (const [x, y] of [
+      [x1 - 0.55, 0.12],
+      [x1 - 0.2, 0.12],
+      [x1 - 0.38, 0.36],
+    ])
+      parts.push(box(0.34, 0.24, 0.24, C.straw, [x, y, zf + 0.25]));
+  } else {
+    // petite mare de pierre au coin, roseaux
+    const px = x1 - 0.45;
+    const pz = zf + 0.28;
+    parts.push(cyl(0.48, 0.5, 0.08, 18, STONE, [px, 0.04, pz], undefined, [1, 1, 0.55]));
+    parts.push(cyl(0.4, 0.4, 0.02, 18, 0x6fb7d8, [px, 0.085, pz], undefined, [1, 1, 0.5]));
+    for (let k = 0; k < 6; k++) parts.push(cyl(0.008, 0.012, 0.32 + rnd(k + 600) * 0.15, 4, 0x6f8f4a, [px + 0.35 + rnd(k + 610) * 0.1, 0.2, pz - 0.15 + k * 0.05]));
+    parts.push(box(0.36, 0.24, 0.24, C.straw, [x0 + 0.35, 0.12, zf + 0.25]));
+  }
+  // enseigne à l'oie au-dessus de la porte
+  parts.push(box(0.4, 0.15, 0.025, level === 2 ? TRIM : 0xe7d5b0, [cx, doorH + 0.24, zf + 0.06]));
+  parts.push(sph(0.045, 8, 6, 0xf4f2ec, [cx - 0.03, doorH + 0.24, zf + 0.08], [1.5, 1, 0.3]));
+  parts.push(box(0.012, 0.07, 0.01, 0xf4f2ec, [cx + 0.04, doorH + 0.28, zf + 0.08], [0, 0, -0.3]));
+  parts.push(box(0.04, 0.012, 0.01, 0xf09a3c, [cx + 0.07, doorH + 0.31, zf + 0.08]));
 }
 
 // ================================================================ RÉSERVES ====
@@ -902,6 +1027,94 @@ export function storeWarehouse(parts: Parts, windows: THREE.Mesh[]): CrateSpot[]
     [0.3, 1.52, 0.41, 0],
     [0.64, 1.52, 0.41, 0],
   ];
+}
+
+/**
+ * Niveau 5 — plateforme frigorifique (dessinée sur 3 × 2, plus longue que les autres) : grand
+ * volume en panneaux isolants, bandeau bleu, trois quais de chargement (portes sectionnelles, sas
+ * d'étanchéité, butoirs, niveleurs), quai surélevé où s'empilent les palettes de cageots, groupes
+ * froids et tuyauteries sur le toit, bureau d'expédition vitré au bout, porte de service.
+ */
+export function storeColdHub(parts: Parts, windows: THREE.Mesh[]): CrateSpot[] {
+  const x0 = 0.08;
+  const x1 = 2.45;
+  const zb = 0.1;
+  const zf = 1.25;
+  const y0 = 0.1;
+  const y1 = 1.6;
+  const cx = (x0 + x1) / 2;
+  const cz = (zb + zf) / 2;
+  const PANEL = 0xf1f3f5;
+  const SEAM = 0xd8dde3;
+  // volume principal : panneaux isolants, soubassement, bandeau bleu, acrotère
+  parts.push(box(x1 - x0, y1 - y0, zf - zb, PANEL, [cx, (y0 + y1) / 2, cz]));
+  parts.push(box(x1 - x0 + 0.02, 0.16, zf - zb + 0.02, 0x6b7280, [cx, y0 + 0.08, cz]));
+  for (let x = x0 + 0.12; x < x1 - 0.04; x += 0.12) parts.push(box(0.025, y1 - y0 - 0.16, 0.018, SEAM, [x, (y0 + y1 + 0.16) / 2, zf + 0.01]));
+  for (let z = zb + 0.12; z < zf - 0.04; z += 0.12) parts.push(box(0.018, y1 - y0 - 0.16, 0.025, SEAM, [x1 + 0.01, (y0 + y1 + 0.16) / 2, z]));
+  parts.push(box(x1 - x0 + 0.03, 0.17, 0.035, C.blue, [cx, y1 - 0.16, zf + 0.03]));
+  parts.push(box(0.035, 0.17, zf - zb + 0.03, C.blue, [x1 + 0.03, y1 - 0.16, cz]));
+  parts.push(box(x1 - x0 + 0.03, 0.03, 0.04, 0xffffff, [cx, y1 - 0.26, zf + 0.035]));
+  parts.push(box(x1 - x0 + 0.06, 0.08, zf - zb + 0.06, 0xdfe3e8, [cx, y1 + 0.04, cz]));
+  parts.push(box(x1 - x0 - 0.04, 0.03, zf - zb - 0.04, 0xb9c0c8, [cx, y1 + 0.02, cz]));
+  // trois quais : portes sectionnelles, sas d'étanchéité noirs, butoirs, niveleurs
+  const docks = [0.5, 1.2, 1.9];
+  for (const dx of docks) {
+    parts.push(box(0.56, 0.86, 0.06, 0x23262c, [dx, y0 + 0.62, zf + 0.03]));
+    parts.push(box(0.5, 0.06, 0.08, 0x23262c, [dx, y0 + 1.07, zf + 0.05]));
+    for (const s2 of [-1, 1]) parts.push(box(0.05, 0.86, 0.08, 0x23262c, [dx + s2 * 0.27, y0 + 0.62, zf + 0.05]));
+    for (let i = 0; i < 7; i++) parts.push(box(0.44, 0.105, 0.03, i % 2 ? 0xd6dbe0 : 0xc6ccd3, [dx, y0 + 0.24 + i * 0.112, zf + 0.075]));
+    parts.push(box(0.12, 0.05, 0.02, 0x9aa3ad, [dx, y0 + 0.3, zf + 0.095]));
+    // feux de quai et butoirs
+    parts.push(box(0.05, 0.05, 0.03, 0x48b86b, [dx - 0.34, y0 + 0.95, zf + 0.04]));
+    parts.push(box(0.05, 0.05, 0.03, 0xd9534f, [dx - 0.34, y0 + 0.89, zf + 0.04]));
+    for (const s2 of [-1, 1]) parts.push(box(0.07, 0.12, 0.06, 0x2b2b31, [dx + s2 * 0.2, 0.32, zf + 0.53]));
+    parts.push(box(0.42, 0.02, 0.42, 0x8e939b, [dx, 0.27, zf + 0.25]));
+  }
+  // quai surélevé, bord jaune et noir, escalier
+  parts.push(box(x1 - x0, 0.26, 0.5, 0xc9c9c4, [cx, 0.13, zf + 0.25]));
+  for (let i = 0; i < 12; i++) parts.push(box((x1 - x0) / 12 - 0.01, 0.03, 0.05, i % 2 ? 0x2b2b31 : 0xf0c94a, [x0 + ((i + 0.5) * (x1 - x0)) / 12, 0.255, zf + 0.48]));
+  for (let k = 0; k < 3; k++) parts.push(box(0.3, 0.08, 0.12, 0xb9b9b4, [x1 + 0.12, 0.04 + k * 0.08, zf + 0.42 - k * 0.12]));
+  // groupes froids, tuyauteries et grille d'aération sur le toit
+  for (const ux of [0.45, 1.05, 1.65]) {
+    parts.push(box(0.46, 0.22, 0.4, 0xdfe3e8, [ux, y1 + 0.2, cz - 0.1]));
+    for (const dz of [-0.09, 0.09]) {
+      parts.push(cyl(0.085, 0.085, 0.02, 14, 0x2a2f3a, [ux - 0.1, y1 + 0.32, cz - 0.1 + dz * 1.6]));
+      parts.push(cyl(0.085, 0.085, 0.02, 14, 0x2a2f3a, [ux + 0.1, y1 + 0.32, cz - 0.1 + dz * 1.6]));
+    }
+    parts.push(cyl(0.02, 0.02, 0.3, 8, 0xb7c0c7, [ux, y1 + 0.15, cz + 0.2], [Math.PI / 2, 0, 0]));
+  }
+  parts.push(cyl(0.025, 0.025, y1 - 0.2, 8, 0xb7c0c7, [x1 + 0.05, (y1 + 0.2) / 2, zb + 0.15]));
+  parts.push(cyl(0.025, 0.025, y1 - 0.2, 8, 0xb7c0c7, [x1 + 0.05, (y1 + 0.2) / 2, zb + 0.25]));
+  // bureau d'expédition vitré au bout (côté +x)
+  const ox0 = x1 + 0.02;
+  const ox1 = 2.95;
+  const oz0 = 0.35;
+  const oz1 = 1.3;
+  const oy = 1.05;
+  const ocx = (ox0 + ox1) / 2;
+  const ocz = (oz0 + oz1) / 2;
+  parts.push(box(ox1 - ox0, oy, oz1 - oz0, 0xe9ece8, [ocx, oy / 2, ocz]));
+  parts.push(box(ox1 - ox0 + 0.06, 0.06, oz1 - oz0 + 0.06, 0x5f6870, [ocx, oy + 0.03, ocz]));
+  windows.push(glassPane(ox1 - ox0 - 0.12, 0.34, [ocx, 0.66, oz1 + 0.012], 0, 0.02));
+  for (let i = 0; i <= 3; i++) parts.push(box(0.03, 0.4, 0.035, FRAME_DARK, [ox0 + 0.06 + (i * (ox1 - ox0 - 0.12)) / 3, 0.66, oz1 + 0.025]));
+  for (const y of [0.47, 0.85]) parts.push(box(ox1 - ox0 - 0.08, 0.03, 0.035, FRAME_DARK, [ocx, y, oz1 + 0.025]));
+  windows.push(glassPane(oz1 - oz0 - 0.4, 0.34, [ox1 + 0.012, 0.66, ocz + 0.12], Math.PI / 2, 0.02));
+  parts.push(box(0.035, 0.66, 0.26, C.blue, [ox1 + 0.02, 0.38, oz0 + 0.2]));
+  parts.push(box(0.04, 0.04, 0.06, IRON, [ox1 + 0.045, 0.4, oz0 + 0.29]));
+  parts.push(box(0.4, 0.1, 0.03, C.blue, [ocx, oy - 0.12, oz1 + 0.03]));
+  parts.push(box(0.12, 0.05, 0.02, 0xffffff, [ocx, oy - 0.12, oz1 + 0.048]));
+  lantern(parts, windows, ox1 - 0.05, 0.86, oz1);
+  // porte de service sur le volume froid, à l'arrière du bureau
+  parts.push(box(0.03, 0.82, 0.32, 0xe1e5ea, [x1 + 0.02, y0 + 0.41, zb + 0.08 + 0.16]));
+  // palettes de cageots sur le quai (remplies selon le stock), une palette posée devant
+  const spots: CrateSpot[] = [];
+  for (const dx of [0.25, 0.85, 1.55, 2.2])
+    for (const k of [0, 1, 2]) {
+      spots.push([dx - 0.08, zf + 0.2, 0.3 + k * 0.17, 0]);
+      spots.push([dx + 0.12, zf + 0.34, 0.3 + k * 0.17, 0.08]);
+    }
+  for (const dx of [0.25, 0.85, 1.55, 2.2]) parts.push(box(0.42, 0.04, 0.36, 0xc8a46f, [dx + 0.02, 0.28, zf + 0.27]));
+  return spots;
 }
 
 // ================================================================ PONDOIRS ====

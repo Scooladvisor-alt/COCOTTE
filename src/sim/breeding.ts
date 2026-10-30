@@ -5,7 +5,7 @@ import { BREEDS, isGoose } from '../config/breeds';
 import { buildingCenter, currentHour, emit, notify, rand, randRange } from './core';
 import { createHen } from './hens';
 import { GENE_INFO, decodeGenes, encodeGenes, genesOf, inherit } from './genetics';
-import { buildingsOf, coopCapacity, coopFor, coopOccupancy, landCapacity, lvl } from './queries';
+import { buildingsOf, coopCapacity, coopFor, coopOccupancy, landCapacity, lvl, shelterType } from './queries';
 import type { ActionResult, BreedId, Building, GameState, Hen } from './types';
 
 export const isRooster = (h: Hen) => !!h.rooster && !h.young;
@@ -160,7 +160,7 @@ function nurseryCoop(s: GameState, breed: BreedId) {
   if (fit) return fit;
   let best: Building | null = null;
   let bestFree = -Infinity;
-  for (const c of buildingsOf(s, 'coop')) {
+  for (const c of buildingsOf(s, shelterType(breed))) {
     const free = lvl(c).capacity - coopOccupancy(s, c.id);
     if (free > bestFree) {
       best = c;

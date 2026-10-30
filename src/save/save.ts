@@ -4,11 +4,12 @@ import { DELIVERY, EGG_ORDER, EGG_TYPES, GRAIN_BINS, GRID_H, GRID_W, GRID_Z0, GR
 import { BREEDS } from '../config/breeds';
 import { BUILDINGS } from '../config/buildings';
 import { MISSIONS } from '../config/missions';
-import { invalidateLayout } from '../sim/core';
+import { invalidateLayout, isShelterType } from '../sim/core';
 import { createNewGame, makeBuilding } from '../sim/state';
 import type { BreedId, Building, Delivery, BuildingType, EggType, GameState, Grade, Hen, HenAct, Worker, WorkerRole } from '../sim/types';
 import { ROLES } from '../config/staff';
 import { createWorker } from '../sim/workers';
+import { rehouseGeese } from '../sim/actions';
 import { autoEnclose } from '../sim/fences';
 import { refitCoops, refitStorage } from '../sim/buildings';
 import { decodeGenes } from '../sim/genetics';
@@ -212,7 +213,7 @@ export function sanitize(input: unknown): GameState | null {
     const cap = def.levels[nb.level - 1].capacity;
     nb.stock = num(b.stock, nb.stock, 0, cap);
     nb.cleanliness = num(b.cleanliness, 100, 0, 100);
-    nb.closed = type === 'coop' && bool(b.closed, false);
+    nb.closed = isShelterType(type) && bool(b.closed, false);
     nb.invested = int(b.invested, 0, 0, 1e10);
     nb.builtAt = num(b.builtAt, 0);
     nb.eggIds = [];
@@ -569,5 +570,7 @@ export function sanitize(input: unknown): GameState | null {
   if (fromVersion < 9) refitStorage(s);
   s.version = SAVE_VERSION;
   invalidateLayout(s);
+  // les oies d'une ancienne partie quittent le poulailler s'il existe un abri à oies
+  rehouseGeese(s);
   return s;
 }

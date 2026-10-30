@@ -2,29 +2,7 @@
 // et l'emporte ; la buse (en journée) tournoie au-dessus de la ferme puis pique sur sa proie.
 // Le joueur les abat d'un clic ; le commis et le jardinier sortent le fusil (voir workers.ts).
 import { DOG, GRID_H, GRID_W, GRID_Z0, GRID_Z1, HOUR, PREDATORS, WORLD, clamp } from '../config/balance';
-import {
-  blocksMover,
-  cellIndex,
-  cellX,
-  cellZ,
-  coopDoor,
-  crossesFence,
-  currentDay,
-  currentHour,
-  edgeBetween,
-  emit,
-  inGrid,
-  newId,
-  notify,
-  parcelCoords,
-  parcelOrigin,
-  rand,
-  randRange,
-  rt,
-  smoothPath,
-  stepBlocked,
-  type Mover,
-} from './core';
+import { blocksMover, cellIndex, cellX, cellZ, coopDoor, crossesFence, currentDay, currentHour, edgeBetween, emit, inGrid, newId, notify, parcelCoords, parcelOrigin, rand, randRange, rt, smoothPath, stepBlocked, type Mover, isShelter } from './core';
 import { shelteredByTree } from './perks';
 import { addXp, earn, farmLevel, fmtMoney } from './economy';
 import { getBuilding } from './queries';
@@ -349,7 +327,7 @@ function foxSpawnPoint(s: GameState, near: { x: number; z: number }): [number, n
 /** Fait surgir un prédateur (tirage horaire, ou directement pour les tests). */
 export function spawnPredator(s: GameState, species: PredatorSpecies): Predator {
   const outside = s.hens.filter(catchable);
-  const coops = s.buildings.filter((b) => b.type === 'coop');
+  const coops = s.buildings.filter((b) => isShelter(b));
   const focus = outside.length
     ? (() => {
         const h = outside[Math.floor(rand(s) * outside.length)];
@@ -467,7 +445,7 @@ function updateFox(s: GameState, p: Predator, dt: number) {
       }
       if (!hen) {
         // personne dehors : un poulailler resté ouvert ? sinon il rôde devant une trappe fermée
-        const coops = s.buildings.filter((b) => b.type === 'coop' && s.hens.some((h) => h.coopId === b.id && h.act === 'sleep'));
+        const coops = s.buildings.filter((b) => isShelter(b) && s.hens.some((h) => h.coopId === b.id && h.act === 'sleep'));
         const open = coops.filter((b) => !b.closed);
         const pickNear = (list: Building[]) => list.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z))[0];
         const target = open.length ? pickNear(open) : coops.length ? pickNear(coops) : null;

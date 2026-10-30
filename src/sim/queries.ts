@@ -1,6 +1,6 @@
 // Requêtes en lecture seule sur l'état (capacités, compteurs…).
 import { PARCELS } from '../config/balance';
-import { BREEDS } from '../config/breeds';
+import { BREEDS, isGoose } from '../config/breeds';
 import { BUILDINGS, type BuildingLevel } from '../config/buildings';
 import type { BreedId, Building, BuildingType, EggType, GameState, Grade } from './types';
 import { GRADE_RANK } from '../config/balance';
@@ -41,8 +41,9 @@ export function adultCount(s: GameState) {
   for (const h of s.hens) if (!h.young) n++;
   return n;
 }
+/** Places pour dormir à l'abri : poulaillers et abris à oies. */
 export function coopCapacity(s: GameState) {
-  return buildingsOf(s, 'coop').reduce((a, b) => a + lvl(b).capacity, 0);
+  return s.buildings.reduce((a, b) => a + (b.type === 'coop' || b.type === 'goosehouse' ? lvl(b).capacity : 0), 0);
 }
 export function landCapacity(s: GameState) {
   return s.parcels.length * PARCELS.hensPerParcel;
@@ -51,12 +52,15 @@ export function landCapacity(s: GameState) {
 export function flockCapacity(s: GameState) {
   return Math.min(coopCapacity(s), landCapacity(s));
 }
-/** Poulailler disposant d'une place compatible avec la race (le moins rempli d'abord). */
+/** Bâtiment où dort chaque espèce : le poulailler pour les poules, l'abri à oies pour les oies. */
+export const shelterType = (breed: BreedId): BuildingType => (isGoose(breed) ? 'goosehouse' : 'coop');
+
+/** Abri disposant d'une place compatible avec la race (le moins rempli d'abord). */
 export function coopFor(s: GameState, breed: BreedId): Building | null {
-  const need = BREEDS[breed].reqCoop;
+  const need = isGoose(breed) ? 1 : BREEDS[breed].reqCoop;
   let best: Building | null = null;
   let bestFree = 0;
-  for (const c of buildingsOf(s, 'coop')) {
+  for (const c of buildingsOf(s, shelterType(breed))) {
     if (c.level < need) continue;
     const free = lvl(c).capacity - coopOccupancy(s, c.id);
     if (free >= henSlots(breed) && free > bestFree) {

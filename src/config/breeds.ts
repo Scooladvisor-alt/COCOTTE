@@ -273,8 +273,8 @@ export const BREEDS: Record<BreedId, BreedDef> = {
   },
   oie: {
     id: 'oie',
-    name: 'Oie de Toulouse',
-    description: 'Grande oie grise au ventre blanc (ou blanche d’Emden), bec et pattes orange. Elle broute beaucoup, monte la garde en criant et pond de gros œufs d’oie très recherchés. Réservée aux grandes exploitations.',
+    name: 'Oie',
+    description: 'Grande oie au bec et aux pattes orange : son plumage est tiré au hasard à l’achat, grise au ventre blanc (Oie de Toulouse) ou toute blanche (Oie d’Emden). Elle vit dans son abri à oies, broute beaucoup près de chez elle et pond de gros œufs d’oie très recherchés.',
     price: 9000,
     eggsPerDay: 1.3,
     egg: 'oie',
@@ -293,7 +293,7 @@ export const BREEDS: Record<BreedId, BreedDef> = {
       { name: 'Blanche d’Emden', weight: 0.35, look: GOOSE_EMDEN },
     ],
     scale: 1.55,
-    trait: 'Grands œufs',
+    trait: 'Grise ou blanche',
     genes: { p: [2, 3], r: [3, 3], b: [2, 3] },
   },
 };
@@ -311,7 +311,7 @@ export const ROOSTER_TITLES: Record<BreedId, string> = {
   soie: 'Coq soie',
   araucana: 'Coq Araucana',
   marans: 'Coq Marans noir cuivré',
-  oie: 'Jars de Toulouse',
+  oie: 'Jars',
 };
 
 /** Noms des oies et des jars. */

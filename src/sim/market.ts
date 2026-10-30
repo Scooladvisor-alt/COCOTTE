@@ -114,6 +114,30 @@ function loseCustomer(s: GameState, c: Customer) {
   emit(s, { kind: 'customerMood', customerId: c.id, mood: c.mood });
 }
 
+/** Sert un client fictif tout de suite (tests). */
+export function serveCustomerForTest(s: GameState) {
+  serveCustomer(s, { id: -1, state: 'shopping', mood: 'happy', want: 6, wtp: 1, kind: 'classique' } as unknown as Customer);
+}
+
+/** Prix affiché de l'œuf d'or à l'étal. */
+export const goldPrice = (s: GameState) => s.prices.or ?? RARE.goldEggPrice;
+
+/** Chance qu'un client de l'étal achète un œuf d'or à ce prix (plus le prix est doux, plus il part vite). */
+export function goldBuyChance(s: GameState, price: number) {
+  const base = RARE.goldEggPrice * MARKET.repWtp(s.reputation);
+  const x = price / base;
+  return RARE.goldCustomerShare * (1 - normCdf(Math.log(x) / MARKET.wtpSigma));
+}
+
+/** Ventes d'œufs d'or attendues par jour à l'étal, à ce prix. */
+export const goldDemand = (s: GameState, price: number) => customersPerDay(s) * goldBuyChance(s, price);
+
+/** Prix de l'œuf d'or à l'étal : de 50 à 400 €. */
+export function setGoldPrice(s: GameState, cents: number) {
+  s.prices.or = Math.round(clamp(cents, 5000, 40000) / 100) * 100;
+  s.stats.priceSet = true;
+}
+
 /** Position du guichet i (sur n) devant l'étal. */
 const counterX = (i: number, n: number) => STAND_POS.x + 1 + (i - (n - 1) / 2) * 0.62;
 /** Place k dans la file, le long du trottoir, à droite des guichets. */
@@ -173,6 +197,18 @@ function serveCustomer(s: GameState, c: Customer) {
       c.bought = qty;
       emit(s, { kind: 'sale', amount, qty, x: STAND_POS.x + 1, z: STAND_POS.z, channel: 'etal' });
     }
+  }
+  // l'œuf d'or exposé sur l'étal : un client sur quelques dizaines craque, d'autant plus que le prix est doux
+  if ((s.goldEggs ?? 0) > 0 && rand(s) < goldBuyChance(s, goldPrice(s))) {
+    const price = goldPrice(s);
+    s.goldEggs = (s.goldEggs ?? 0) - 1;
+    s.stats.goldEggsSold = (s.stats.goldEggsSold ?? 0) + 1;
+    earn(s, price, 'etal', 'Œuf d’or vendu à l’étal');
+    addXp(s, 5);
+    c.mood = 'happy';
+    c.bought = (c.bought ?? 0) + 1;
+    emit(s, { kind: 'sale', amount: price, qty: 1, x: STAND_POS.x + 1, z: STAND_POS.z, channel: 'etal' });
+    notify(s, `Un client repart avec un œuf d’or : +${fmtMoney(price)} !`, 'good', '✨');
   }
   emit(s, { kind: 'customerMood', customerId: c.id, mood: c.mood });
 }
@@ -642,7 +678,7 @@ export function sellGoldEggs(s: GameState, n = s.goldEggs ?? 0): { ok: boolean; 
   if (n <= 0) return { ok: false, reason: 'Aucun œuf d’or en réserve' };
   s.goldEggs = have - n;
   s.stats.goldEggsSold = (s.stats.goldEggsSold ?? 0) + n;
-  const amount = n * RARE.goldEggPrice;
+  const amount = n * RARE.goldCollectorPrice;
   earn(s, amount, 'reventes', n > 1 ? `${n} œufs d’or (collectionneur)` : 'Œuf d’or (collectionneur)');
   emit(s, { kind: 'sale', amount, qty: n, x: STAND_POS.x + 1, z: STAND_POS.z, channel: 'reventes' });
   addXp(s, 5 * n);

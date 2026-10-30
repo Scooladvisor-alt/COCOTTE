@@ -327,6 +327,7 @@ export function sanitize(input: unknown): GameState | null {
   // Prix et marché
   const prices = obj(raw.prices);
   for (const t of EGG_ORDER) s.prices[t] = int(prices[t], s.prices[t], 1, 100000);
+  s.prices.or = int(prices.or, EGG_TYPES.or.ref, 5000, 40000);
   const market = obj(raw.market);
   const trend = obj(market.trend);
   for (const t of EGG_ORDER) s.market.trend[t] = num(trend[t], 1, 0.5, 2);

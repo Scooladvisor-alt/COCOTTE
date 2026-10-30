@@ -50,6 +50,22 @@ HEN_MAT.onBeforeCompile = (sh) => {
   );
 };
 
+/**
+ * Plumes d'or de la poule aux œufs d'or : surface brillante (reflets spéculaires dorés qui glissent
+ * avec la lumière), légère lueur propre et liseré lumineux plus fort que celui des autres volailles.
+ */
+export const GOLD_HEN_MAT = new THREE.MeshPhongMaterial({ vertexColors: true, specular: 0xfff0a8, shininess: 70, emissive: 0x4a3300 });
+GOLD_HEN_MAT.onBeforeCompile = (sh) => {
+  sh.uniforms.uRim = HEN_RIM;
+  sh.fragmentShader = sh.fragmentShader.replace('#include <common>', '#include <common>\nuniform float uRim;').replace(
+    '#include <emissivemap_fragment>',
+    `#include <emissivemap_fragment>
+      vec3 rimV = isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition );
+      float rimK = pow( 1.0 - saturate( dot( normal, rimV ) ), 2.2 );
+      totalEmissiveRadiance += vec3( 1.0, 0.82, 0.35 ) * rimK * ( 0.35 + uRim );`,
+  );
+};
+
 // ------------------------------------------------------------- Outils ----
 type V3 = [number, number, number];
 type Paint = number | ((p: THREE.Vector3, n: THREE.Vector3, c: THREE.Color) => void);

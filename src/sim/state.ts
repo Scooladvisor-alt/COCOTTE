@@ -23,6 +23,8 @@ export function makeBuilding(id: number, type: BuildingType, x: number, z: numbe
 export function defaultPrices(): Record<EggType, number> {
   const p = {} as Record<EggType, number>;
   for (const t of EGG_ORDER) p[t] = EGG_TYPES[t].ref;
+  // l'œuf d'or (hors marché) : affiché à son prix de référence
+  p.or = EGG_TYPES.or.ref;
   return p;
 }
 export function defaultTrend(): Record<EggType, number> {

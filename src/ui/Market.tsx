@@ -28,7 +28,11 @@ import {
   setPrice,
   standCounters,
   wholesaleQuote,
+  goldBuyChance,
+  goldDemand,
+  goldPrice,
   sellGoldEggs,
+  setGoldPrice,
 } from '../sim/market';
 import { lvl, stand, storedCount } from '../sim/queries';
 import { BUILDINGS } from '../config/buildings';
@@ -112,16 +116,6 @@ function StandTab() {
   const gold = s.goldEggs ?? 0;
   return (
     <>
-      {(gold > 0 || s.hens.some((h) => h.golden)) && (
-        <div class="notice">
-          <span>
-            ✨ Œufs d’or en réserve : <b>{gold}</b> — le collectionneur les rachète {fmtMoney(RARE.goldEggPrice)} pièce.
-          </span>
-          <Btn small kind="primary" disabled={gold <= 0} onClick={() => game.act(() => sellGoldEggs(s), 'coin')}>
-            Vendre {gold > 1 ? `les ${gold}` : ''} ({fmtMoney(gold * RARE.goldEggPrice)})
-          </Btn>
-        </div>
-      )}
       <div class="strip">
         <div>
           <small>En stock</small>
@@ -156,6 +150,7 @@ function StandTab() {
         Les villageois passent de {TIME.SHOP_OPEN} h à {TIME.SHOP_CLOSE} h. Prix bas : les œufs partent vite. Prix haut : plus de marge… si les clients suivent.
       </p>
       <div class="price-list" data-tut="prices">
+        {(gold > 0 || s.hens.some((h) => h.golden)) && <GoldPriceCard />}
         {types.map((t) => (
           <PriceCard key={t} type={t} />
         ))}
@@ -243,6 +238,82 @@ function StandCard() {
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * L'œuf d'or exposé sur l'étal : on fixe son prix comme les autres (prix doux : il part vite ; prix
+ * fort : il attend l'amateur), ou on le cède tout de suite au collectionneur, moins cher.
+ */
+function GoldPriceCard() {
+  const game = useGame();
+  const s = game.state;
+  const gold = s.goldEggs ?? 0;
+  const price = goldPrice(s);
+  const ref = RARE.goldEggPrice;
+  const chance = goldBuyChance(s, price) / RARE.goldCustomerShare;
+  const sp = speedLabel(chance);
+  const demand = goldDemand(s, price);
+  const hens = s.hens.filter((h) => h.golden && !h.young).length;
+  const set = (v: number) => {
+    setGoldPrice(s, v);
+    game.changed();
+  };
+  const presets: Array<[string, number]> = [
+    ['Écouler', Math.round((ref * 0.7) / 100) * 100],
+    ['Marché', ref],
+    ['Prestige', Math.round((ref * 1.6) / 100) * 100],
+  ];
+  return (
+    <div class="pcard2 gold">
+      <img class="pc-egg" src={eggThumb('or')} alt="" />
+      <div class="pc-main">
+        <div class="pc-top">
+          <b>Œuf d’or</b>
+          <span class="tag">Rarissime</span>
+          <small>
+            {gold} exposé{gold > 1 ? 's' : ''} sur l’étal · ne s’abîme jamais
+          </small>
+        </div>
+        <div class="pc-slider">
+          <button class="step" onClick={() => set(price - 500)} title="−5 €">
+            −
+          </button>
+          <input type="range" min={5000} max={40000} step={500} value={price} onInput={(e) => set(Number((e.target as HTMLInputElement).value))} />
+          <button class="step" onClick={() => set(price + 500)} title="+5 €">
+            +
+          </button>
+        </div>
+        <div class={`pc-accept ${sp.c}`}>
+          <span class="acc">
+            <i style={{ width: `${Math.round(Math.min(1, chance) * 100)}%` }} />
+          </span>
+          <em>
+            {Math.round(Math.min(1, chance) * 100)} % des amateurs craquent · vente {sp.t.toLowerCase()}
+          </em>
+        </div>
+        <small class="pc-foot">
+          Ventes ≈ {n1(demand)} / jour à ce prix · {hens ? `${hens} poule${hens > 1 ? 's' : ''} aux œufs d’or ≈ ${n1(hens * RARE.goldEggsPerDay)} œuf / jour` : 'la poule dorée est encore poussine'} · valeur exposée {fmtMoney(gold * price)}
+        </small>
+        <div class="row-btns">
+          <Btn small kind="ghost" disabled={gold <= 0} onClick={() => game.act(() => sellGoldEggs(s), 'coin')} title="Vente immédiate et garantie, mais moins chère qu’à l’étal">
+            Tout céder au collectionneur · {fmtMoney(RARE.goldCollectorPrice)} pièce{gold > 0 ? ` (${fmtMoney(gold * RARE.goldCollectorPrice)})` : ''}
+          </Btn>
+        </div>
+      </div>
+      <div class="pc-price">
+        <b>{fmtMoney(price)}</b>
+        <small>par œuf</small>
+        <span class="mkt">Amateurs ≈ {fmtMoney(ref)}</span>
+        <div class="seg">
+          {presets.map(([label, v]) => (
+            <button key={label} class={price === v ? 'on' : ''} onClick={() => set(v)}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

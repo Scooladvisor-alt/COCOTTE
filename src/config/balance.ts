@@ -666,8 +666,12 @@ export const RARE = {
   goldenHenHatch: 0.004,
   /** La poule aux œufs d'or pond un œuf d'or tous les deux jours (en bonne forme). */
   goldEggsPerDay: 0.5,
-  /** Prix d'un œuf d'or chez le collectionneur (centimes). */
+  /** Prix de référence d'un œuf d'or : ce qu'un amateur paie volontiers à l'étal (centimes). */
   goldEggPrice: 15000,
+  /** Le collectionneur rachète tout, tout de suite, mais moins cher (centimes l'œuf). */
+  goldCollectorPrice: 10000,
+  /** Part des clients de l'étal tentés par un œuf d'or affiché au prix de référence. */
+  goldCustomerShare: 0.06,
   /** Valeur de la poule elle-même : une vingtaine d'œufs d'or. */
   goldHenEggs: 20,
 };

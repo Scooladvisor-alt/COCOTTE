@@ -11,7 +11,7 @@ import { simAlpha } from '../sim/simulation';
 import type { BreedId, Building, BuildingType, GameState, Hen, Predator } from '../sim/types';
 import { BLACK_SKIN, BREED_ORDER, BREEDS, GOLD_SKIN } from '../config/breeds';
 import { ROLES, femName } from '../config/staff';
-import { C, GLOW, GRASS_MAT, GRASS_WIND, MAT, SNOW_UNIFORM, box, merge, mesh } from './geo';
+import { C, GLOW, GRASS_MAT, GRASS_WIND, MAT, SNOW_UNIFORM, box, cyl, merge, mesh } from './geo';
 import { Particles, Shots } from './fx';
 import { createPredatorView, preyModel, type PredatorView } from './predatorModels';
 import { Highlight, haloTexture } from './highlight';
@@ -35,6 +35,7 @@ import { buildDecor, inDecorZone, type Decor } from './decor';
 import { LabelLayer } from './labels';
 import {
   EGG_MAT,
+  GOLD_EGG_MAT,
   EGG_ROT_MAT,
   EGG_STALE_MAT,
   bench,
@@ -42,6 +43,8 @@ import {
   buildingModel,
   createHenView,
   HenBatch,
+  LANTERN_GLOW,
+  GOLD_HEN_MAT,
   HEN_RIM,
   HEN_PIVOT,
   ADULT_STAGE,
@@ -196,6 +199,9 @@ const sweepM = new THREE.Matrix4();
 const ray = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -GRASS_TOP);
 
+/** Lueur dorée au sol (dégradé de la lanterne, teinté d'or, en mélange additif). */
+const GOLD_GLOW = new THREE.MeshBasicMaterial({ map: LANTERN_GLOW.map, color: 0xffc94a, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending });
+
 function hash(i: number) {
   const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
@@ -246,6 +252,10 @@ export class FarmRenderer {
   fences: FenceLayer;
   private robotsG = new THREE.Group();
   private robots = new Map<number, RobotView>();
+  /** Halo doré sous chaque poule aux œufs d'or. */
+  private goldGlows = new Map<number, THREE.Mesh>();
+  /** Vitrine de l'œuf d'or devant l'étal (créée à la première occasion). */
+  private goldShowcase: THREE.Group | null = null;
   selectedRobot = -1;
   selectedDog = false;
   private dogView: DogView | null = null;
@@ -913,6 +923,7 @@ export class FarmRenderer {
         }
       }
       if (b.type === 'nest') this.syncNestEggs(s, b, v);
+      if (b.type === 'stand') this.syncGoldShowcase(s, v);
       if (b.type === 'incubator') this.syncIncubatorEggs(b, v);
       if (v.door) {
         // la trappe glisse vers le bas quand le commis ferme le poulailler
@@ -965,6 +976,61 @@ export class FarmRenderer {
     }
   }
 
+  /**
+   * Vitrine de l'œuf d'or devant l'étal : piédestal de bois, coussin de velours rouge, œufs d'or
+   * sous une cloche de verre et petite étiquette de prix ; visible tant qu'il reste des œufs d'or.
+   */
+  private syncGoldShowcase(s: GameState, v: BState) {
+    const n = Math.min(3, s.goldEggs ?? 0);
+    if (!this.goldShowcase) {
+      const g = new THREE.Group();
+      g.add(
+        mesh(
+          merge([
+            cyl(0.16, 0.2, 0.06, 14, C.woodDark, [0, 0.03, 0]),
+            cyl(0.07, 0.09, 0.62, 12, C.wood, [0, 0.37, 0]),
+            cyl(0.17, 0.15, 0.05, 14, C.woodDark, [0, 0.7, 0]),
+            cyl(0.14, 0.14, 0.05, 14, 0x9c1f2e, [0, 0.745, 0]),
+            box(0.2, 0.12, 0.02, 0xf6efe2, [0.0, 0.62, 0.19], [-0.2, 0, 0]),
+            box(0.14, 0.03, 0.022, 0xd4a017, [0.0, 0.63, 0.198], [-0.2, 0, 0]),
+          ]),
+        ),
+      );
+      const eggs: THREE.Mesh[] = [];
+      for (const [x, z, r] of [
+        [0, 0, 0],
+        [-0.065, 0.03, 0.35],
+        [0.065, 0.03, -0.35],
+      ]) {
+        const e = new THREE.Mesh(eggGeometry('or'), GOLD_EGG_MAT);
+        e.position.set(x, 0.77, z);
+        e.rotation.z = r;
+        e.scale.setScalar(0.9);
+        g.add(e);
+        eggs.push(e);
+      }
+      const dome = new THREE.Mesh(new THREE.SphereGeometry(0.16, 18, 12, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshPhongMaterial({ color: 0xdff2ff, transparent: true, opacity: 0.22, shininess: 120, specular: 0xffffff, depthWrite: false }));
+      dome.position.y = 0.77;
+      dome.scale.y = 1.35;
+      dome.renderOrder = 4;
+      g.add(dome);
+      g.userData.eggs = eggs;
+      // devant l'étal, du côté de la file des clients
+      g.position.set(2.45, 0, 1.25);
+      v.group.add(g);
+      this.goldShowcase = g;
+    }
+    const g = this.goldShowcase;
+    // l'étal est reconstruit à chaque amélioration (et au lancement de la partie) : la vitrine suit
+    if (g.parent !== v.group) v.group.add(g);
+    g.visible = n > 0;
+    (g.userData.eggs as THREE.Mesh[]).forEach((e, i) => (e.visible = i < n));
+    if (n > 0 && Math.random() < 0.05) {
+      const w = g.getWorldPosition(new THREE.Vector3());
+      this.particles.burst(w.x + (Math.random() - 0.5) * 0.2, 0.95, w.z + (Math.random() - 0.5) * 0.2, 0xffe27a, 1, { speed: 0.1, up: 0.3, gravity: 0, size: 0.3, life: 0.8 });
+    }
+  }
+
   private syncNestEggs(s: GameState, b: Building, v: BState) {
     const n = Math.min(b.eggIds.length, v.eggSlots.length);
     while (v.eggMeshes.length < n) {
@@ -979,6 +1045,7 @@ export class FarmRenderer {
         const egg = s.worldEggs.find((e) => e.id === b.eggIds[i]);
         if (egg && m.userData.type !== egg.type) {
           m.geometry = eggGeometry(egg.type);
+          m.material = egg.type === 'or' ? GOLD_EGG_MAT : EGG_MAT;
           m.userData.type = egg.type;
         }
         m.position.copy(v.eggSlots[i]);
@@ -1017,8 +1084,21 @@ export class FarmRenderer {
       v.key = key;
       this.animateHen(s, h, v, dt, alpha);
       // la poule aux œufs d'or scintille
-      if (h.golden && v.root.visible && Math.random() < dt * 2.2)
-        this.particles.burst(v.root.position.x + (Math.random() - 0.5) * 0.3, 0.25 + Math.random() * 0.3, v.root.position.z + (Math.random() - 0.5) * 0.3, Math.random() < 0.5 ? 0xffe27a : 0xffffff, 1, { speed: 0.15, up: 0.35, gravity: 0, size: 0.32, life: 0.9 });
+      if (h.golden) {
+        if (v.root.visible && Math.random() < dt * 5)
+          this.particles.burst(v.root.position.x + (Math.random() - 0.5) * 0.35, 0.2 + Math.random() * 0.45, v.root.position.z + (Math.random() - 0.5) * 0.35, Math.random() < 0.6 ? 0xffe27a : 0xffffff, 1, { speed: 0.12, up: 0.4, gravity: 0, size: 0.34, life: 1.0 });
+        // halo doré au sol, qui respire doucement
+        let glow = this.goldGlows.get(h.id);
+        if (!glow) {
+          glow = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5).rotateX(-Math.PI / 2), GOLD_GLOW);
+          glow.renderOrder = 2;
+          this.scene.add(glow);
+          this.goldGlows.set(h.id, glow);
+        }
+        glow.visible = v.root.visible;
+        glow.position.set(v.root.position.x, GRASS_TOP + 0.02, v.root.position.z);
+        glow.scale.setScalar(0.9 + Math.sin(this.time * 2.3 + h.id) * 0.08);
+      }
       if (h.young) {
         v.headPivot.scale.setScalar(headScale(h));
         // pendant la mue juvénile, un brin de duvet se détache de temps en temps
@@ -1026,6 +1106,11 @@ export class FarmRenderer {
         if (st >= 2 && st <= 5 && v.root.visible && Math.random() < dt * 0.04) this.particles.burst(h.x, 0.28, h.z, 0xf6e3a0, 1, { speed: 0.2, up: 0.4, gravity: 0.3, size: 0.45, life: 2 });
       } else if (v.headPivot.scale.x !== 1) v.headPivot.scale.setScalar(1);
     }
+    for (const [id, gl] of this.goldGlows)
+      if (!seen.has(id) || !s.hens.some((x) => x.id === id && x.golden)) {
+        this.scene.remove(gl);
+        this.goldGlows.delete(id);
+      }
     for (const [id, v] of this.hens) {
       if (!seen.has(id)) {
         this.particles.burst(v.root.position.x, 0.35, v.root.position.z, 0xf6f1e7, 14, { speed: 1, up: 1.2, gravity: 1.5, life: 1.3 });
@@ -1050,7 +1135,9 @@ export class FarmRenderer {
     if (!b) {
       const [head, skin] = key.split('#');
       const [breed, kind, stage] = head.split(':') as [BreedId, HenKind?, string?];
-      b = new HenBatch(henGeometry(breed, kind ?? 'hen', stage === undefined ? ADULT_STAGE : Number(stage), Number(skin ?? 0)), kind || skin ? 120 : 320);
+      // la poule aux œufs d'or a son propre matériau, brillant
+      const gold = Number(skin ?? 0) === GOLD_SKIN;
+      b = new HenBatch(henGeometry(breed, kind ?? 'hen', stage === undefined ? ADULT_STAGE : Number(stage), Number(skin ?? 0)), gold ? 12 : kind || skin ? 120 : 320, gold ? GOLD_HEN_MAT : undefined);
       this.batches.set(key, b);
       this.scene.add(...b.meshes());
     }
@@ -1325,7 +1412,8 @@ export class FarmRenderer {
       const age = s.clock.t - e.laidAt;
       const pop = age < 0.6 ? 0.3 + Math.sin((age / 0.6) * Math.PI * 0.5) * 0.9 : 1;
       const days = age / TIME.DAY;
-      m.material = days > 0.8 ? EGG_ROT_MAT : days > FRESHNESS.groundWarnDays ? EGG_STALE_MAT : EGG_MAT;
+      // l'œuf d'or ne s'abîme pas : il brille toujours
+      m.material = e.type === 'or' ? GOLD_EGG_MAT : days > 0.8 ? EGG_ROT_MAT : days > FRESHNESS.groundWarnDays ? EGG_STALE_MAT : EGG_MAT;
       m.position.set(e.x, GRASS_TOP + 0.02 + Math.sin(this.time * 3 + e.id) * 0.0, e.z);
       m.scale.setScalar(pop * 1.25);
     }

@@ -65,7 +65,7 @@ export function addToStorage(s: GameState, type: EggType, grade: Grade, freshnes
     // l'or ne se périme pas et ne prend pas de place : il rejoint le coffre, en attendant le collectionneur
     s.goldEggs = (s.goldEggs ?? 0) + count;
     s.stats.goldEggs = (s.stats.goldEggs ?? 0) + count;
-    notify(s, `${count > 1 ? `${count} œufs d’or ramassés` : 'Un œuf d’or ramassé'} ! Vendez-le au collectionneur (onglet Vente) : ${fmtMoney(RARE.goldEggPrice)} pièce.`, 'good', '✨');
+    notify(s, `${count > 1 ? `${count} œufs d’or ramassés` : 'Un œuf d’or ramassé'} ! Il est exposé à l’étal : fixez son prix dans l’onglet Vente (ou cédez-le au collectionneur, ${fmtMoney(RARE.goldCollectorPrice)}).`, 'good', '✨');
     return count;
   }
   const n = Math.min(count, storageFree(s));

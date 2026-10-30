@@ -66,8 +66,8 @@ export function feedLayout(b: Pick<Building, 'type' | 'level'>): FeedSpot[] {
     if (b.level === 3) return [...trough([0.04, 0.35, 0.66, 0.97], 1, 0.5, 0.07, pose), ...trough([0.04, 0.35, 0.66, 0.97], -1, 0.5, 0.07, pose)];
     // abreuvoir long en inox (x 0,1 → 2,7, flotteur au bout) : sept poules de chaque côté
     if (b.level === 4) return [...trough(along(0.28, 2.55, 7), 1, 0.5, 0.085, pose), ...trough(along(0.28, 2.55, 7), -1, 0.5, 0.085, pose)];
-    // deux lignes de pipettes (z 0,38 et 0,62) : onze poules le long de chacune, côté extérieur
-    return [...trough(along(0.65, 3.6, 11), 1, 0.62, 0.0, pose), ...trough(along(0.65, 3.6, 11), -1, 0.38, 0.0, pose)];
+    // grand bac en béton (x 0,15 → 3,8, eau large de 0,34) : onze poules de chaque côté
+    return [...trough(along(0.4, 3.55, 11), 1, 0.5, 0.165, pose), ...trough(along(0.4, 3.55, 11), -1, 0.5, 0.165, pose)];
   }
   if (b.type === 'pond') {
     // sur la berge, le bec juste au-dessus de l'eau (on évite le ponton de la grande mare)

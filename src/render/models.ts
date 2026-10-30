@@ -31,7 +31,7 @@ import {
 
 // ================================================================ POULES ====
 // Le modèle des volailles (poules, coqs, jeunes, poussins) est dans henModel.ts.
-export { ADULT_STAGE, HEN_MAT, HEN_PIVOT, HEN_RIM, henGeometry, type HenGeo, type HenKind } from './henModel';
+export { ADULT_STAGE, GOLD_HEN_MAT, HEN_MAT, HEN_PIVOT, HEN_RIM, henGeometry, type HenGeo, type HenKind } from './henModel';
 
 /**
  * Squelette d'animation d'une poule (sans maillage) : ses matrices sont recopiées
@@ -96,14 +96,14 @@ export class HenBatch {
   private n = 0;
   private static readonly WHITE = new THREE.Color(1, 1, 1);
 
-  constructor(g: HenGeo, max: number) {
-    this.body = new THREE.InstancedMesh(g.body, HEN_MAT, max);
-    this.head = new THREE.InstancedMesh(g.head, HEN_MAT, max);
+  constructor(g: HenGeo, max: number, mat: THREE.Material = HEN_MAT) {
+    this.body = new THREE.InstancedMesh(g.body, mat, max);
+    this.head = new THREE.InstancedMesh(g.head, mat, max);
     this.eyes = new THREE.InstancedMesh(g.eyes, HEN_MAT, max);
     this.eyeAt = g.eyeAt;
-    this.wingL = new THREE.InstancedMesh(g.wingL, HEN_MAT, max);
-    this.wingR = new THREE.InstancedMesh(g.wingR, HEN_MAT, max);
-    this.legs = new THREE.InstancedMesh(g.leg, HEN_MAT, max * 2);
+    this.wingL = new THREE.InstancedMesh(g.wingL, mat, max);
+    this.wingR = new THREE.InstancedMesh(g.wingR, mat, max);
+    this.legs = new THREE.InstancedMesh(g.leg, mat, max * 2);
     this.body.castShadow = true;
     for (const m of this.meshes()) {
       m.frustumCulled = false;
@@ -189,6 +189,8 @@ export function eggGeometry(type: EggType) {
   return g;
 }
 export const EGG_MAT = new THREE.MeshLambertMaterial({ vertexColors: true });
+/** Œuf d'or : métal poli, reflets éclatants et légère lueur. */
+export const GOLD_EGG_MAT = new THREE.MeshPhongMaterial({ vertexColors: true, specular: 0xfff4c0, shininess: 110, emissive: 0x5a3c00 });
 /** Œufs oubliés au sol : ils ternissent puis verdissent avant de pourrir. */
 export const EGG_STALE_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, color: 0xc9bf98 });
 export const EGG_ROT_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, color: 0x8f9a5c });
@@ -558,8 +560,8 @@ function longFeederModel(level: number): BuildingView {
 }
 
 /**
- * Grands abreuvoirs, sur 3 ou 4 cases : auge longue en inox à niveau constant (niveau 4), puis deux
- * lignes de pipettes à coupelles avec leur bac de tête, régulateur et filtre (niveau 5).
+ * Grands abreuvoirs, sur 3 ou 4 cases : auge longue en inox à niveau constant (niveau 4), puis grand
+ * bac en béton à niveau constant (niveau 5).
  */
 function longDrinkerModel(level: number): BuildingView {
   const parts: THREE.BufferGeometry[] = [];
@@ -598,43 +600,40 @@ function longDrinkerModel(level: number): BuildingView {
     base = 0.14;
     height = 0.08;
   } else {
-    wornGround(parts, 'water', 0.48, 4);
-    // bac de tête ouvert (on voit le niveau d'eau), régulateur à manomètre, filtre transparent
-    for (const [x, z] of [
-      [0.12, 0.32],
-      [0.38, 0.32],
-      [0.12, 0.68],
-      [0.38, 0.68],
-    ]) parts.push(box(0.03, 0.3, 0.03, GALVA_DARK, [x, 0.15, z]));
-    parts.push(box(0.32, 0.02, 0.42, GALVA_DARK, [0.25, 0.3, 0.5]));
-    openTub(parts, 0.17, 0.15, 0.32, 18, 0x3f7fc0, [0.25, 0.47, 0.5], 0.012, 0x2f6aa5);
-    parts.push(box(0.12, 0.1, 0.08, 0x3a3f4a, [0.48, 0.36, 0.5]));
-    parts.push(cyl(0.035, 0.035, 0.01, 12, 0xffffff, [0.48, 0.38, 0.545], [Math.PI / 2, 0, 0]));
-    parts.push(cyl(0.03, 0.03, 0.12, 10, 0xbfe3ff, [0.48, 0.24, 0.5]));
-    // deux lignes de pipettes sur potences, coupelles rouges sous chaque pipette
-    const x0 = 0.45;
-    const x1 = 3.85;
+    // grand bac en béton à niveau constant : bords arrondis, traverses anti-baignade, flotteur
+    // sous son capot au bout, arrivée d'eau enterrée, bonde de vidange et un peu de mousse
+    wornGround(parts, 'water', 0.5, 4);
+    const CONC = 0xc9c5bb;
+    const CONC_D = 0xb3afa5;
+    const x0 = 0.15;
+    const x1 = 3.8;
     const L = x1 - x0;
     const cx = (x0 + x1) / 2;
-    for (const zl of [0.38, 0.62]) {
-      parts.push(box(L, 0.035, 0.035, 0xeef0f2, [cx, 0.31, zl]));
-      for (let i = 0; i < 11; i++) {
-        const x = 0.65 + ((3.6 - 0.65) * i) / 10;
-        parts.push(cyl(0.007, 0.007, 0.04, 6, 0xc9ced3, [x, 0.275, zl]));
-        parts.push(cyl(0.028, 0.02, 0.025, 10, 0xd8433a, [x, 0.245, zl + (zl < 0.5 ? -0.02 : 0.02)]));
-      }
-      parts.push(cyl(0.025, 0.025, 0.12, 8, 0xeef0f2, [3.88, 0.37, zl]));
+    const half = 0.22;
+    const top = 0.25;
+    parts.push(box(L + 0.06, 0.05, 2 * half + 0.06, CONC_D, [cx, 0.025, 0.5]));
+    parts.push(box(L, 0.06, 2 * half - 0.08, CONC, [cx, 0.06, 0.5]));
+    for (const s2 of [-1, 1]) {
+      parts.push(box(L, top, 0.055, CONC, [cx, top / 2, 0.5 + s2 * (half - 0.028)]));
+      parts.push(cyl(0.032, 0.032, L + 0.02, 8, 0xd6d2c8, [cx, top, 0.5 + s2 * (half - 0.028)], [0, 0, Math.PI / 2]));
+      // coulures et mousse au pied du bac
+      for (let i = 0; i < 6; i++) parts.push(box(0.08 + (i % 3) * 0.05, 0.05, 0.012, i % 2 ? 0x7f9a5a : CONC_D, [x0 + 0.3 + i * 0.6, 0.05, 0.5 + s2 * (half + 0.002)]));
     }
-    for (let x = x0 + 0.2; x < x1; x += 0.85) {
-      parts.push(box(0.025, 0.36, 0.025, GALVA_DARK, [x, 0.18, 0.5]));
-      parts.push(box(0.025, 0.025, 0.3, GALVA_DARK, [x, 0.34, 0.5]));
-      parts.push(box(0.04, 0.012, 0.24, GALVA_DARK, [x, 0.006, 0.5]));
-    }
-    parts.push(cyl(0.02, 0.02, 0.26, 8, 0xeef0f2, [0.44, 0.31, 0.5], [Math.PI / 2, 0, 0]));
-    fill = mesh(cyl(0.155, 0.155, 0.012, 18, C.water, [0, 0, 0]), false, false);
-    fill.position.set(0.25, 0.33, 0.5);
-    base = 0.33;
-    height = 0.28;
+    for (const x of [x0, x1]) parts.push(box(0.06, top, 2 * half, CONC, [x, top / 2, 0.5]));
+    // traverses galvanisées (les poules boivent sans entrer dans le bac)
+    for (let i = 1; i < 6; i++) parts.push(cyl(0.012, 0.012, 2 * half - 0.04, 6, GALVA, [x0 + (i * L) / 6, top + 0.035, 0.5], [Math.PI / 2, 0, 0]));
+    // capot du flotteur, arrivée d'eau enterrée et vanne, bonde
+    parts.push(box(0.26, 0.09, 0.34, GALVA_DARK, [x1 - 0.18, top + 0.03, 0.5]));
+    parts.push(box(0.27, 0.015, 0.35, GALVA_LIGHT, [x1 - 0.18, top + 0.08, 0.5]));
+    parts.push(cyl(0.024, 0.024, 0.3, 8, 0x2f3238, [x1 + 0.06, 0.13, 0.5]));
+    parts.push(cyl(0.024, 0.024, 0.12, 8, 0x2f3238, [x1 + 0.01, 0.27, 0.5], [0, 0, Math.PI / 2]));
+    parts.push(cyl(0.032, 0.032, 0.05, 8, 0xd9b35a, [x1 + 0.06, 0.08, 0.5]));
+    parts.push(box(0.08, 0.015, 0.02, 0xd8433a, [x1 + 0.06, 0.11, 0.54]));
+    parts.push(cyl(0.03, 0.03, 0.04, 8, 0x3a3f4a, [x0 - 0.03, 0.08, 0.5], [0, 0, Math.PI / 2]));
+    fill = mesh(box(L - 0.36, 0.012, 2 * half - 0.12, C.water, [0, 0, 0]), false, false);
+    fill.position.set(cx - 0.13, 0.12, 0.5);
+    base = 0.12;
+    height = 0.1;
   }
   return { group: groupOf(parts, fill), fill, fillBase: base, fillHeight: height, fillMode: 'move', eggSlots: [], eggMeshes: [], key: `drinker${level}` };
 }

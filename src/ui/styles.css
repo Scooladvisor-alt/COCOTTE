@@ -7179,3 +7179,17 @@ body {
   cursor: pointer;
 }
 .truck-seg button.on { background: #fff; color: #2f6bff; box-shadow: 0 1px 3px rgba(60, 50, 30, 0.15); }
+
+/* l'œuf d'or sur l'étal */
+.pcard2.gold {
+  background: linear-gradient(135deg, #fffaf0 0%, #fff1c8 55%, #ffe39a 100%);
+  border-color: #e9c45a;
+  box-shadow: 0 0 0 1px rgba(233, 196, 90, 0.35), 0 6px 18px rgba(200, 150, 40, 0.18);
+}
+.pcard2.gold .tag {
+  background: #f2c230;
+  color: #5a3c00;
+}
+.pcard2.gold .row-btns {
+  margin-top: 6px;
+}

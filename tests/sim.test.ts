@@ -29,6 +29,10 @@ import {
   updateCustomers,
   wholesaleQuote,
   sellGoldEggs,
+  setGoldPrice,
+  goldBuyChance,
+  goldPrice,
+  serveCustomerForTest,
 } from '../src/sim/market';
 import { FEED_REACH, feedLayout, feedPose } from '../src/sim/feeding';
 import { updateVaults, vaultOf } from '../src/sim/vault';
@@ -2523,9 +2527,22 @@ describe('Grands poulaillers, oies, coqs en trop et poule aux œufs d’or', () 
     expect(s.goldEggs).toBe(2);
     expect(storedCount(s)).toBe(stored);
     const m = s.money;
-    expect(sellGoldEggs(s).ok).toBe(true);
-    expect(s.money - m).toBe(2 * RARE.goldEggPrice);
+    expect(sellGoldEggs(s, 1).ok).toBe(true);
+    expect(s.money - m).toBe(RARE.goldCollectorPrice);
+    expect(s.goldEggs).toBe(1);
+    // à l'étal, on fixe son prix : plus il est doux, plus les amateurs craquent
+    setGoldPrice(s, 8000);
+    const cheap = goldBuyChance(s, goldPrice(s));
+    setGoldPrice(s, 30000);
+    expect(goldBuyChance(s, goldPrice(s))).toBeLessThan(cheap);
+    setGoldPrice(s, 999999);
+    expect(goldPrice(s)).toBe(40000);
+    // un client de l'étal finit par l'acheter, au prix affiché
+    setGoldPrice(s, 12000);
+    const before = s.money;
+    for (let i = 0; i < 400 && (s.goldEggs ?? 0) > 0; i++) serveCustomerForTest(s);
     expect(s.goldEggs).toBe(0);
+    expect(s.money - before).toBeGreaterThanOrEqual(12000);
     // les poussines dorées restent très rares : dix fois moins que le coq noir
     expect(RARE.goldenHenHatch).toBeCloseTo(RARE.blackRoosterHatch / 10);
   });

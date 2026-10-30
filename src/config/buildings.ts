@@ -134,7 +134,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Abreuvoir à niveau', cost: 4500, reqLevel: 2, upkeep: 6, capacity: 25, slots: 5, auto: true, quality: 0, perk: 'Raccordé au réseau : remplissage automatique' },
       { name: 'Ligne de pipettes', cost: 16000, reqLevel: 5, upkeep: 15, capacity: 80, slots: 8, auto: true, quality: 4, perk: 'Eau propre : +santé' },
       { name: 'Abreuvoir long en inox', cost: 36000, reqLevel: 6, upkeep: 25, capacity: 200, slots: 14, auto: true, quality: 5, w: 3, perk: '14 poules côte à côte (3 cases de long)' },
-      { name: 'Double ligne de pipettes', cost: 90000, reqLevel: 8, upkeep: 45, capacity: 450, slots: 22, auto: true, quality: 7, w: 4, perk: '22 poules à la fois, eau filtrée (4 cases)' },
+      { name: 'Grand bac abreuvoir', cost: 90000, reqLevel: 8, upkeep: 45, capacity: 450, slots: 22, auto: true, quality: 7, w: 4, perk: 'Grand bac en béton à niveau constant : 22 poules à la fois (4 cases)' },
     ],
   },
   storage: {

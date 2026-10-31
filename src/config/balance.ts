@@ -166,6 +166,12 @@ export const COOP_HYGIENE = {
   cleanPerSlot: 15,
 };
 
+/**
+ * Trappe automatique d'un abri (50 €) : elle s'ouvre seule au lever du jour et se referme la nuit
+ * dès que toutes les occupantes dorment dedans, au plus tard à l'heure limite.
+ */
+export const AUTO_DOOR = { cost: 5000, openHour: 5.5, deadline: 23.5 };
+
 // ---------------------------------------------------------------- Ponte ----
 export const LAYING = {
   /** Durée de l'animation de ponte (s simulées). */
@@ -457,6 +463,51 @@ export const LEVELS: LevelDef[] = [
   { level: 10, xp: 9800, title: 'Grande exploitation', phase: 4, maxParcels: 12, maxCoops: 6 },
 ];
 export const PHASES = ['Débutant', 'Petit éleveur', 'Propriétaire', 'Entrepreneur', 'Grande exploitation'];
+
+/**
+ * Au-delà du niveau 10, pas de plafond : chaque niveau demande 15 % d'XP de plus que le précédent
+ * (le 11e coûte 4 000 XP de plus que le 10e), avec de nouveaux titres en chemin.
+ */
+export const ENDLESS = { firstStep: 4000, growth: 1.15 };
+export const ENDLESS_TITLES: Array<[number, string]> = [
+  [11, 'Grande exploitation'],
+  [15, 'Domaine agricole'],
+  [20, 'Maison avicole renommée'],
+  [30, 'Empire de la plume'],
+  [50, 'Légende de la basse-cour'],
+];
+
+/** Définition de n'importe quel niveau (table jusqu'au 10, puis calculé sans fin). */
+export function levelAt(n: number): LevelDef {
+  const last = LEVELS[LEVELS.length - 1];
+  if (n <= last.level) return LEVELS[Math.max(0, n - 1)];
+  let xp = last.xp;
+  let step = ENDLESS.firstStep;
+  for (let k = last.level + 1; k <= n; k++) {
+    xp += Math.round(step / 50) * 50;
+    step *= ENDLESS.growth;
+  }
+  const title = [...ENDLESS_TITLES].reverse().find(([from]) => n >= from)?.[1] ?? last.title;
+  // la ferme continue de grandir : un poulailler de plus tous les deux niveaux, des parcelles aussi
+  const k = n - last.level;
+  return { level: n, xp, title, phase: last.phase, maxParcels: Math.min(WORLD.COLS * WORLD.ROWS, last.maxParcels + Math.floor(k / 2)), maxCoops: last.maxCoops + Math.floor(k / 2) };
+}
+
+/**
+ * Débouchés commerciaux selon le niveau : contrats et commandes simultanés, offres proposées,
+ * palettes vendues par jour. Ils continuent de grandir après le niveau 10 (un de plus tous les
+ * deux niveaux), sans plafond trop tôt.
+ */
+export function tradeAt(n: number) {
+  const past = Math.max(0, n - 10);
+  return {
+    contracts: n <= 10 ? CONTRACTS.maxActive[Math.max(0, n - 1)] : Math.min(15, 3 + Math.ceil(past / 2)),
+    contractOffers: Math.min(6, CONTRACTS.maxOffers + Math.floor(past / 3)),
+    orders: Math.min(15, ORDERS.maxActive + Math.ceil(past / 2)),
+    orderOffers: Math.min(7, ORDERS.maxOffers + Math.floor(past / 3)),
+    pallets: Math.min(12, MARKET.palletsPerDay + Math.floor(past / 2)),
+  };
+}
 
 export const XP = {
   eggCollected: 1,

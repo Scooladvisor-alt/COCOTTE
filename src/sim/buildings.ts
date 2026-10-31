@@ -1,8 +1,8 @@
 // Bâtiments : validation de placement, remplissages automatiques, encrassement.
-import { COOP_HYGIENE, GRID_H, GRID_W, NATURE, TIME } from '../config/balance';
+import { AUTO_DOOR, COOP_HYGIENE, GRID_H, GRID_W, NATURE, TIME } from '../config/balance';
 import { seasonIndex } from './seasons';
 import { BUILDINGS, sizeOf } from '../config/buildings';
-import { GATE, accessCells, cellIndex, cellX, cellZ, coopDoorCells, fenceValue, hIdx, inGrid, invalidateLayout, isOwnedCell, rt, vIdx, isShelter, isShelterType } from './core';
+import { GATE, accessCells, cellIndex, cellX, cellZ, coopDoorCells, currentDay, currentHour, fenceValue, hIdx, inGrid, invalidateLayout, isNightHour, isOwnedCell, notify, rt, vIdx, isShelter, isShelterType } from './core';
 import { coopOccupancy, lvl } from './queries';
 import { takeGrain, takeWater } from './stocks';
 import type { Building, BuildingType, GameState } from './types';
@@ -16,8 +16,8 @@ export interface PlaceCheck {
  * Vérifie qu'un bâtiment peut être posé en (x,z) : sur des cases possédées et libres,
  * sans bloquer l'entrée ni l'accès aux autres installations.
  */
-export function canPlace(s: GameState, type: BuildingType, x: number, z: number, ignoreId = -1, level = 1): PlaceCheck {
-  const def = { ...BUILDINGS[type], ...sizeOf(type, level) };
+export function canPlace(s: GameState, type: BuildingType, x: number, z: number, ignoreId = -1, level = 1, rot = 0): PlaceCheck {
+  const def = { ...BUILDINGS[type], ...sizeOf(type, level, rot) };
   const r = rt(s);
   const fp = new Set<number>();
   for (let j = 0; j < def.d; j++)
@@ -40,25 +40,23 @@ export function canPlace(s: GameState, type: BuildingType, x: number, z: number,
   for (const b of s.buildings) {
     if (b.id === ignoreId) continue;
     if (isShelter(b) && coopDoorCells(b).some(([cx, cz]) => fp.has(cellIndex(cx, cz)))) return { ok: false, reason: b.type === 'goosehouse' ? 'Devant la porte d’un abri à oies' : 'Devant la porte d’un poulailler' };
-    if (b.type === 'nest')
-      for (let i = 0; i < BUILDINGS.nest.w; i++)
-        if (fp.has(cellIndex(b.x + i, b.z + BUILDINGS.nest.d))) return { ok: false, reason: 'Devant un pondoir' };
+    if (b.type === 'nest' && accessCells(b).some(([cx, cz]) => fp.has(cellIndex(cx, cz)))) return { ok: false, reason: 'Devant un pondoir' };
   }
 
   // grille praticable hypothétique
   const walk = new Uint8Array(r.owned);
   for (const b of s.buildings) {
     if (b.id === ignoreId || b.type === 'stand') continue;
-    const d = sizeOf(b.type, b.level);
+    const d = sizeOf(b.type, b.level, b.rot);
     for (let j = 0; j < d.d; j++) for (let i = 0; i < d.w; i++) if (inGrid(b.x + i, b.z + j)) walk[cellIndex(b.x + i, b.z + j)] = 0;
   }
   for (const i of fp) walk[i] = 0;
 
   // l'accès du nouveau bâtiment doit exister
-  const ownAccess = accessCells({ type, x, z, level }).filter(([ax, az]) => walk[cellIndex(ax, az)]);
+  const ownAccess = accessCells({ type, x, z, level, rot }).filter(([ax, az]) => walk[cellIndex(ax, az)]);
   if (def.access !== 'none' && ownAccess.length === 0) return { ok: false, reason: 'Accès bloqué' };
-  if (type === 'nest' && ownAccess.length < def.w) return { ok: false, reason: 'L’avant du pondoir doit rester libre' };
-  if (isShelterType(type) && coopDoorCells({ x, z, level, type }).some(([cx, cz]) => inGrid(cx, cz) && !walk[cellIndex(cx, cz)])) return { ok: false, reason: 'La porte doit rester dégagée' };
+  if (type === 'nest' && ownAccess.length < (rot ? def.d : def.w)) return { ok: false, reason: 'L’avant du pondoir doit rester libre' };
+  if (isShelterType(type) && coopDoorCells({ x, z, level, type, rot }).some(([cx, cz]) => inGrid(cx, cz) && !walk[cellIndex(cx, cz)])) return { ok: false, reason: 'La porte doit rester dégagée' };
 
   // connexité : toutes les installations doivent rester accessibles depuis l'entrée
   const seen = new Uint8Array(GRID_W * GRID_H);
@@ -86,14 +84,14 @@ export function canPlace(s: GameState, type: BuildingType, x: number, z: number,
       }
     }
   }
-  const check = (bt: BuildingType, bx: number, bz: number, bl: number) => {
+  const check = (bt: BuildingType, bx: number, bz: number, bl: number, br = 0) => {
     if (BUILDINGS[bt].access === 'none') return true;
-    return accessCells({ type: bt, x: bx, z: bz, level: bl }).some(([ax, az]) => seen[cellIndex(ax, az)]);
+    return accessCells({ type: bt, x: bx, z: bz, level: bl, rot: br }).some(([ax, az]) => seen[cellIndex(ax, az)]);
   };
-  if (!check(type, x, z, level)) return { ok: false, reason: 'Inaccessible pour les poules' };
+  if (!check(type, x, z, level, rot)) return { ok: false, reason: 'Inaccessible pour les poules' };
   for (const b of s.buildings) {
     if (b.id === ignoreId || b.type === 'stand') continue;
-    if (!check(b.type, b.x, b.z, b.level)) return { ok: false, reason: `Bloquerait l’accès : ${BUILDINGS[b.type].name.toLowerCase()}` };
+    if (!check(b.type, b.x, b.z, b.level, b.rot)) return { ok: false, reason: `Bloquerait l’accès : ${BUILDINGS[b.type].name.toLowerCase()}` };
   }
   return { ok: true };
 }
@@ -174,6 +172,36 @@ export function refitStorage(s: GameState) {
     if (best) [b.x, b.z] = best;
   }
   invalidateLayout(s);
+}
+
+/**
+ * Trappes automatiques : elles s'ouvrent seules au lever du jour (une fois par matin : une trappe
+ * refermée à la main reste fermée) et se referment la nuit dès que toutes les occupantes dorment
+ * à l'intérieur — au plus tard à l'heure limite, retardataires ou non.
+ */
+export function autoDoors(s: GameState) {
+  const hour = currentHour(s);
+  const day = currentDay(s);
+  for (const b of s.buildings) {
+    if (!b.autoDoor || !isShelter(b)) continue;
+    if (b.closed) {
+      if (!isNightHour(hour) && hour >= AUTO_DOOR.openHour && hour < 12 && b.doorDay !== day) {
+        b.closed = false;
+        b.doorDay = day;
+      }
+      continue;
+    }
+    if (!isNightHour(hour)) continue;
+    const residents = s.hens.filter((h) => h.coopId === b.id);
+    const outside = residents.filter((h) => h.act !== 'sleep');
+    const late = hour >= AUTO_DOOR.deadline || hour < TIME.NIGHT_END;
+    if (outside.length && !late) continue;
+    b.closed = true;
+    if (outside.length) {
+      const who = outside.some((h) => h.breed === 'oie') ? 'oie' : 'poule';
+      notify(s, `Trappe automatique fermée : ${outside.length} ${who}${outside.length > 1 ? 's sont restées' : ' est restée'} dehors cette nuit.`, 'warn', '🌙');
+    }
+  }
 }
 
 export function coopDirt(s: GameState, dt: number) {

@@ -54,7 +54,7 @@ export const ROLES: Record<WorkerRole, RoleDef> = {
     title: 'Jardinier·ère',
     icon: '🧑‍🌾',
     description: 'Entretient les prairies.',
-    boosts: ['Arrose l’herbe rase', 'Herbe 30 % plus rapide', 'Armé contre les renards'],
+    boosts: ['Reverdit d’abord les zones pelées', 'Herbe 30 % plus rapide', 'Armé contre les renards'],
     wage: 700,
     reqLevel: 3,
     max: (l) => (l >= 7 ? 2 : 1),
@@ -81,9 +81,14 @@ export const STAFF = {
   waterBelow: 0.7,
   feedBelow: 0.6,
   /** Commande d'eau quand la cuve descend sous cette fraction. */
-  restockWaterBelow: 0.25,
-  /** Commande de grain quand la réserve tient moins de ce nombre de jours. */
-  restockGrainDays: 1.5,
+  restockWaterBelow: 0.35,
+  /** Commande de grain quand la réserve tient moins de ce nombre de jours (ou tombe sous restockGrainBelow de sa capacité)… */
+  restockGrainDays: 2.5,
+  restockGrainBelow: 0.35,
+  /** …et la remplit (plusieurs sacs d'un coup s'il le faut) pour tenir ce nombre de jours. */
+  restockGrainTarget: 5,
+  /** Délai minimal entre deux commandes du même produit (heures de jeu). */
+  restockEveryHours: 0.5,
   /** Rayon dans lequel il ramasse les œufs au passage. */
   pickupRadius: 1.1,
   sellerStart: 7.6,

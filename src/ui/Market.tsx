@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { EGG_ORDER, EGG_TYPES, GRADES, MARKET, ORDERS, RARE, TIME, UNLOCKS } from '../config/balance';
+import { EGG_ORDER, EGG_TYPES, GRADES, MARKET, RARE, TIME, UNLOCKS } from '../config/balance';
 import { BREEDS } from '../config/breeds';
 import { currentDay } from '../sim/core';
 import { farmLevel, fmtMoney, today } from '../sim/economy';
@@ -20,7 +20,9 @@ import {
   estimatedDemand,
   lostToday,
   maxContracts,
+  maxOrders,
   palletsLeft,
+  palletsPerDay,
   queueLength,
   refPrice,
   sellPallet,
@@ -406,7 +408,7 @@ function CoopTab() {
       ))}
       <div class={`auto-box ${lvl < UNLOCKS.pallets ? 'locked' : ''}`}>
         <b>Vente en volume : palettes de {MARKET.palletSize} œufs</b> {lvl < UNLOCKS.pallets ? `(niveau ${UNLOCKS.pallets})` : `· ${palletsLeft(s)} restante(s) aujourd’hui`}
-        <p class="hint">Centrale d’achat : {Math.round(MARKET.palletFactor * 100)} % du prix du marché, maximum {MARKET.palletsPerDay} palettes par jour.</p>
+        <p class="hint">Centrale d’achat : {Math.round(MARKET.palletFactor * 100)} % du prix du marché, maximum {palletsPerDay(s)} palettes par jour (davantage aux niveaux supérieurs).</p>
         <div class="actions">
           {EGG_ORDER.filter((t) => storedCount(s, t) >= MARKET.palletSize).map((t) => (
             <Btn key={t} kind="primary" disabled={lvl < UNLOCKS.pallets || palletsLeft(s) <= 0} onClick={() => game.act(() => ({ ok: sellPallet(s, t) > 0, reason: 'Vente impossible' }), 'coin')}>
@@ -481,7 +483,7 @@ function OrdersTab() {
     <>
       <p class="hint">
         Les commandes, petites ou grosses, paient mieux que l’étal mais exigent une quantité et une catégorie minimales avant une date limite. Dès que le stock suffit, une notification vous propose de livrer. Une commande acceptée peut être annulée (un peu de
-        réputation perdue) ; un retard en coûte davantage. Maximum {ORDERS.maxActive} commandes en cours.
+        réputation perdue) ; un retard en coûte davantage. Maximum {maxOrders(s)} commandes en cours (davantage aux niveaux supérieurs).
       </p>
       <h5>En cours ({active.length})</h5>
       {active.length === 0 && <p class="empty">Aucune commande en cours.</p>}
@@ -550,7 +552,7 @@ function ContractsTab() {
     <>
       <p class="hint">
         Chaque jour à {TIME.CONTRACT_HOUR} h, les œufs prévus sont prélevés automatiquement dans le stock (ou plus tôt avec « Livrer aujourd’hui »). Œufs manquants = pénalité et perte de réputation. Un contrat peut être résilié
-        contre une journée de pénalité. Contrats simultanés : {maxContracts(s)}.
+        contre une journée de pénalité. Contrats simultanés : {maxContracts(s)} (un de plus tous les deux niveaux après le niveau 10).
       </p>
       <h5>Actifs ({active.length})</h5>
       {active.length === 0 && <p class="empty">Aucun contrat actif.</p>}

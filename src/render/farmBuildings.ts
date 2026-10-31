@@ -500,13 +500,12 @@ export function coopModern(parts: Parts, windows: THREE.Mesh[]) {
   parts.push(box(x1 - x0 + 0.2, 0.06, 0.08, 0xc9ccd1, [1.5, ey - 0.045, ez - 0.02]));
   parts.push(cyl(0.025, 0.025, ey - 0.1, 8, 0xc9ccd1, [x1 + 0.06, (ey + 0.05) / 2, zf + 0.06]));
   parts.push(box(0.05, 0.04, ez - zf - 0.04, 0xc9ccd1, [x1 + 0.06, ey - 0.06, (ez + zf) / 2 + 0.02]));
-  // trappe automatique : moteur, capteur, écran
-  henDoor(parts, 1.5, 0.08, 0.46, 0.34, zf + 0.012, FRAME);
-  parts.push(box(0.44, 0.13, 0.09, IRON, [1.5, 0.57, zf + 0.045]));
-  parts.push(box(0.035, 0.035, 0.02, 0x4ade80, [1.66, 0.57, zf + 0.095]));
-  parts.push(box(0.22, 0.17, 0.02, 0x2a2f3a, [1.98, 0.62, zf + 0.012]));
-  windows.push(glassPane(0.17, 0.12, [1.98, 0.62, zf + 0.025], 0, 0.012));
-  parts.push(box(0.56, 0.05, 0.4, 0xc4c7cb, [1.5, 0.05, 1.93]));
+  // trappe assez haute pour un coq, écran de contrôle, rampe de béton rainurée jusqu'au sol
+  // (le moteur de la trappe automatique est un kit à part, posé à l'achat : models.ts)
+  henDoor(parts, 1.5, 0.09, 0.62, 0.42, zf + 0.012, FRAME);
+  parts.push(box(0.22, 0.17, 0.02, 0x2a2f3a, [2.02, 0.62, zf + 0.012]));
+  windows.push(glassPane(0.17, 0.12, [2.02, 0.62, zf + 0.025], 0, 0.012));
+  ramp(parts, 1.5, 0.09, zf + 0.01, 2.17, 0.52, 0xc4c7cb, 0xaeb2b7);
 }
 
 /**
@@ -650,8 +649,8 @@ export function coopAviary(parts: Parts, windows: THREE.Mesh[]) {
   for (const y of [0.96, 1.16]) parts.push(box(0.035, 0.035, 1.86, FRAME, [x1 + 0.02, y, cz]));
   // trappes de sortie : trois sur la façade (celle du centre a sa rampe, x = 2,5), volets relevés
   for (const x of [1.0, 2.5, 3.6]) {
-    henDoor(parts, x, 0.1, 0.5, 0.38, zf + 0.012, FRAME);
-    parts.push(box(0.42, 0.03, 0.1, 0x8e939b, [x, 0.55, zf + 0.06], [0.6, 0, 0]));
+    henDoor(parts, x, 0.1, 0.64, 0.4, zf + 0.012, FRAME);
+    if (x !== 2.5) parts.push(box(0.44, 0.03, 0.1, 0x8e939b, [x, 0.69, zf + 0.06], [0.6, 0, 0]));
   }
   ramp(parts, 2.5, 0.1, zf + 0.02, 3.1, 0.42, 0xb7c0c7, 0x8e939b);
   for (const x of [1.0, 3.6]) parts.push(box(0.5, 0.04, 0.32, 0xc4c7cb, [x, 0.02, zf + 0.2]));
@@ -698,9 +697,6 @@ export function coopAviary(parts: Parts, windows: THREE.Mesh[]) {
   for (const dx of [-0.07, 0.07]) parts.push(box(0.015, 1.9, 0.015, 0x8e939b, [sx + dx, 1.45, sz + 0.33]));
   for (let i = 0; i < 11; i++) parts.push(box(0.15, 0.012, 0.012, 0x8e939b, [sx, 0.6 + i * 0.17, sz + 0.33]));
   parts.push(cyl(0.04, 0.04, 0.8, 8, 0x8e939b, [sx - 0.42, 1.3, sz], [0, 0, 1.0]));
-  // trappe du centre : moteur et capteur de la porte automatique
-  parts.push(box(0.4, 0.11, 0.08, IRON, [2.5, 0.6, zf + 0.045]));
-  parts.push(box(0.03, 0.03, 0.02, 0x4ade80, [2.66, 0.6, zf + 0.09]));
 }
 
 // ============================================================ ABRIS À OIES ====

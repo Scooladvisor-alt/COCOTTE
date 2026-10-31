@@ -4,7 +4,7 @@ import { COSTS, GRAIN_SACKS, HEALTH, HOUR, ROBOT, TIME, UNLOCKS, WATER } from '.
 import { grainCapacity, grainPerDay, waterCapacity, waterPerDay } from './stocks';
 import { BREEDS } from '../config/breeds';
 import { buyGrain, fillTank } from './actions';
-import { autoRefill, compostTick, coopDirt } from './buildings';
+import { autoDoors, autoRefill, compostTick, coopDirt } from './buildings';
 import { autoIncubate, breedingHourly, incubatorTick } from './breeding';
 import { currentDay, currentHour, emit, notify, rand, isShelter } from './core';
 import { farmLevel, fmtMoney, levelReached, spend, today, withBookingDay } from './economy';
@@ -205,6 +205,7 @@ export function step(s: GameState, dt: number) {
   autoIncubate(s);
   incubatorTick(s);
   coopDirt(s, dt);
+  autoDoors(s);
   ageEggs(s, dt / TIME.DAY);
 
   const a = acc(s);

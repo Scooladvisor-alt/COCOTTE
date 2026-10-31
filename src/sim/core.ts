@@ -97,27 +97,55 @@ export function parcelCoords(key: string): [number, number] {
 /** Case de l'entrée de la ferme (portail), toujours réservée. */
 export const GATE = { x: 14, z: 29 };
 
-type Placed = Pick<Building, 'type' | 'x' | 'z'> & { level?: number };
+type Placed = Pick<Building, 'type' | 'x' | 'z'> & { level?: number; rot?: number };
 export function footprint(b: Placed) {
-  const { w, d } = sizeOf(b.type, b.level);
+  const { w, d } = sizeOf(b.type, b.level, b.rot);
   return { x: b.x, z: b.z, w, d };
 }
 export function buildingCenter(b: Placed) {
-  const { w, d } = sizeOf(b.type, b.level);
+  const { w, d } = sizeOf(b.type, b.level, b.rot);
   return { x: b.x + w / 2, z: b.z + d / 2 };
 }
+/**
+ * Bâtiment pivoté d'un quart de tour (rot = 1) : sa façade, dessinée vers le sud (+z), regarde
+ * l'est (+x). Passage d'un point du modèle (lx le long de la façade, lz en profondeur, depuis le
+ * coin nord-ouest du modèle non tourné) au monde, et retour.
+ */
+export function toWorld(b: Placed, lx: number, lz: number): [number, number] {
+  if (!b.rot) return [b.x + lx, b.z + lz];
+  return [b.x + lz, b.z + sizeOf(b.type, b.level).w - lx];
+}
+export function toLocal(b: Placed, x: number, z: number): [number, number] {
+  if (!b.rot) return [x - b.x, z - b.z];
+  return [b.z + sizeOf(b.type, b.level).w - z, x - b.x];
+}
+/** Cap (atan2(dx, dz)) de qui sort par la façade. */
+export const facadeHeading = (b: { rot?: number }) => (b.rot ? Math.PI / 2 : 0);
 /** Abri où dorment les volailles : le poulailler (poules) ou l'abri à oies (oies). */
 export const isShelterType = (t: BuildingType) => t === 'coop' || t === 'goosehouse';
 export const isShelter = (b: Pick<Building, 'type'>) => isShelterType(b.type);
 
-/** Milieu de la trappe d'un abri (x) et pied de sa façade (z) ; les grands bâtiments sont plus larges et profonds. */
-export function coopDoor(b: Pick<Building, 'x' | 'z'> & { level?: number; type?: BuildingType }) {
-  const { w, d } = sizeOf(b.type ?? 'coop', b.level);
-  return { x: b.x + w / 2, z: b.z + d };
+type Doored = Pick<Building, 'x' | 'z'> & { level?: number; type?: BuildingType; rot?: number };
+/** Milieu de la trappe d'un abri, au pied de sa façade ; les grands bâtiments sont plus larges et profonds. */
+export function coopDoor(b: Doored) {
+  const type = b.type ?? 'coop';
+  const { w, d } = sizeOf(type, b.level);
+  const [x, z] = toWorld({ ...b, type }, w / 2, d);
+  return { x, z };
+}
+/** Point devant la trappe d'un abri : `out` m vers l'extérieur, `side` m le long de la façade. */
+export function frontOf(b: Doored, out: number, side = 0): [number, number] {
+  const d = coopDoor(b);
+  return b.rot ? [d.x + out, d.z - side] : [d.x + side, d.z + out];
 }
 /** Cases juste devant la trappe d'un poulailler (à garder libres). */
-export function coopDoorCells(b: Pick<Building, 'x' | 'z'> & { level?: number; type?: BuildingType }): Array<[number, number]> {
+export function coopDoorCells(b: Doored): Array<[number, number]> {
   const d = coopDoor(b);
+  if (b.rot)
+    return [
+      [d.x, Math.floor(d.z - 0.3)],
+      [d.x, Math.floor(d.z + 0.3)],
+    ];
   return [
     [Math.floor(d.x - 0.3), d.z],
     [Math.floor(d.x + 0.3), d.z],
@@ -125,10 +153,12 @@ export function coopDoorCells(b: Pick<Building, 'x' | 'z'> & { level?: number; t
 }
 /** Cases d'accès (où les poules se placent pour utiliser le bâtiment). */
 export function accessCells(b: Placed): Array<[number, number]> {
-  const def = { ...BUILDINGS[b.type], ...sizeOf(b.type, b.level) };
+  const def = { ...BUILDINGS[b.type], ...sizeOf(b.type, b.level, b.rot) };
   const out: Array<[number, number]> = [];
   if (def.access === 'front') {
-    for (let i = 0; i < def.w; i++) out.push([b.x + i, b.z + def.d]);
+    // la façade regarde le sud (ou l'est, bâtiment pivoté)
+    if (b.rot) for (let j = 0; j < def.d; j++) out.push([b.x + def.w, b.z + j]);
+    else for (let i = 0; i < def.w; i++) out.push([b.x + i, b.z + def.d]);
   } else if (def.access === 'around') {
     for (let i = 0; i < def.w; i++) {
       out.push([b.x + i, b.z - 1]);

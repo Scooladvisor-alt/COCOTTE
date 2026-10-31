@@ -2,7 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { ShowPanel } from './Show';
 import { BankPanel } from './Bank';
 import { music } from '../audio/music';
-import { LEGAL, LEVELS, LEVEL_GATES } from '../config/balance';
+import { LEGAL, LEVELS, LEVEL_GATES, levelAt } from '../config/balance';
 import { MISSIONS } from '../config/missions';
 import { deleteSave, deserialize, saveGame, serialize } from '../save/save';
 import { farmLevel, fmtMoney } from '../sim/economy';
@@ -109,7 +109,7 @@ function MissionsPanel() {
         )}
         {tab === 'levels' && (
           <div class="levels">
-            {LEVELS.map((l) => {
+            {Array.from({ length: Math.max(LEVELS.length, lvl) + 3 }, (_, i) => levelAt(i + 1)).map((l) => {
               const list = unlocksAt(l.level);
               return (
                 <div key={l.level} class={`lvl ${l.level <= lvl ? 'done' : ''} ${l.level === lvl ? 'current' : ''}`}>

@@ -2,7 +2,7 @@
 // au bout de 15 jours ; les poussins grandissent avec les poules et pondent à 30 jours.
 import { BREEDING, TIME } from '../config/balance';
 import { BREEDS, isGoose } from '../config/breeds';
-import { buildingCenter, currentHour, emit, notify, rand, randRange } from './core';
+import { buildingCenter, currentHour, emit, notify, rand, randRange, toWorld } from './core';
 import { createHen } from './hens';
 import { GENE_INFO, decodeGenes, encodeGenes, genesOf, inherit } from './genetics';
 import { buildingsOf, coopCapacity, coopFor, coopOccupancy, landCapacity, lvl, shelterType } from './queries';
@@ -183,7 +183,7 @@ function hatchOut(s: GameState, b: Building) {
     if (!e.ok) continue;
     const coop = nurseryCoop(s, e.breed);
     if (!coop) continue;
-    const at: [number, number] = [c.x + randRange(s, -0.7, 0.7), b.z + 1.35 + randRange(s, 0, 0.5)];
+    const at = toWorld(b, 1 + randRange(s, -0.7, 0.7), 1.35 + randRange(s, 0, 0.5));
     const h = createHen(s, e.breed, coop, false, { young: BREEDING.growthDays, rooster: rand(s) < BREEDING.roosterShare, at, genes: decodeGenes(e.genes) });
     s.hens.push(h);
     born++;

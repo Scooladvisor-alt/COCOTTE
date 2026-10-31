@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, HOUR, LEVELS, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, waterPrice } from '../src/config/balance';
+import { AUTO_DOOR, BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, GRID_W, GRID_Z0, HOUR, LEVELS, levelAt, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, tradeAt, waterPrice } from '../src/config/balance';
 import { GATE_EDGE, farmEnclosed, perimeter } from '../src/sim/fences';
 import { waterCapacity } from '../src/sim/stocks';
 import { BREEDS, BREED_ORDER, GOOSE_NAMES } from '../src/config/breeds';
@@ -7,7 +7,7 @@ import { BUILDINGS, COOP_SCALE, STAND_POS, sizeOf } from '../src/config/building
 import { BACKUP_KEY, SAVE_KEY, deserialize, loadGame, saveGame, serialize, type Storage } from '../src/save/save';
 import * as A from '../src/sim/actions';
 import { canPlace } from '../src/sim/buildings';
-import { crossesFence, currentDay, drainEvents, invalidateLayout, isOwnedCell } from '../src/sim/core';
+import { accessCells, coopDoor, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable } from '../src/sim/core';
 import { canAfford, farmLevel, spend } from '../src/sim/economy';
 import { addToStorage, collectNest, layEgg, takeFromStorage } from '../src/sim/eggs';
 import {
@@ -33,6 +33,9 @@ import {
   goldBuyChance,
   goldPrice,
   serveCustomerForTest,
+  maxContracts,
+  maxOrders,
+  palletsPerDay,
 } from '../src/sim/market';
 import { FEED_REACH, feedLayout, feedPose } from '../src/sim/feeding';
 import { updateVaults, vaultOf } from '../src/sim/vault';
@@ -48,7 +51,7 @@ import { distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predato
 import { buyDog } from '../src/sim/dog';
 import { buyRobot, dockOf } from '../src/sim/robots';
 import { crowdedChicks, eggHatchIn, fertileStock, fertility, fertilize, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
-import { ageFactor, createHen, eggsPerDayOf, henValue, productivity, refreshVitals, wellbeingTarget } from '../src/sim/hens';
+import { ageFactor, createHen, eggsPerDayOf, henValue, productivity, refreshVitals, slotSpots, wellbeingTarget } from '../src/sim/hens';
 import { COMPOST, NATURE, RARE } from '../src/config/balance';
 import { parcelPerks, shelteredByTree } from '../src/sim/perks';
 import { inherit, shopGenes } from '../src/sim/genetics';
@@ -2646,5 +2649,233 @@ describe('Abri à oies', () => {
     expect(g.coopId).toBe(coop.id);
     buildGooseHouse(s);
     expect(g.coopId).toBe(buildingsOf(s, 'goosehouse')[0].id);
+  });
+});
+
+describe('Niveaux sans plafond', () => {
+  it('au-delà du niveau 10 on continue de monter, chaque niveau demandant plus d’XP', () => {
+    const s = newFarm(801);
+    s.xp = 9800;
+    expect(farmLevel(s)).toBe(10);
+    s.xp = 1_000_000;
+    expect(farmLevel(s)).toBeGreaterThan(25);
+    const gaps = [10, 11, 12, 13, 14].map((n) => levelAt(n + 1).xp - levelAt(n).xp);
+    for (let i = 1; i < gaps.length; i++) expect(gaps[i]).toBeGreaterThan(gaps[i - 1]);
+  });
+});
+
+describe('Bâtiments pivotés', () => {
+  const evening = (s: GameState) => {
+    const day = Math.floor(s.clock.t / TIME.DAY);
+    s.clock.t = day * TIME.DAY + 17.5 * HOUR;
+    s.clock.lastHourTick = Math.floor(s.clock.t / HOUR);
+  };
+
+  it('un poulailler pivoté a sa façade à l’est et ses poules y rentrent puis en ressortent', () => {
+    const s = newFarm(901);
+    morning(s);
+    s.money = 1e8;
+    const coop = buildingsOf(s, 'coop')[0];
+    const flat = sizeOf('coop', coop.level);
+    expect(A.rotate(s, coop.id).ok).toBe(true);
+    expect(coop.rot).toBe(1);
+    // largeur et profondeur échangées, la trappe sur le côté est, au milieu
+    expect(footprint(coop)).toMatchObject({ w: flat.d, d: flat.w });
+    const door = coopDoor(coop);
+    expect(door.x).toBe(coop.x + flat.d);
+    expect(door.z).toBe(coop.z + flat.w / 2);
+    for (let i = 0; i < 4; i++) A.buyHen(s, 'rousse');
+    run(s, 2 * HOUR);
+    evening(s);
+    run(s, 6 * HOUR);
+    for (const h of s.hens) {
+      expect(h.act).toBe('sleep');
+      expect(h.coopId).toBe(coop.id);
+    }
+    // au matin, elles sortent par la trappe de l'est et se retrouvent dehors
+    run(s, 12 * HOUR);
+    for (const h of s.hens) {
+      expect(h.act).not.toBe('sleep');
+      expect(isWalkable(s, h.x, h.z)).toBe(true);
+    }
+    // on le remet droit
+    expect(A.rotate(s, coop.id).ok).toBe(true);
+    expect(coop.rot).toBeUndefined();
+    expect(footprint(coop)).toMatchObject({ w: flat.w, d: flat.d });
+  });
+
+  it('une auge et un pondoir pivotés gardent leurs places du bon côté', () => {
+    const s = newFarm(902);
+    morning(s);
+    s.money = 1e8;
+    s.xp = 99999;
+    const feeder = buildingsOf(s, 'feeder')[0];
+    while (feeder.level < 4) expect(A.upgrade(s, feeder.id).ok).toBe(true);
+    expect(A.rotate(s, feeder.id).ok).toBe(true);
+    const fp = footprint(feeder);
+    expect(fp).toMatchObject({ w: 1, d: 3 });
+    // les places longent l'auge selon z, de part et d'autre (à l'ouest et à l'est)
+    const spots = slotSpots(s, feeder);
+    expect(spots.length).toBeGreaterThan(8);
+    for (const [x, z] of spots) {
+      expect(z).toBeGreaterThan(fp.z - 0.1);
+      expect(z).toBeLessThan(fp.z + fp.d + 0.1);
+      expect(Math.abs(x - (fp.x + 0.5))).toBeGreaterThan(0.2);
+    }
+    // un pondoir construit pivoté : son avant (où l'on se tient) regarde l'est
+    let built = false;
+    for (let z = -20; z < 28 && !built; z++) for (let x = 0; x < 40 && !built; x++) if (canPlace(s, 'nest', x, z, -1, 1, 1).ok) built = A.build(s, 'nest', x, z, 1).ok;
+    expect(built).toBe(true);
+    const nest = s.buildings[s.buildings.length - 1];
+    expect(footprint(nest)).toMatchObject({ w: 1, d: 2 });
+    expect(accessCells(nest).every(([x]) => x === nest.x + 1)).toBe(true);
+    // les poules affamées mangent bien à l'auge pivotée
+    for (let i = 0; i < 6; i++) A.buyHen(s, 'rousse');
+    for (const h of s.hens) h.satiety = 12;
+    let eating = 0;
+    run(s, 10 * HOUR, () => (eating += s.hens.filter((h) => h.act === 'eat' && h.targetId === feeder.id).length), 0.5);
+    expect(eating).toBeGreaterThan(0);
+  });
+
+  it('l’orientation est gardée par la sauvegarde', () => {
+    const s = newFarm(903);
+    const coop = buildingsOf(s, 'coop')[0];
+    expect(A.rotate(s, coop.id).ok).toBe(true);
+    coop.autoDoor = true;
+    const back = deserialize(serialize(s))!;
+    const c2 = back.buildings.find((b) => b.id === coop.id)!;
+    expect(c2.rot).toBe(1);
+    expect(c2.autoDoor).toBe(true);
+  });
+});
+
+describe('Trappe automatique', () => {
+  it('posée pour 50 €, elle se ferme la nuit, poules rentrées, et se rouvre au matin', () => {
+    const s = newFarm(911);
+    morning(s);
+    s.money = 100000;
+    const coop = buildingsOf(s, 'coop')[0];
+    const money = s.money;
+    expect(A.buyAutoDoor(s, coop.id).ok).toBe(true);
+    expect(money - s.money).toBe(AUTO_DOOR.cost);
+    expect(AUTO_DOOR.cost).toBe(5000);
+    expect(A.buyAutoDoor(s, coop.id).ok).toBe(false);
+    for (let i = 0; i < 4; i++) A.buyHen(s, 'rousse');
+    run(s, 2 * HOUR);
+    // en journée elle reste ouverte
+    expect(coop.closed).toBe(false);
+    const day = Math.floor(s.clock.t / TIME.DAY);
+    s.clock.t = day * TIME.DAY + 17.5 * HOUR;
+    s.clock.lastHourTick = Math.floor(s.clock.t / HOUR);
+    let closedWhileOut = false;
+    run(s, 6.5 * HOUR, () => {
+      if (coop.closed && s.hens.some((h) => h.act !== 'sleep')) closedWhileOut = true;
+    }, 0.25);
+    // fermée seulement une fois toutes rentrées
+    expect(coop.closed).toBe(true);
+    expect(closedWhileOut).toBe(false);
+    expect(s.hens.every((h) => h.act === 'sleep')).toBe(true);
+    // au lever du jour, elle s'ouvre seule (sans commis) et les poules sortent
+    run(s, 9 * HOUR);
+    expect(coop.closed).toBe(false);
+    expect(s.hens.some((h) => h.act !== 'sleep')).toBe(true);
+    // refermée à la main en matinée, elle reste fermée jusqu'au lendemain
+    A.toggleCoopDoor(s, coop.id);
+    expect(coop.closed).toBe(true);
+    run(s, 1 * HOUR);
+    expect(coop.closed).toBe(true);
+  });
+
+  it('le commis ne monte plus la garde devant un poulailler à trappe automatique', () => {
+    const s = newFarm(912);
+    morning(s);
+    s.money = 1e6;
+    const coop = buildingsOf(s, 'coop')[0];
+    A.buyAutoDoor(s, coop.id);
+    hire(s, 'farmhand');
+    for (let i = 0; i < 3; i++) A.buyHen(s, 'rousse');
+    const day = Math.floor(s.clock.t / TIME.DAY);
+    s.clock.t = day * TIME.DAY + 20.8 * HOUR;
+    s.clock.lastHourTick = Math.floor(s.clock.t / HOUR);
+    let waited = 0;
+    run(s, 3 * HOUR, () => (waited += s.workers.filter((w) => w.job?.kind === 'waitCoop' || w.job?.kind === 'closeCoop').length), 0.25);
+    expect(waited).toBe(0);
+    expect(coop.closed).toBe(true);
+  });
+});
+
+describe('Progression après le niveau 10', () => {
+  it('contrats, commandes et palettes continuent d’augmenter avec le niveau', () => {
+    expect(tradeAt(10).contracts).toBe(3);
+    expect(tradeAt(11).contracts).toBe(4);
+    expect(tradeAt(15).contracts).toBeGreaterThan(tradeAt(11).contracts);
+    expect(tradeAt(20).orders).toBeGreaterThan(tradeAt(10).orders);
+    expect(tradeAt(20).pallets).toBeGreaterThan(tradeAt(10).pallets);
+    expect(tradeAt(20).contractOffers).toBeGreaterThan(tradeAt(10).contractOffers);
+    const s = newFarm(921);
+    s.xp = levelAt(15).xp;
+    expect(farmLevel(s)).toBe(15);
+    expect(maxContracts(s)).toBeGreaterThanOrEqual(6);
+    expect(maxOrders(s)).toBeGreaterThan(3);
+    expect(palletsPerDay(s)).toBeGreaterThan(MARKET.palletsPerDay);
+    expect(levelAt(20).maxCoops).toBeGreaterThan(LEVELS[9].maxCoops);
+  });
+});
+
+describe('Commis, jardinier et coucher des poules', () => {
+  it('le commis recommande du grain dès que la réserve baisse, même occupé', () => {
+    const s = newFarm(931);
+    morning(s);
+    s.money = 1e6;
+    for (let i = 0; i < 10; i++) A.buyHen(s, 'rousse');
+    hire(s, 'farmhand');
+    run(s, 0.5 * HOUR);
+    s.grain = 0;
+    let emptyFor = 0;
+    run(s, 4 * HOUR, () => (s.grain < 1 ? emptyFor++ : 0), HOUR / 4);
+    // la réserve vide ne reste pas plus d'une demi-heure de jeu sans commande
+    expect(emptyFor).toBeLessThanOrEqual(2);
+    expect(s.grain).toBeGreaterThan(20);
+  });
+
+  it('le jardinier va reverdir les zones pelées d’abord', () => {
+    const s = newFarm(932);
+    morning(s);
+    s.money = 1e6;
+    hire(s, 'gardener');
+    run(s, 0.5 * HOUR);
+    // une large plaque pelée dans un coin de la ferme, le reste bien vert
+    for (let i = 0; i < s.grass.length; i++) s.grass[i] = 0.95;
+    const patch: number[] = [];
+    for (let z = 24; z < 28; z++)
+      for (let x = 2; x < 6; x++) {
+        if (!isWalkable(s, x + 0.5, z + 0.5)) continue;
+        const i = (z - GRID_Z0) * GRID_W + x;
+        s.grass[i] = 0.1;
+        patch.push(i);
+      }
+    expect(patch.length).toBeGreaterThan(8);
+    const before = patch.reduce((a, i) => a + s.grass[i], 0);
+    run(s, 3 * HOUR);
+    const after = patch.reduce((a, i) => a + s.grass[i], 0);
+    expect(after - before).toBeGreaterThan(patch.length * 0.25);
+  });
+
+  it('poulailler ouvert : même tard, toutes les poules finissent par aller se coucher', () => {
+    const s = newFarm(933);
+    morning(s);
+    s.money = 1e7;
+    s.xp = 99999;
+    const coop = buildingsOf(s, 'coop')[0];
+    while (coop.level < 4) A.upgrade(s, coop.id);
+    for (let i = 0; i < 30; i++) A.buyHen(s, 'rousse');
+    run(s, 2 * HOUR);
+    // il est déjà tard : elles sont éparpillées dans le pré, la trappe est restée ouverte
+    const day = Math.floor(s.clock.t / TIME.DAY);
+    s.clock.t = day * TIME.DAY + 23.5 * HOUR;
+    s.clock.lastHourTick = Math.floor(s.clock.t / HOUR);
+    expect(coop.closed).toBe(false);
+    run(s, 1.5 * HOUR);
+    expect(s.hens.filter((h) => h.act !== 'sleep').length).toBe(0);
   });
 });

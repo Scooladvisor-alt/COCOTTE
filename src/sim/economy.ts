@@ -1,5 +1,5 @@
 // Logique financière centralisée : toutes les entrées/sorties d'argent passent ici.
-import { LEVELS, LEVEL_GATES, WORLD } from '../config/balance';
+import { LEVELS, LEVEL_GATES, WORLD, levelAt } from '../config/balance';
 import { BREEDS } from '../config/breeds';
 import { currentDay, currentHour, emit } from './core';
 import type { DayFinance, ExpenseCat, GameState, IncomeCat, BreedId } from './types';
@@ -127,6 +127,12 @@ export function sumExpense(d: DayFinance, only?: ExpenseCat[]) {
 export function levelOf(xp: number) {
   let lvl = LEVELS[0];
   for (const l of LEVELS) if (xp >= l.xp) lvl = l;
+  // au-delà du dernier palier de la table : les niveaux continuent sans fin
+  if (lvl.level === LEVELS[LEVELS.length - 1].level) {
+    let n = lvl.level;
+    while (n < 999 && xp >= levelAt(n + 1).xp) n++;
+    if (n > lvl.level) return levelAt(n);
+  }
   return lvl;
 }
 export function farmLevel(s: GameState) {
@@ -165,7 +171,7 @@ export function maxCoopsOf(s: GameState) {
 }
 export function nextLevelDef(s: GameState) {
   const cur = levelOf(s.xp);
-  return LEVELS.find((l) => l.level === cur.level + 1) ?? null;
+  return levelAt(cur.level + 1);
 }
 export function addXp(s: GameState, amount: number) {
   if (amount <= 0) return;

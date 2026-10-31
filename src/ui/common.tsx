@@ -262,6 +262,21 @@ export function Icon({ name, size = 18 }: { name: string; size?: number }) {
           <path d="M8 11V7a4 4 0 018 0v4" />
         </svg>
       );
+    case 'rotate':
+      return (
+        <svg {...p}>
+          <path d="M20 11a8 8 0 10-2.3 5.7" />
+          <path d="M20 4v7h-7" />
+        </svg>
+      );
+    case 'auto':
+      return (
+        <svg {...p}>
+          <rect x="5" y="11" width="14" height="10" rx="2" />
+          <path d="M8 11V7a4 4 0 018 0v4" />
+          <path d="M12 14.5v3M10.5 16h3" />
+        </svg>
+      );
     case 'unlock':
       return (
         <svg {...p}>

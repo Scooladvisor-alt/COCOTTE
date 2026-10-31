@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { toastLife } from '../game';
 import { buildingThumb } from '../render/thumbs';
-import { LEVELS, TIME, LEVEL_GATES } from '../config/balance';
+import { TIME, LEVEL_GATES, levelAt } from '../config/balance';
 import { BUILDINGS } from '../config/buildings';
 import { sound } from '../audio/sound';
 import { deleteSave, hasSave } from '../save/save';
@@ -89,7 +89,7 @@ export function Toasts() {
   return (
     <div class="toasts">
       {behind > 0 && <div class="toast-under card" />}
-      <div key={t.id} class={`toast card ${t.tone} ${left < 400 ? 'out' : ''}`} title="Cliquer pour fermer" onClick={() => game.dismissToast(t.id)}>
+      <div key={t.id} class={`toast card ${t.tone} ${left < 400 ? 'out' : ''}`} title={`${t.text}\n(cliquer pour fermer)`} onClick={() => game.dismissToast(t.id)}>
         <span class="toast-ic">
           <Icon name={t.tone === 'good' ? 'check' : t.tone === 'info' ? 'info' : 'alert'} size={17} />
         </span>
@@ -241,6 +241,9 @@ export function PlacementBar() {
         </b>
         <small class={game.ghost && !game.ghost.ok ? 'neg' : ''}>{game.ghost ? (game.ghost.ok ? 'Emplacement valide : cliquez pour confirmer' : game.ghost.reason) : 'Survolez votre terrain'}</small>
       </div>
+      <Btn kind="ghost" small onClick={() => game.rotatePlacing()} title="Pivoter d’un quart de tour (touche R)">
+        <Icon name="rotate" size={15} /> <span class="rot-label">Pivoter</span>
+      </Btn>
       <Btn kind="ghost" small onClick={() => game.cancelPlacing()}>
         Annuler
       </Btn>
@@ -252,7 +255,7 @@ export function LevelUpModal() {
   const game = useGame();
   const lvl = game.levelUp;
   if (lvl === null) return null;
-  const def = LEVELS.find((l) => l.level === lvl)!;
+  const def = levelAt(lvl);
   const list = unlocksAt(lvl);
   return (
     <div class="modal-wrap">

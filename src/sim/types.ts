@@ -337,12 +337,18 @@ export interface Building {
   /** Case haut-gauche de l'emprise. */
   x: number;
   z: number;
+  /** Pivoté d'un quart de tour (1) : la façade regarde l'est au lieu du sud. */
+  rot?: number;
   /** Grain (rations) pour une mangeoire, eau (litres) pour un abreuvoir. */
   stock: number;
   /** Propreté 0..100 (poulaillers). */
   cleanliness: number;
   /** Poulailler : trappe fermée pour la nuit par le commis. */
   closed: boolean;
+  /** Abri équipé d'une trappe automatique (elle s'ouvre à l'aube et se ferme la nuit venue). */
+  autoDoor?: boolean;
+  /** Dernier jour où la trappe automatique s'est ouverte (une fois par matin). */
+  doorDay?: number;
   /** Œufs présents dans un pondoir (ids de WorldEgg). */
   eggIds: number[];
   /** Couveuse : œufs fécondés en incubation. */

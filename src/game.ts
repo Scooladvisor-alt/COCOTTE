@@ -56,7 +56,10 @@ export class Game {
   selection: Selection = null;
   panel: Panel = null;
   panelTab: string | null = null;
-  placing: { type: BuildingType; moveId?: number } | null = null;
+  /** Placement en cours : type, bâtiment déplacé, orientation (1 : pivoté d'un quart de tour). */
+  placing: { type: BuildingType; moveId?: number; rot: number } | null = null;
+  /** Dernière position du pointeur pendant le placement (pour redessiner le fantôme après un pivot). */
+  private ghostAt: [number, number] | null = null;
   ghost: { x: number; z: number; ok: boolean; reason?: string } | null = null;
   toasts: Toast[] = [];
   levelUp: number | null = null;
@@ -794,11 +797,21 @@ export class Game {
   }
 
   startPlacing(type: BuildingType, moveId?: number) {
-    this.placing = { type, moveId };
+    const rot = moveId !== undefined ? getBuilding(this.state, moveId)?.rot ?? 0 : 0;
+    this.placing = { type, moveId, rot };
     this.panel = null;
     this.ghost = null;
+    this.ghostAt = null;
     if (moveId !== undefined) this.renderer.hideBuilding(moveId, true);
-    this.toast(moveId !== undefined ? 'Choisissez le nouvel emplacement (Échap pour annuler)' : 'Cliquez sur votre terrain pour construire (Échap pour annuler)', 'info');
+    this.toast(moveId !== undefined ? 'Choisissez le nouvel emplacement (R pour pivoter, Échap pour annuler)' : 'Cliquez sur votre terrain pour construire (R pour pivoter, Échap pour annuler)', 'info');
+    this.changed();
+  }
+
+  /** Pendant le placement : tourne le bâtiment d'un quart de tour (façade au sud ↔ à l'est). */
+  rotatePlacing() {
+    if (!this.placing) return;
+    this.placing.rot = this.placing.rot ? 0 : 1;
+    if (this.ghostAt) this.updateGhost(...this.ghostAt);
     this.changed();
   }
 
@@ -812,25 +825,27 @@ export class Game {
 
   private updateGhost(clientX: number, clientY: number) {
     if (!this.placing) return;
+    this.ghostAt = [clientX, clientY];
     const g = this.renderer.groundAt(clientX, clientY);
     if (!g) return;
+    const { rot } = this.placing;
     const level = this.placing.moveId !== undefined ? getBuilding(this.state, this.placing.moveId)?.level ?? 1 : 1;
-    const def = sizeOf(this.placing.type, level);
+    const def = sizeOf(this.placing.type, level, rot);
     const x = Math.round(g.x - def.w / 2);
     const z = Math.round(g.z - def.d / 2);
-    const chk = canPlace(this.state, this.placing.type, x, z, this.placing.moveId ?? -1, level);
+    const chk = canPlace(this.state, this.placing.type, x, z, this.placing.moveId ?? -1, level, rot);
     this.ghost = { x, z, ok: chk.ok, reason: chk.reason };
-    this.renderer.showGhost(this.placing.type, level, x, z, chk.ok);
+    this.renderer.showGhost(this.placing.type, level, x, z, chk.ok, rot);
   }
 
   private confirmPlacing() {
     if (!this.placing || !this.ghost) return;
-    const { type, moveId } = this.placing;
+    const { type, moveId, rot } = this.placing;
     const { x, z } = this.ghost;
     const ok =
       moveId !== undefined
-        ? this.act(() => A.move(this.state, moveId, x, z), 'build')
-        : this.act(() => A.build(this.state, type, x, z), 'build');
+        ? this.act(() => A.move(this.state, moveId, x, z, rot), 'build')
+        : this.act(() => A.build(this.state, type, x, z, rot), 'build');
     if (ok) {
       const id = moveId ?? this.state.buildings[this.state.buildings.length - 1].id;
       this.cancelPlacing();
@@ -974,7 +989,10 @@ export class Game {
       else if (e.key === '3') this.setSpeed(10);
       else if (e.key.toLowerCase() === 'b') this.openPanel('shop');
       else if (e.key.toLowerCase() === 'v') this.openPanel('market');
-      else if (e.key.toLowerCase() === 'r') this.act(() => A.collectAll(this.state), 'pop');
+      else if (e.key.toLowerCase() === 'r') {
+        if (this.placing) this.rotatePlacing();
+        else this.act(() => A.collectAll(this.state), 'pop');
+      }
       else if (e.key.toLowerCase() === 'n') this.skipNight();
     });
   }

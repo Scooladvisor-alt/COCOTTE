@@ -1,9 +1,9 @@
 // Le personnel : des salariés visibles qui se déplacent dans la ferme et font réellement
 // le travail (ramassage, remplissage, nettoyage, soins, arrosage, vente au comptoir).
-import { FRESHNESS, GRAIN_SACKS, GRID_H, GRID_W, PREDATORS, WORLD, clamp, gradeOf, sackPrice } from '../config/balance';
+import { FRESHNESS, TIME, GRAIN_SACKS, GRID_H, GRID_W, PREDATORS, WORLD, clamp, gradeOf, sackPrice } from '../config/balance';
 import { BUILDINGS, STAND_POS, sizeOf } from '../config/buildings';
 import { ROLES, STAFF, WORKER_NAMES } from '../config/staff';
-import { buildingCenter, canStand, cellIndex, coopDoor, cellX, cellZ, crossesFence, currentDay, currentHour, emit, inGrid, isWalkable, nearestWalkable, newId, notify, pick, planPath, rand, randRange, rt, isShelter } from './core';
+import { buildingCenter, canStand, cellIndex, coopDoor, cellX, cellZ, crossesFence, currentDay, facadeHeading, frontOf, toWorld, currentHour, emit, inGrid, isWalkable, nearestWalkable, newId, notify, pick, planPath, rand, randRange, rt, isShelter } from './core';
 import { PREDATOR_INFO, damagePredator, distanceToFarm, predatorAimY } from './predators';
 import { henMovable } from './hens';
 import { addXp, buyLevel, fmtMoney, spend } from './economy';
@@ -81,9 +81,9 @@ export function startLabel(role: WorkerRole) {
 export function endLabel(role: WorkerRole) {
   return role === 'farmhand' ? 'après la rentrée des poules' : `${endHour(role)} h`;
 }
-/** Poulaillers encore ouverts (le commis ne rentre pas tant qu'il en reste). */
+/** Abris encore ouverts que le commis doit fermer (il ne rentre pas tant qu'il en reste ; une trappe automatique se ferme toute seule). */
 function openCoops(s: GameState) {
-  return s.buildings.filter((b) => isShelter(b) && !b.closed);
+  return s.buildings.filter((b) => isShelter(b) && !b.closed && !b.autoDoor);
 }
 
 export const JOB_LABELS: Record<WorkerJobKind, string> = {
@@ -227,11 +227,10 @@ function humanPath(s: GameState, fx: number, fz: number, tx: number, tz: number)
 
 /** Point accessible devant un bâtiment, du côté du salarié. */
 function besideBuilding(s: GameState, b: Building, w: Worker): [number, number] | null {
-  const def = BUILDINGS[b.type];
-  if (isShelter(b)) return [coopDoor(b).x, coopDoor(b).z + 0.75];
-  if (b.type === 'nest') return [b.x + 1, b.z + def.d + 0.55];
+  if (isShelter(b)) return frontOf(b, 0.75);
+  if (b.type === 'nest') return nestFront(b, 0.55);
   const c = buildingCenter(b);
-  const { w: bw, d: bd0 } = sizeOf(b.type, b.level);
+  const { w: bw, d: bd0 } = sizeOf(b.type, b.level, b.rot);
   let best: [number, number] | null = null;
   let bd = Infinity;
   // points tout autour de l'emprise (les grandes auges sont longues : on longe leurs côtés)
@@ -262,22 +261,26 @@ function reservedBy(s: GameState, self: Worker) {
 // ----------------------------------------------------------- Corvées ----
 /** Point devant la trappe d'un poulailler (à droite de la rampe, pour ne pas gêner les poules). */
 function coopDoorPoint(b: Building): [number, number] {
-  const d = coopDoor(b);
-  return [d.x + 0.75, d.z + 0.6];
+  return frontOf(b, 0.6, 0.75);
 }
 /** Point d'attente, à l'écart de la porte, en regardant les poules rentrer. */
 function coopWaitPoint(s: GameState, b: Building): [number, number] {
-  const { w } = BUILDINGS.coop;
-  const d = coopDoor(b);
-  for (const [x, z] of [
-    [b.x + w + 0.4, d.z + 0.4],
-    [b.x - 0.4, d.z + 0.4],
-    [b.x + w + 0.2, d.z + 1.3],
-    [b.x - 0.2, d.z + 1.3],
-    [d.x, d.z + 1.6],
-  ] as Array<[number, number]>)
+  const half = sizeOf(b.type, b.level).w / 2;
+  for (const [out, side] of [
+    [0.4, half + 0.4],
+    [0.4, -half - 0.4],
+    [1.3, half + 0.2],
+    [1.3, -half - 0.2],
+    [1.6, 0],
+  ]) {
+    const [x, z] = frontOf(b, out, side);
     if (canStand(s, x, z, 0.2)) return [x, z];
+  }
   return coopDoorPoint(b);
+}
+/** Devant un pondoir, au milieu, à `out` m de sa façade. */
+function nestFront(b: Building, out: number): [number, number] {
+  return toWorld(b, 1, BUILDINGS.nest.d + out);
 }
 
 type CareTask = { kind: WorkerJobKind; b: Building; at: [number, number]; time: number };
@@ -313,30 +316,46 @@ function careTask(s: GameState, w: Worker): CareTask | null {
   return null;
 }
 
-const lastOrder = new WeakMap<GameState, number>();
-/** Le commis commande l'eau et le grain quand les réserves baissent (si le joueur l'autorise). */
+const lastOrder = new WeakMap<GameState, { grain: number; water: number }>();
+/**
+ * Le commis commande l'eau et le grain dès que les réserves baissent (si le joueur l'autorise) :
+ * il y veille tout au long de sa journée, quoi qu'il soit en train de faire, et remplit la réserve
+ * à grain de plusieurs sacs d'un coup s'il le faut, pour qu'elle ne reste jamais vide.
+ */
 function restock(s: GameState, w: Worker) {
   if (!s.settings.staffRestock) return;
-  const last = lastOrder.get(s) ?? -Infinity;
-  if (s.clock.t - last < (180 / 24) * 2) return;
-  if (s.water < waterCapacity(s) * STAFF.restockWaterBelow) {
+  let last = lastOrder.get(s);
+  if (!last) lastOrder.set(s, (last = { grain: -Infinity, water: -Infinity }));
+  const gap = (TIME.DAY / 24) * STAFF.restockEveryHours;
+  if (s.clock.t - last.water >= gap && s.water < waterCapacity(s) * STAFF.restockWaterBelow) {
     const before = s.water;
     const money = s.money;
     if (fillTank(s).ok) {
-      lastOrder.set(s, s.clock.t);
+      last.water = s.clock.t;
       notify(s, `${w.name} a commandé ${Math.round(s.water - before)} L d’eau (${fmtMoney(money - s.money)}).`, 'info', '💧');
     } else warnLowFunds(s, w, 'd’eau');
   }
-  const rate = grainPerDay(s);
-  if (rate > 0.1 && s.grain < rate * STAFF.restockGrainDays) {
-    const level = buyLevel(s);
-    const room = grainCapacity(s) - s.grain;
+  const rate = Math.max(grainPerDay(s), s.hens.length ? 1 : 0);
+  const cap = grainCapacity(s);
+  const low = s.grain < rate * STAFF.restockGrainDays || s.grain < cap * STAFF.restockGrainBelow;
+  if (rate <= 0 || !low || s.clock.t - last.grain < gap) return;
+  const level = buyLevel(s);
+  const target = Math.min(cap, Math.max(rate * STAFF.restockGrainTarget, cap * 0.6));
+  const bought = new Map<string, number>();
+  let spent = 0;
+  // le plus gros sac qui rentre, encore et encore, jusqu'à la provision voulue (ou plus de place / d'argent)
+  for (let guard = 0; guard < 40 && s.grain < target; guard++) {
+    const room = cap - s.grain;
     const sack = [...GRAIN_SACKS].reverse().find((g) => g.reqLevel <= level && g.rations <= room && sackPrice(g, s.market.grainIndex) <= s.money);
-    if (sack && buyGrain(s, sack.id).ok) {
-      lastOrder.set(s, s.clock.t);
-      notify(s, `${w.name} a commandé un ${sack.name.toLowerCase()} de grain (${fmtMoney(sackPrice(sack, s.market.grainIndex))}).`, 'info', '🌾');
-    } else if (!sack) warnLowFunds(s, w, 'de grain');
+    if (!sack || !buyGrain(s, sack.id).ok) break;
+    bought.set(sack.name, (bought.get(sack.name) ?? 0) + 1);
+    spent += sackPrice(sack, s.market.grainIndex);
   }
+  if (bought.size) {
+    last.grain = s.clock.t;
+    const what = [...bought].map(([name, n]) => (n > 1 ? `${n} × ${name.toLowerCase()}` : `un ${name.toLowerCase()}`)).join(' et ');
+    notify(s, `${w.name} a commandé ${what} de grain (${fmtMoney(spent)}).`, 'info', '🌾');
+  } else if (s.grain < rate * 0.5) warnLowFunds(s, w, 'de grain');
 }
 const lowFundsWarned = new WeakMap<GameState, number>();
 function warnLowFunds(s: GameState, w: Worker, what: string) {
@@ -351,13 +370,13 @@ function pickupOnTheWay(s: GameState, w: Worker) {
   if (basketCount(w) >= STAFF.basketMax) return;
   for (const b of s.buildings) {
     if (b.type !== 'nest' || b.eggIds.length === 0) continue;
-    const fx = b.x + 1;
-    const fz = b.z + BUILDINGS.nest.d + 0.5;
+    const [fx, fz] = nestFront(b, 0.5);
     if (Math.hypot(fx - w.x, fz - w.z) > STAFF.pickupRadius) continue;
     const n = pickUp(s, w, [...b.eggIds]);
     if (n > 0) {
       w.lastPickT = s.clock.t;
-      emit(s, { kind: 'eggsCollected', count: n, x: b.x + 1, z: b.z + 0.5 });
+      const c = buildingCenter(b);
+      emit(s, { kind: 'eggsCollected', count: n, x: c.x, z: c.z });
     }
   }
   for (const e of s.worldEggs) {
@@ -373,12 +392,10 @@ function chooseFarmhandJob(s: GameState, w: Worker) {
   // 1. le matin : ouvrir les trappes pour libérer les poules (l'après-midi, une trappe
   //    fermée par le joueur le reste)
   for (const b of s.buildings) {
-    if (currentHour(s) >= 12 || !isShelter(b) || !b.closed || taken.has(`openCoop:${b.id}`)) continue;
+    if (currentHour(s) >= 12 || !isShelter(b) || !b.closed || b.autoDoor || taken.has(`openCoop:${b.id}`)) continue;
     const [x, z] = coopDoorPoint(b);
     if (assign(s, w, 'openCoop', b.id, x, z, STAFF.openTime)) return;
   }
-  // 2. réserves d'eau et de grain suffisantes (commande si besoin)
-  restock(s, w);
   // 3. entretien : eau, grain, propreté
   const care = careTask(s, w);
   if (care && assign(s, w, care.kind, care.b.id, care.at[0], care.at[1], care.time)) return;
@@ -428,30 +445,38 @@ function chooseCaretakerJob(s: GameState, w: Worker) {
   wander(s, w, { x: 14.5, z: 25 }, 4);
 }
 
+/**
+ * Le jardinier s'occupe d'abord des zones déverdies : il cherche sur tout le terrain le coin où
+ * l'herbe manque le plus (rase, jaunie, terre à nu), sans courir trop loin ni arroser là où un
+ * collègue travaille déjà ; l'herbe encore verte attend que le pire soit réparé.
+ */
 function chooseGardenerJob(s: GameState, w: Worker) {
   const r = rt(s);
+  const R = 2;
+  const others = s.workers.filter((o) => o !== w && o.job?.kind === 'water').map((o) => [o.job!.tx, o.job!.tz]);
   let best = -1;
-  let bestG = 0.85;
-  for (let k = 0; k < 50; k++) {
-    const i = Math.floor(rand(s) * GRID_W * GRID_H);
-    if (!r.walk[i]) continue;
+  let bestScore = 0;
+  for (let i = 0; i < GRID_W * GRID_H; i++) {
+    if (!r.walk[i] || !r.owned[i] || s.grass[i] > 0.7) continue;
     const x = cellX(i);
     const z = cellZ(i);
-    let sum = 0;
-    let n = 0;
-    for (let dz = -1; dz <= 1; dz++)
-      for (let dx = -1; dx <= 1; dx++)
-        if (inGrid(x + dx, z + dz) && r.owned[cellIndex(x + dx, z + dz)]) {
-          sum += s.grass[cellIndex(x + dx, z + dz)];
-          n++;
-        }
-    const g = n ? sum / n : 1;
-    if (g < bestG) {
-      bestG = g;
+    // herbe qui manque autour (ce qu'un arrosage peut faire repousser)
+    let lack = 0;
+    for (let dz = -R; dz <= R; dz++)
+      for (let dx = -R; dx <= R; dx++) {
+        if (dx * dx + dz * dz > R * R + 1 || !inGrid(x + dx, z + dz)) continue;
+        const j = cellIndex(x + dx, z + dz);
+        if (r.owned[j] && !r.blocked[j]) lack += Math.max(0, 0.9 - s.grass[j]);
+      }
+    if (others.some(([ox, oz]) => Math.hypot(ox - x - 0.5, oz - z - 0.5) < 3.5)) continue;
+    const score = lack - Math.hypot(x + 0.5 - w.x, z + 0.5 - w.z) * 0.04;
+    if (score > bestScore) {
+      bestScore = score;
       best = i;
     }
   }
-  if (best >= 0) {
+  // assez d'herbe à refaire pousser pour que le déplacement vaille la peine
+  if (best >= 0 && bestScore > 0.6) {
     const x = cellX(best) + 0.5;
     const z = cellZ(best) + 0.5;
     if (assign(s, w, 'water', best, x, z, STAFF.waterTime)) return;
@@ -532,7 +557,8 @@ function complete(s: GameState, w: Worker, j: WorkerJob) {
       const b = getBuilding(s, j.targetId);
       if (b && b.type === 'nest') {
         const n = pickUp(s, w, [...b.eggIds]);
-        if (n > 0) emit(s, { kind: 'eggsCollected', count: n, x: b.x + 1, z: b.z + 0.5 });
+        const c = buildingCenter(b);
+        if (n > 0) emit(s, { kind: 'eggsCollected', count: n, x: c.x, z: c.z });
       }
       return;
     }
@@ -764,7 +790,7 @@ export function updateWorkers(s: GameState, dt: number) {
   }
   // filet de sécurité : sans commis sur place, les trappes sont rouvertes le matin
   if (hour >= 7.5 && hour < 12 && !s.workers.some((w) => w.role === 'farmhand' && w.onSite)) {
-    const closed = s.buildings.filter((b) => isShelter(b) && b.closed);
+    const closed = s.buildings.filter((b) => isShelter(b) && b.closed && !b.autoDoor);
     if (closed.length) {
       for (const b of closed) b.closed = false;
       notify(s, 'Les trappes des poulaillers ont été rouvertes (aucun commis sur place).', 'info', '🔓');
@@ -783,6 +809,8 @@ export function updateWorkers(s: GameState, dt: number) {
       }
       continue;
     }
+    // le commis surveille les réserves tout au long de sa journée, même occupé ailleurs
+    if (w.role === 'farmhand' && working && w.job?.kind !== 'commuteIn') restock(s, w);
     // un prédateur aux abords de la ferme : le commis et le jardinier passent en mode commando
     if (isArmed(w) && w.job?.kind !== 'commuteIn' && w.job?.kind !== 'commuteOut') {
       const prey = pickPrey(s, w);
@@ -884,10 +912,16 @@ export function updateWorkers(s: GameState, dt: number) {
       if (follow(w, dt)) {
         j.phase = 'work';
         if (j.kind === 'stand') w.heading = sellerHeading(s);
-        else if (j.kind === 'collectNest' || j.kind === 'clean' || j.kind === 'closeCoop' || j.kind === 'openCoop') w.heading = Math.PI;
-        else if (j.kind === 'waitCoop') {
+        else if (j.kind === 'collectNest' || j.kind === 'clean' || j.kind === 'closeCoop' || j.kind === 'openCoop') {
+          // face au bâtiment (sa façade regarde le sud, ou l'est s'il est pivoté)
           const b = getBuilding(s, j.targetId);
-          if (b) face(w, b.x + 1.5, b.z + 2.3);
+          w.heading = (b ? facadeHeading(b) : 0) + Math.PI;
+        } else if (j.kind === 'waitCoop') {
+          const b = getBuilding(s, j.targetId);
+          if (b) {
+            const d = coopDoor(b);
+            face(w, d.x, d.z);
+          }
         }
         else if (j.kind === 'heal') {
           const h = s.hens.find((x) => x.id === j.targetId);
@@ -927,7 +961,10 @@ export function updateWorkers(s: GameState, dt: number) {
         j.t += dt;
         const waited = (j.t / 180) * 24;
         const night = hour >= STAFF.farmhandEnd || hour < STAFF.farmhandStart;
-        if (night && (coopFull(s, b) || lateNight || waited > STAFF.waitMaxHours)) {
+        // il ne ferme pas au nez d'une poule qui grimpe la rampe ou arrive à la porte
+        const d = coopDoor(b);
+        const arriving = s.hens.some((h) => h.coopId === b.id && (h.act === 'enter' || (h.act === 'goCoop' && Math.hypot(h.x - d.x, h.z - d.z) < 4)));
+        if (night && (coopFull(s, b) || lateNight || (waited > STAFF.waitMaxHours && !arriving))) {
           const [x, z] = coopDoorPoint(b);
           assign(s, w, 'closeCoop', b.id, x, z, STAFF.closeTime);
         }

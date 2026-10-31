@@ -24,7 +24,7 @@ import { BREEDS, HEN_NAMES, ROOSTER_NAMES, pickSkin, GANDER_NAMES, GOOSE_NAMES, 
 import { sizeOf } from '../config/buildings';
 import { STAFF } from '../config/staff';
 import { recordUse } from './stocks';
-import { GATE, buildingCenter, canStand, coopDoor, crossesFence, exitSide, cellIndex, currentHour, distanceTo, emit, inGrid, isNightHour, flowField, isWalkable, lineClear, newId, planPath, nearestWalkable, notify, parcelCenter, parcelCoords, parcelKeyOfCell, parcelOrigin, pick, rand, randRange, rt, sameArea, isShelter, isShelterType } from './core';
+import { GATE, buildingCenter, canStand, coopDoor, crossesFence, facadeHeading, frontOf, toLocal, toWorld, exitSide, cellIndex, currentHour, distanceTo, emit, inGrid, isNightHour, flowField, isWalkable, lineClear, newId, planPath, nearestWalkable, notify, parcelCenter, parcelCoords, parcelKeyOfCell, parcelOrigin, pick, rand, randRange, rt, sameArea, isShelter, isShelterType } from './core';
 import { fmtMoney } from './economy';
 import { nearestTree, parcelPerks, perksAt } from './perks';
 import { layEgg } from './eggs';
@@ -730,7 +730,7 @@ interface FeedInfo {
 }
 const spotCache = new WeakMap<Building, { key: number; spots: Array<[number, number]>; feed?: FeedInfo[]; reach: number }>();
 function spotEntry(s: GameState, b: Building) {
-  const key = ((rt(s).version * 8 + b.level) * 128 + b.x + 8) * 128 + b.z + 8;
+  const key = (((rt(s).version * 8 + b.level) * 2 + (b.rot ?? 0)) * 128 + b.x + 8) * 128 + b.z + 8;
   let c = spotCache.get(b);
   if (!c || c.key !== key) {
     const layout = feedLayout(b);
@@ -739,10 +739,8 @@ function spotEntry(s: GameState, b: Building) {
       const spots: Array<[number, number]> = [];
       const feed: FeedInfo[] = [];
       for (const f of layout) {
-        const x = b.x + f.x;
-        const z = b.z + f.z;
-        const fx = b.x + f.fx;
-        const fz = b.z + f.fz;
+        const [x, z] = toWorld(b, f.x, f.z);
+        const [fx, fz] = toWorld(b, f.fx, f.fz);
         const d = Math.hypot(x - fx, z - fz) || 1;
         for (let k = 0.08; k <= 2.4; k += 0.06) {
           const ax = x + ((x - fx) / d) * k;
@@ -784,7 +782,7 @@ function computeSlotSpots(s: GameState, b: Building): Array<[number, number]> {
   }
   if (b.type === 'nest') {
     const n = nestCompartments(b);
-    return Array.from({ length: n }, (_, i) => [b.x + 0.1 + ((i + 0.5) * 1.8) / n, b.z + 0.5] as [number, number]);
+    return Array.from({ length: n }, (_, i) => toWorld(b, 0.1 + ((i + 0.5) * 1.8) / n, 0.5));
   }
   if (b.type === 'dustbath') {
     const n = L.slots ?? 3;
@@ -794,8 +792,7 @@ function computeSlotSpots(s: GameState, b: Building): Array<[number, number]> {
     });
   }
   // poulailler : au pied de la rampe, face à la trappe
-  const door = coopDoor(b);
-  return [[door.x, door.z + 0.32]];
+  return [frontOf(b, 0.32)];
 }
 
 /** Point d'approche (à l'extérieur) correspondant à une place. */
@@ -816,7 +813,7 @@ function approachPoint(s: GameState, b: Building, spot: [number, number]): [numb
     }
     return [e.feed[i].ax, e.feed[i].az];
   }
-  if (b.type === 'nest') return [spot[0], b.z + 1.34];
+  if (b.type === 'nest') return nestFront(b, spot[0], spot[1]);
   if (b.type === 'dustbath') {
     const c = buildingCenter(b);
     const dx = spot[0] - c.x;
@@ -829,7 +826,13 @@ function approachPoint(s: GameState, b: Building, spot: [number, number]): [numb
 
 function coopInside(b: Building): [number, number] {
   // au milieu du perchoir, un peu en arrière de la façade (quelle que soit la taille du poulailler)
-  return [coopDoor(b).x, b.z + sizeOf(b.type, b.level).d * 0.575];
+  const { w, d } = sizeOf(b.type, b.level);
+  return toWorld(b, w / 2, d * 0.575);
+}
+
+/** Devant un pondoir, en face de la place (x, z) : là où la poule descend après avoir pondu. */
+function nestFront(b: Building, x: number, z: number): [number, number] {
+  return toWorld(b, toLocal(b, x, z)[0], 1.34);
 }
 
 /** Une place est utilisable si son point d'approche est praticable et relié au bâtiment. */
@@ -949,15 +952,13 @@ function chooseRange(s: GameState, h: Hen) {
       // devant l'abri, dans un rayon de quelques mètres
       const a = rand(s) * Math.PI * 2;
       const d = 1.2 + rand(s) * GOOSE_HOME_R;
-      tx = home.x + Math.sin(a) * d;
-      tz = home.z + 0.8 + Math.abs(Math.cos(a)) * d * 0.9;
+      [tx, tz] = frontOf(coop!, 0.8 + Math.abs(Math.cos(a)) * d * 0.9, Math.sin(a) * d);
     } else if (evening && home) {
       // en fin d'après-midi, elles se rapprochent de leur poulailler
       const a = rand(s) * Math.PI * 2;
       const d = 1.5 + rand(s) * 6;
       // devant la trappe (pas derrière le bâtiment, d'où il faudrait en faire le tour)
-      tx = home.x + Math.sin(a) * d;
-      tz = home.z + 0.8 + Math.abs(Math.cos(a)) * d;
+      [tx, tz] = frontOf(coop!, 0.8 + Math.abs(Math.cos(a)) * d, Math.sin(a) * d);
     } else {
       const [c, row] = parcelCoords(pick(s, pool));
       const [x0, z0] = parcelOrigin(c, row);
@@ -1201,8 +1202,15 @@ function decide(s: GameState, h: Hen, night: boolean) {
       }
     }
     const coop = getBuilding(s, h.coopId);
-    // trappe fermée par le commis : la retardataire passe la nuit dehors
-    if (coop && !coop.closed && distanceTo(s, coop, h.x, h.z) >= 0) return goTo(s, h, 'goCoop', coop);
+    // trappe fermée par le commis : la retardataire passe la nuit dehors ; trappe ouverte, elle va
+    // se coucher, même tard (et même coupée de sa porte par un bâtiment ou du grillage)
+    if (coop && !coop.closed) {
+      if (distanceTo(s, coop, h.x, h.z) >= 0) return goTo(s, h, 'goCoop', coop);
+      if (lateForBed(s)) {
+        const [px, pz] = frontOf(coop, 0.32);
+        return move(h, 'enter', px, pz, 'goCoop', 45, coop.id);
+      }
+    }
     return setAct(h, 'rest', 6);
   }
   // en fin de journée, une dernière gorgée et quelques grains avant d'aller se coucher
@@ -1304,6 +1312,12 @@ function forage(s: GameState, h: Hen, dt: number, rate: number) {
   if (room > 0) h.satiety += eatGrass(s, h.x, h.z, Math.min(want, room), NEEDS.grassPoints);
 }
 
+/** Il est tard (bien après la tombée de la nuit) : les poules dehors ne flânent plus, elles rentrent. */
+function lateForBed(s: GameState) {
+  const hour = currentHour(s);
+  return hour >= TIME.NIGHT_START + 0.25 || hour < TIME.NIGHT_END;
+}
+
 /** Arrivée à la place réservée d'un bâtiment. */
 function arrive(s: GameState, h: Hen, b: Building, spot: [number, number]) {
   const c = buildingCenter(b);
@@ -1352,14 +1366,17 @@ function goTick(s: GameState, h: Hen, r: HenRt, dt: number, night: boolean) {
     r.replans = 0;
     r.progT = 0;
     r.bestD = Infinity;
-    if (!r.path.length) return waitNear(s, h, b);
+    // pas de chemin jusqu'à sa porte ouverte : la nuit, elle se faufile quand même pour aller se coucher
+    if (!r.path.length) return isShelter(b) ? move(h, 'enter', px, pz, 'goCoop', 45, b.id) : waitNear(s, h, b);
   }
   while (r.path.length > 2 && Math.hypot(r.path[0] - h.x, r.path[1] - h.z) < 0.16) r.path.splice(0, 2);
   const wx = r.path.length ? r.path[0] : px;
   const wz = r.path.length ? r.path[1] : pz;
   steer(s, h, r, wx, wz, speedOf(h, 'go'), dt);
   const d = Math.hypot(px - h.x, pz - h.z);
-  if (d < (isShelter(b) ? 0.6 : 0.09)) {
+  // tard dans la nuit, poulailler encore ouvert : plus de détours ni d'embouteillage, on rentre
+  const late = isShelter(b) && lateForBed(s);
+  if (d < (isShelter(b) ? (late ? 1.2 : 0.8) : 0.09)) {
     r.spd = 0;
     r.pathKey = -1;
     return arrive(s, h, b, spot);
@@ -1370,7 +1387,7 @@ function goTick(s: GameState, h: Hen, r: HenRt, dt: number, night: boolean) {
     r.progT = 0;
   } else r.progT += dt;
   // coincée tout près du poulailler (un coin, la foule) : elle se faufile jusqu'au pied de la rampe
-  if (isShelter(b) && d < 4 && r.progT > 0.8) {
+  if (isShelter(b) && d < (late ? 9 : 4) && r.progT > (late ? 0.35 : 0.8)) {
     r.pathKey = -1;
     r.progT = 0;
     return move(h, 'enter', px, pz, 'goCoop', 45, b.id);
@@ -1380,7 +1397,7 @@ function goTick(s: GameState, h: Hen, r: HenRt, dt: number, night: boolean) {
     r.bestD = d;
     r.replans++;
     r.path = planPath(s, h.x, h.z, px, pz, 0.12) ?? [];
-    if (r.replans > 3 || !r.path.length) {
+    if (r.replans > (late ? 1 : 3) || !r.path.length) {
       r.pathKey = -1;
       // le soir, personne ne reste dehors : coincée entre deux bâtiments, elle se faufile jusqu'à sa porte
       if (isShelter(b)) return move(h, 'enter', px, pz, 'goCoop', 45, b.id);
@@ -1400,8 +1417,8 @@ function resolveOverlaps(s: GameState) {
     if (h.act !== 'goCoop') return false;
     const c = getBuilding(s, h.targetId);
     if (!c) return false;
-    const d = coopDoor(c);
-    return Math.hypot(h.x - d.x, h.z - d.z - 0.3) < 1.8;
+    const [dx, dz] = frontOf(c, 0.3);
+    return Math.hypot(h.x - dx, h.z - dz) < 1.8;
   };
   overlapGrid.fill(hens, (h) => h.act === 'sleep' || atDoor(h));
   const next = overlapGrid.next;
@@ -1602,6 +1619,8 @@ function behave(s: GameState, h: Hen, dt: number, night: boolean, hour: number) 
     h.thinkT = 1.2 + rand(s) * 0.6;
     const interruptible = ['walk', 'peck', 'scratch', 'preen', 'flap', 'rest', 'idle', 'goBath', 'wait'].includes(h.act);
     if (night && interruptible) return decide(s, h, night);
+    // tard, trappe ouverte : plus de détour par la mangeoire ou l'abreuvoir, on va se coucher
+    if (night && lateForBed(s) && (h.act === 'goEat' || h.act === 'goDrink' || h.act === 'goCompost' || h.act === 'goNest') && getBuilding(s, h.coopId)?.closed === false) return decide(s, h, night);
     if (interruptible && (h.satiety < NEEDS.urgentAt || h.hydration < NEEDS.urgentAt || (h.layProgress >= 1 && hour < LAYING.lastLayHour))) return decide(s, h, night);
     if (rand(s) < 0.004) emit(s, { kind: 'cluck', henId: h.id });
   }
@@ -1696,7 +1715,7 @@ function behave(s: GameState, h: Hen, dt: number, night: boolean, hour: number) 
     case 'exit': {
       // la rampe du poulailler se gravit d'un pas décidé (il fait nuit)
       const intoCoop = h.act === 'enter' && isShelterType(getBuilding(s, h.targetId)?.type ?? 'nest');
-      const res = steer(s, h, r, h.tx, h.tz, intoCoop ? speedOf(h, 'go') * 1.2 : speedOf(h, 'inside'), dt, true);
+      const res = steer(s, h, r, h.tx, h.tz, intoCoop ? speedOf(h, 'go') * 1.5 : speedOf(h, 'inside'), dt, true);
       if (res === 'arrived' || h.actT <= 0) {
         h.x = h.tx;
         h.z = h.tz;
@@ -1748,13 +1767,16 @@ function behave(s: GameState, h: Hen, dt: number, night: boolean, hour: number) 
       h.layProgress = Math.max(0, h.layProgress - 1);
       if (nest && nest.type === 'nest' && nestFree(nest) > 0) {
         layEgg(s, h, nest);
-        move(h, 'exit', h.x, nest.z + 1.34, 'idle', 0, nest.id);
+        const [ex, ez] = nestFront(nest, h.x, h.z);
+        move(h, 'exit', ex, ez, 'idle', 0, nest.id);
       } else {
         const egg = layEgg(s, h, null);
         egg.x = h.x + Math.sin(h.heading + Math.PI) * 0.2;
         egg.z = h.z + Math.cos(h.heading + Math.PI) * 0.2;
-        if (nest) move(h, 'exit', h.x, nest.z + 1.34, 'idle', 0, nest.id);
-        else decide(s, h, night);
+        if (nest) {
+          const [ex, ez] = nestFront(nest, h.x, h.z);
+          move(h, 'exit', ex, ez, 'idle', 0, nest.id);
+        } else decide(s, h, night);
       }
       break;
     }
@@ -1769,9 +1791,10 @@ function behave(s: GameState, h: Hen, dt: number, night: boolean, hour: number) 
         const [ix, iz] = coopInside(coop);
         h.x = ix;
         h.z = iz;
-        h.heading = 0;
-        const door = coopDoor(coop);
-        move(h, 'exit', door.x + randRange(s, -0.3, 0.3), door.z + 0.55 + rand(s) * 0.3, 'idle', 0, coop.id);
+        h.heading = facadeHeading(coop);
+        const side = randRange(s, -0.3, 0.3);
+        const [ox, oz] = frontOf(coop, 0.55 + rand(s) * 0.3, side);
+        move(h, 'exit', ox, oz, 'idle', 0, coop.id);
       }
       break;
     }

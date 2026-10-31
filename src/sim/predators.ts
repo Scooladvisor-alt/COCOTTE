@@ -2,7 +2,7 @@
 // et l'emporte ; la buse (en journée) tournoie au-dessus de la ferme puis pique sur sa proie.
 // Le joueur les abat d'un clic ; le commis et le jardinier sortent le fusil (voir workers.ts).
 import { DOG, GRID_H, GRID_W, GRID_Z0, GRID_Z1, HOUR, PREDATORS, WORLD, clamp } from '../config/balance';
-import { blocksMover, cellIndex, cellX, cellZ, coopDoor, crossesFence, currentDay, currentHour, edgeBetween, emit, inGrid, newId, notify, parcelCoords, parcelOrigin, rand, randRange, rt, smoothPath, stepBlocked, type Mover, isShelter } from './core';
+import { blocksMover, cellIndex, cellX, cellZ, coopDoor, crossesFence, currentDay, facadeHeading, frontOf, currentHour, edgeBetween, emit, inGrid, newId, notify, parcelCoords, parcelOrigin, rand, randRange, rt, smoothPath, stepBlocked, type Mover, isShelter } from './core';
 import { shelteredByTree } from './perks';
 import { addXp, earn, farmLevel, fmtMoney } from './economy';
 import { getBuilding } from './queries';
@@ -380,8 +380,7 @@ function nearestPrey(s: GameState, p: Predator, maxD = Infinity, avoid = -1): He
 }
 
 function coopDoorFront(b: Building): [number, number] {
-  const d = coopDoor(b);
-  return [d.x, d.z + 0.4];
+  return frontOf(b, 0.4);
 }
 
 function grab(s: GameState, p: Predator, h: Hen, time: number) {
@@ -530,7 +529,8 @@ function updateFox(s: GameState, p: Predator, dt: number) {
         return;
       }
       p.spd = 0;
-      turn(p, Math.PI, dt, 6);
+      // museau vers la trappe
+      turn(p, facadeHeading(b) + Math.PI, dt, 6);
       p.t -= dt;
       if (p.t > 0) return;
       if (p.state === 'raid') {

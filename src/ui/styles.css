@@ -1244,6 +1244,33 @@ textarea {
 .auto-box.locked {
   opacity: 0.6;
 }
+/* trappe automatique à poser sur un poulailler */
+.auto-door {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  background: var(--blue-soft);
+  border-radius: 14px;
+  padding: 10px 12px;
+  margin: 6px 0 2px;
+}
+.auto-door > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+.auto-door small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.auto-door .btn {
+  flex-shrink: 0;
+}
 .auto-box label,
 .toggle {
   display: flex;
@@ -1705,6 +1732,8 @@ kbd {
 /* Notification : une seule à la fois, toujours au même endroit — en haut, entre le panneau de
    gauche et l'horloge, alignée sur celle-ci et dans son style (carte, tuile d'icône, titre + détail). */
 .toasts {
+  --toast-w: 420px;
+  --toast-h: 64px;
   position: absolute;
   top: 16px;
   left: 324px;
@@ -1723,8 +1752,9 @@ kbd {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 54px;
-  width: max-content;
+  /* toutes les notifications ont la même taille, quel que soit leur texte */
+  height: var(--toast-h);
+  width: var(--toast-w);
   max-width: 100%;
   padding: 8px 14px 8px 9px;
   animation: toastIn 0.32s cubic-bezier(0.2, 0.8, 0.2, 1);
@@ -1754,6 +1784,7 @@ kbd {
   background: #fde8e8;
 }
 .toast-txt {
+  flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -1763,6 +1794,14 @@ kbd {
   font-size: 14px;
   font-weight: 800;
   color: var(--ink);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* titre et détail : le titre tient sur une ligne, le détail sur deux */
+.toast-txt b:not(:last-child) {
+  -webkit-line-clamp: 1;
 }
 .toast-txt span {
   font-size: 12px;
@@ -1803,8 +1842,8 @@ kbd {
   position: absolute;
   top: 6px;
   left: 6px;
-  width: min(300px, calc(100% - 12px));
-  height: 54px;
+  width: min(var(--toast-w), 100%);
+  height: var(--toast-h);
   opacity: 0.55;
   transform: scale(0.97);
 }
@@ -6969,12 +7008,21 @@ body {
     left: calc(var(--sl) + 8px);
     right: calc(var(--sr) + 66px);
   }
+  .toasts {
+    --toast-w: 400px;
+    --toast-h: 50px;
+  }
   .toasts .toast {
     top: auto;
     bottom: 0;
     left: 50%;
     transform: translateX(-50%);
-    min-height: 44px;
+  }
+  .toasts .toast-txt span {
+    -webkit-line-clamp: 1;
+  }
+  .toasts .toast-txt b {
+    -webkit-line-clamp: 1;
   }
   .toasts .toast.out {
     transform: translate(-50%, 6px);
@@ -7093,6 +7141,36 @@ body {
   }
   #ui:has(.coach) .toasts {
     left: calc(max(8px, env(safe-area-inset-left)) + min(340px, 44vw) + 10px);
+  }
+}
+
+/* placement sur téléphone à l'horizontale : barre compacte en bas à droite (Pivoter en icône), les
+   notifications passent au-dessus */
+@media (orientation: landscape) and (max-height: 540px) {
+  .placement {
+    left: auto;
+    right: calc(max(8px, env(safe-area-inset-right)) + 66px);
+    bottom: 8px;
+    transform: none;
+    gap: 8px;
+    padding: 7px 8px 7px 10px;
+    max-width: min(420px, 56vw);
+  }
+  .placement .pi {
+    width: 30px;
+    height: 30px;
+  }
+  .placement b {
+    font-size: 12.5px;
+  }
+  .placement small {
+    font-size: 11px;
+  }
+  .placement .rot-label {
+    display: none;
+  }
+  #ui:has(.placement) .toasts {
+    bottom: 76px;
   }
 }
 

@@ -4,7 +4,7 @@ import { FRESHNESS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, NEEDS, TIME, WORLD, clamp,
 import { COOP_SCALE, STAND_POS, sizeOf } from '../config/buildings';
 import { feedPose, type FeedPose } from '../sim/feeding';
 import { vaultOf } from '../sim/vault';
-import { cellX, cellZ, currentHour, inGrid, isShelter, parcelCenter, parcelCoords, parcelKeyOfCell, rt } from '../sim/core';
+import { cellIndex, cellX, cellZ, coopDoorCells, currentHour, inGrid, isShelter, parcelCenter, parcelCoords, parcelKeyOfCell, rt, toLocal } from '../sim/core';
 import { lvl } from '../sim/queries';
 import { rtHen } from '../sim/hens';
 import { simAlpha } from '../sim/simulation';
@@ -152,7 +152,7 @@ const COOP_DOORS: Record<number, { door: number; sill: number; foot: number }> =
     1: { door: 1.55, sill: 0.32, foot: 2.09 },
     2: { door: 1.65, sill: 0.22, foot: 2.11 },
     3: { door: 1.72, sill: 0.1, foot: 2.12 },
-    4: { door: 1.78, sill: 0.05, foot: 2.15 },
+    4: { door: 1.78, sill: 0.09, foot: 2.17 },
     5: { door: 2.2, sill: 0.12, foot: 2.62 },
     6: { door: 2.66, sill: 0.1, foot: 3.1 },
     // modèles dessinés à l'échelle 1, agrandis COOP_SCALE fois
@@ -778,6 +778,9 @@ export class FarmRenderer {
     this.vergeTint.copy(VERGE_BASE).lerp(seasonTint, amt).lerp(SNOW, snow * 0.9);
     const N = GRID_W * GRID_H;
     const blocked = rt(s).blocked;
+    // devant les trappes, l'herbe est foulée : pas de brins au travers des rampes
+    const doorway = new Set<number>();
+    for (const b of s.buildings) if (isShelter(b)) for (const [cx, cz] of coopDoorCells(b)) if (inGrid(cx, cz)) doorway.add(cellIndex(cx, cz));
     for (const ch of this.grassChunks.values()) ch.nl = ch.nw = 0;
     let f = 0;
     for (let i = 0; i < N; i++) {
@@ -799,7 +802,7 @@ export class FarmRenderer {
         this.cellCol[i * 3 + 1] = tmpC.g;
         this.cellCol[i * 3 + 2] = tmpC.b;
         // pas d'herbe haute sous un bâtiment (elle traverserait l'eau d'une mare)
-        const under = blocked[i] === 1;
+        const under = blocked[i] === 1 || doorway.has(i);
         // teinte des brins : l'herbe broutée jaunit, la saison et la neige s'y ajoutent
         tuftC.setRGB(1, 1, 1).lerp(DRY_BLADE, clamp((0.75 - g) * 1.4, 0, 0.85)).lerp(seasonTint, amt * 0.55);
         if (patch > 0) tuftC.lerp(SNOW, patch * 0.6);
@@ -908,6 +911,9 @@ export class FarmRenderer {
       }
       const y = b.type === 'stand' ? 0 : GRASS_TOP - 0.02;
       v.group.position.set(b.type === 'stand' ? STAND_POS.x : b.x, y, b.type === 'stand' ? STAND_POS.z - 0.2 : b.z);
+      // pivoté d'un quart de tour : la façade regarde l'est, le modèle tourne autour de son coin
+      v.group.rotation.y = b.rot ? Math.PI / 2 : 0;
+      if (b.rot) v.group.position.z += sizeOf(b.type, b.level).w;
       if (v.bounce > 0) {
         v.bounce = Math.max(0, v.bounce - dt * 2.2);
         const k = v.bounce;
@@ -931,6 +937,7 @@ export class FarmRenderer {
       if (b.type === 'nest') this.syncNestEggs(s, b, v);
       if (b.type === 'stand') this.syncGoldShowcase(s, v);
       if (b.type === 'incubator') this.syncIncubatorEggs(b, v);
+      if (v.autoKit) v.autoKit.visible = !!b.autoDoor;
       if (v.door) {
         // la trappe glisse vers le bas quand le commis ferme le poulailler
         const target = b.closed ? 1 : 0;
@@ -1064,8 +1071,8 @@ export class FarmRenderer {
     }
   }
 
-  center(b: { type: BuildingType; x: number; z: number; level?: number }) {
-    const d = sizeOf(b.type, b.level);
+  center(b: { type: BuildingType; x: number; z: number; level?: number; rot?: number }) {
+    const d = sizeOf(b.type, b.level, b.rot);
     if (b.type === 'stand') return { x: STAND_POS.x + 1, z: STAND_POS.z + 0.3 };
     return { x: b.x + d.w / 2, z: b.z + d.d / 2 };
   }
@@ -1161,10 +1168,10 @@ export class FarmRenderer {
     while (dh < -Math.PI) dh += Math.PI * 2;
     const heading = r.ph + dh * alpha;
     const target = h.targetId >= 0 ? s.buildings.find((b) => b.id === h.targetId) : undefined;
-    const onNest = target?.type === 'nest' && (h.act === 'lay' || ((h.act === 'enter' || h.act === 'exit') && h.z < target.z + 1.02));
+    const onNest = target?.type === 'nest' && (h.act === 'lay' || ((h.act === 'enter' || h.act === 'exit') && toLocal(target, h.x, h.z)[1] < 1.02));
     const inBath = target?.type === 'dustbath' && (h.act === 'bathe' || h.act === 'enter' || h.act === 'exit');
     // poulailler : la poule gravit la rampe, passe le seuil de la trappe et disparaît derrière le mur
-    const coopWay = target && isShelter(target) && (h.act === 'enter' || h.act === 'exit') ? coopPassage(target.type, target.level, z - target.z) : null;
+    const coopWay = target && isShelter(target) && (h.act === 'enter' || h.act === 'exit') ? coopPassage(target.type, target.level, toLocal(target, x, z)[1]) : null;
     const yTarget = onNest ? 0.36 : inBath ? GRASS_TOP + 0.02 : coopWay ? GRASS_TOP - 0.02 + coopWay.y : GRASS_TOP;
     v.y += (yTarget - v.y) * Math.min(1, dt * (coopWay ? 30 : 14));
     // petit saut pour monter dans le nid
@@ -1587,7 +1594,7 @@ export class FarmRenderer {
         bodyY -= 0.04;
         legs[0] = Math.max(0, Math.sin(t * 10)) * -0.9;
         tailY = Math.sin(t * 7) * 0.45;
-        if (p.state === 'raid' && Math.random() < dt * 6) this.particles.burst(v.px, 0.4, v.pz - 0.3, 0xf6f1e7, 2, { speed: 0.8, up: 1.4, gravity: 1.2, life: 1.1 });
+        if (p.state === 'raid' && Math.random() < dt * 6) this.particles.burst(v.px + Math.sin(v.root.rotation.y) * 0.3, 0.4, v.pz + Math.cos(v.root.rotation.y) * 0.3, 0xf6f1e7, 2, { speed: 0.8, up: 1.4, gravity: 1.2, life: 1.1 });
       } else if (!alive) {
         // abattu : couché sur le flanc
         rollZ = Math.PI / 2;
@@ -2087,7 +2094,7 @@ export class FarmRenderer {
   }
 
   // -------------------------------------------------------- Placement ----
-  showGhost(type: BuildingType | null, level: number, x: number, z: number, ok: boolean) {
+  showGhost(type: BuildingType | null, level: number, x: number, z: number, ok: boolean, rot = 0) {
     if (!type) {
       if (this.ghost) this.scene.remove(this.ghost);
       this.ghost = null;
@@ -2110,8 +2117,9 @@ export class FarmRenderer {
       this.ghostKey = key;
       this.scene.add(this.ghost);
     }
-    const d = sizeOf(type, level);
-    this.ghost!.position.set(x, GRASS_TOP + 0.02 + Math.sin(this.time * 5) * 0.03, z);
+    const d = sizeOf(type, level, rot);
+    this.ghost!.position.set(x, GRASS_TOP + 0.02 + Math.sin(this.time * 5) * 0.03, rot ? z + d.d : z);
+    this.ghost!.rotation.y = rot ? Math.PI / 2 : 0;
     this.ghostTiles.visible = true;
     this.ghostTiles.scale.set(d.w, 1, d.d);
     this.ghostTiles.position.set(x + d.w / 2, GRASS_TOP + 0.015, z + d.d / 2);
@@ -2216,7 +2224,7 @@ export class FarmRenderer {
     this.highlight.update(this.time);
     let halo: { x: number; z: number; w: number; d: number } | null = null;
     if (sb) {
-      const d = sizeOf(sb.type, sb.level);
+      const d = sizeOf(sb.type, sb.level, sb.rot);
       const c = this.center(sb);
       halo = { x: c.x, z: sb.type === 'stand' ? STAND_POS.z + 0.35 : c.z, w: d.w + 1.1, d: d.d + 1.1 };
     } else if (sw) halo = { x: sw.root.position.x, z: sw.root.position.z, w: 1.7, d: 1.7 };

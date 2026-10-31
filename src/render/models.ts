@@ -211,6 +211,8 @@ export interface BuildingView {
   dirt?: THREE.Mesh;
   /** Trappe du poulailler (pivot en haut de l'ouverture, échelle Y = fermeture). */
   door?: THREE.Object3D;
+  /** Kit de trappe automatique (affiché une fois posé). */
+  autoKit?: THREE.Object3D;
   key: string;
 }
 
@@ -232,6 +234,39 @@ function trapDoor(w: number, h: number, x: number, top: number, z: number) {
   pivot.scale.y = 0.001;
   pivot.visible = false;
   return pivot;
+}
+
+/**
+ * Kit de trappe automatique, posé autour de l'ouverture (mêmes repères que trapDoor) : rails de
+ * guidage en aluminium, boîtier moteur à voyant vert, capteur de lumière, et petit panneau solaire
+ * sur potence qui alimente le moteur. k : échelle (les abris à oies ont une porte plus grande).
+ */
+function autoKit(w: number, h: number, x: number, top: number, z: number, k = 1) {
+  const ALU = 0xb9c0c8;
+  const MOTOR = 0x3b4048;
+  const px = x - w / 2 - 0.2 * k;
+  const g = new THREE.Group();
+  const parts = [
+    // rails de part et d'autre de l'ouverture
+    ...[-1, 1].map((sx) => box(0.03 * k, h + 0.06 * k, 0.035 * k, ALU, [x + sx * (w / 2 + 0.02 * k), top - h / 2 + 0.03 * k, z + 0.012 * k])),
+    // boîtier moteur au-dessus de l'ouverture, couvercle, voyant et capteur de lumière
+    box(w + 0.12 * k, 0.12 * k, 0.09 * k, MOTOR, [x, top + 0.1 * k, z + 0.03 * k]),
+    box(w + 0.14 * k, 0.02 * k, 0.1 * k, 0x2a2e34, [x, top + 0.168 * k, z + 0.03 * k]),
+    box(0.03 * k, 0.03 * k, 0.012 * k, 0x4ade80, [x + w / 2 - 0.02 * k, top + 0.1 * k, z + 0.079 * k]),
+    box(0.05 * k, 0.035 * k, 0.012 * k, 0x9aa3ab, [x - w / 4, top + 0.1 * k, z + 0.079 * k]),
+    cyl(0.02 * k, 0.02 * k, 0.03 * k, 8, 0xf4f4f0, [x - w / 2 + 0.03 * k, top + 0.193 * k, z + 0.03 * k]),
+    // cordon du moteur jusqu'à la potence
+    box(0.2 * k, 0.014 * k, 0.014 * k, 0x1f2126, [x - w / 2 - 0.1 * k, top + 0.12 * k, z + 0.02 * k]),
+    // potence et panneau solaire incliné vers le ciel
+    box(0.025 * k, 0.2 * k, 0.025 * k, ALU, [px, top + 0.08 * k, z + 0.02 * k]),
+    box(0.025 * k, 0.025 * k, 0.12 * k, ALU, [px, top + 0.17 * k, z + 0.07 * k]),
+    box(0.24 * k, 0.016 * k, 0.17 * k, ALU, [px, top + 0.2 * k, z + 0.12 * k], [0.55, 0, 0]),
+    box(0.22 * k, 0.012 * k, 0.15 * k, 0x22407a, [px, top + 0.21 * k, z + 0.125 * k], [0.55, 0, 0]),
+    ...[-0.055, 0.055].map((dx) => box(0.008 * k, 0.006 * k, 0.15 * k, 0x4a6fb5, [px + dx * k, top + 0.216 * k, z + 0.122 * k], [0.55, 0, 0])),
+  ];
+  g.add(mesh(merge(parts), false, false));
+  g.visible = false;
+  return g;
 }
 
 function slab(w: number, d: number, color = 0xe6d9bf, h = 0.05) {
@@ -263,20 +298,23 @@ function coopModel(level: number): BuildingView {
   else coopAviary(parts, windows);
   g.add(mesh(merge(parts)));
   for (const w of windows) g.add(w);
-  const door =
+  // ouverture de la trappe (largeur, hauteur, milieu x, haut, façade z), selon le modèle
+  const at: [number, number, number, number, number] =
     level === 1
-      ? trapDoor(0.32, 0.44, 1.5, 0.75, 1.598)
+      ? [0.32, 0.44, 1.5, 0.75, 1.598]
       : level === 2
-        ? trapDoor(0.34, 0.52, 1.5, 0.78, 1.692)
+        ? [0.34, 0.52, 1.5, 0.78, 1.692]
         : level === 3
-          ? trapDoor(0.38, 0.58, 1.5, 0.74, 1.758)
+          ? [0.38, 0.58, 1.5, 0.74, 1.758]
           : level === 4
-            ? trapDoor(0.34, 0.38, 1.5, 0.46, 1.81)
+            ? [0.42, 0.53, 1.5, 0.62, 1.81]
             : level === 5
-              ? trapDoor(0.44, 0.5, 2, 0.62, 2.22)
-              : trapDoor(0.38, 0.4, 2.5, 0.5, 2.68);
-  g.add(door);
-  return { group: outer, eggSlots: [], eggMeshes: [], key: `coop${level}`, door };
+              ? [0.44, 0.5, 2, 0.62, 2.22]
+              : [0.4, 0.54, 2.5, 0.64, 2.68];
+  const door = trapDoor(...at);
+  const autoKitG = autoKit(...at);
+  g.add(door, autoKitG);
+  return { group: outer, eggSlots: [], eggMeshes: [], key: `coop${level}`, door, autoKit: autoKitG };
 }
 
 /** Abri à oies : dessiné à l'échelle 1 (4 × 3, 5 × 3, 6 × 4) ; porte large que le commis ferme le soir. */
@@ -290,9 +328,11 @@ function gooseHouseModel(level: number): BuildingView {
   g.add(mesh(merge(parts)));
   for (const w of windows) g.add(w);
   // porte coulissante de nuit (même animation que la trappe des poulaillers)
-  const door = trapDoor(0.95, level === 3 ? 0.95 : 0.78, W / 2, level === 3 ? 0.97 : 0.8, D - 0.5);
-  g.add(door);
-  return { group: g, eggSlots: [], eggMeshes: [], key: `goosehouse${level}`, door };
+  const at: [number, number, number, number, number] = [0.95, level === 3 ? 0.95 : 0.78, W / 2, level === 3 ? 0.97 : 0.8, D - 0.5];
+  const door = trapDoor(...at);
+  const autoKitG = autoKit(...at, 1.6);
+  g.add(door, autoKitG);
+  return { group: g, eggSlots: [], eggMeshes: [], key: `goosehouse${level}`, door, autoKit: autoKitG };
 }
 
 function nestModel(level: number): BuildingView {

@@ -4,7 +4,7 @@
 // stockage). Ils restent à l'intérieur des clôtures.
 import { HOUR, ROBOT, gradeOf } from '../config/balance';
 import { BUILDINGS, sizeOf } from '../config/buildings';
-import { buildingCenter, canStand, crossesFence, emit, newId, notify, planPath, currentDay, rt } from './core';
+import { buildingCenter, canStand, crossesFence, emit, newId, notify, planPath, currentDay, rt, toWorld } from './core';
 import { henMovable } from './hens';
 import { addXp, earn, fmtMoney, spend } from './economy';
 import { addToStorage, removeWorldEgg } from './eggs';
@@ -25,11 +25,11 @@ const dockCache = new WeakMap<GameState, { key: string; spots: DockSpot[] }>();
 export function dockSpots(s: GameState): DockSpot[] {
   const st = storage(s);
   if (!st) return [[14.5, 28.5, 0, 1]];
-  const key = `${rt(s).version}:${st.x},${st.z},${st.level}`;
+  const key = `${rt(s).version}:${st.x},${st.z},${st.level},${st.rot ?? 0}`;
   const hit = dockCache.get(s);
   if (hit && hit.key === key) return hit.spots;
   const c = buildingCenter(st);
-  const { w, d } = sizeOf('storage', st.level);
+  const { w, d } = sizeOf('storage', st.level, st.rot);
   const spots: DockSpot[] = [];
   const offsets = (half: number) => {
     const out = [0];
@@ -153,7 +153,10 @@ function plan(s: GameState, r: Robot) {
     const nests = s.buildings
       .filter((b) => b.type === 'nest' && b.eggIds.length > 0 && !taken.has(`nest:${b.id}`))
       .sort((a, b) => b.eggIds.length - a.eggIds.length || dist(a.x, a.z) - dist(b.x, b.z));
-    for (const b of nests) if (go(s, r, 'nest', b.id, b.x + 1, b.z + BUILDINGS.nest.d + 0.45)) return;
+    for (const b of nests) {
+      const [nx, nz] = toWorld(b, 1, BUILDINGS.nest.d + 0.45);
+      if (go(s, r, 'nest', b.id, nx, nz)) return;
+    }
   }
   if (n > 0 && storage(s)) return go(s, r, 'unload', -1, dx, dz);
   if (Math.hypot(dx - r.x, dz - r.z) > 0.3) return go(s, r, 'dock', -1, dx, dz);
@@ -171,7 +174,8 @@ function arrive(s: GameState, r: Robot) {
       if (b) {
         let n = 0;
         for (const id of [...b.eggIds]) if (pick(s, r, id)) n++;
-        if (n) emit(s, { kind: 'eggsCollected', count: n, x: b.x + 1, z: b.z + 0.5 });
+        const c = buildingCenter(b);
+        if (n) emit(s, { kind: 'eggsCollected', count: n, x: c.x, z: c.z });
       }
       break;
     }

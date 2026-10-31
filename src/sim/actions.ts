@@ -1,6 +1,6 @@
 // Toutes les commandes du joueur. Chaque action valide ses préconditions AVANT de
 // modifier l'état : une action refusée ne laisse aucune trace (ni argent, ni objet).
-import { BREEDING, COSTS, DELIVERY, GRAIN_BINS, HEN_PACKS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
+import { AUTO_DOOR, BREEDING, COSTS, DELIVERY, GRAIN_BINS, HEN_PACKS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
 import { grainCapacity, takeGrain, takeWater, waterCapacity } from './stocks';
 import { BREEDS, ROOSTER_TITLES, isGoose } from '../config/breeds';
 import { BUILDINGS, sizeOf } from '../config/buildings';
@@ -380,6 +380,19 @@ export function toggleCoopDoor(s: GameState, id: number): ActionResult {
   return OK;
 }
 
+/** Pose une trappe automatique (50 €) : elle s'ouvre au lever du jour et se ferme la nuit, volailles rentrées. */
+export function buyAutoDoor(s: GameState, id: number): ActionResult {
+  const b = getBuilding(s, id);
+  if (!b || !isShelter(b)) return fail('Poulailler introuvable');
+  if (b.autoDoor) return fail('Trappe automatique déjà posée');
+  if (!spend(s, AUTO_DOOR.cost, 'constructions', 'Trappe automatique')) return fail('Fonds insuffisants');
+  b.autoDoor = true;
+  b.invested += AUTO_DOOR.cost;
+  emit(s, { kind: 'upgrade', buildingId: b.id });
+  notify(s, `Trappe automatique posée : elle s’ouvrira au lever du jour et se fermera la nuit, ${b.type === 'goosehouse' ? 'oies' : 'poules'} rentrées.`, 'good', '🔒');
+  return OK;
+}
+
 /** Rattraper une poule qui s'enfuit (clic sur elle). */
 export function recallStray(s: GameState, henId: number): ActionResult {
   const h = getHen(s, henId);
@@ -428,14 +441,15 @@ export function checkBuild(s: GameState, type: BuildingType): ActionResult {
   return OK;
 }
 
-export function build(s: GameState, type: BuildingType, x: number, z: number): ActionResult {
+export function build(s: GameState, type: BuildingType, x: number, z: number, rot = 0): ActionResult {
   const chk = checkBuild(s, type);
   if (!chk.ok) return chk;
-  const place = canPlace(s, type, x, z);
+  const place = canPlace(s, type, x, z, -1, 1, rot);
   if (!place.ok) return fail(place.reason ?? 'Emplacement invalide');
   const L = BUILDINGS[type].levels[0];
   if (!spend(s, L.cost, 'constructions', `Construction : ${L.name}`)) return fail('Fonds insuffisants');
   const b = makeBuilding(newId(s), type, x, z, s.clock.t);
+  if (rot) b.rot = 1;
   b.invested = L.cost;
   if (type === 'feeder') b.stock = takeGrain(s, L.capacity);
   if (type === 'drinker') b.stock = takeWater(s, L.capacity);
@@ -457,7 +471,7 @@ export function checkUpgrade(s: GameState, id: number): ActionResult {
   if (!next) return fail('Niveau maximum atteint');
   if (!levelReached(s, next.reqLevel)) return fail(`Niveau de ferme ${next.reqLevel} requis`);
   if (growSpot(s, b) === null) {
-    const { w, d } = sizeOf(b.type, b.level + 1);
+    const { w, d } = sizeOf(b.type, b.level + 1, b.rot);
     return fail(`Il faut ${w} × ${d} cases libres autour`);
   }
   if (s.money < next.cost) return fail('Fonds insuffisants');
@@ -468,14 +482,16 @@ export function checkUpgrade(s: GameState, id: number): ActionResult {
  * Où poser le bâtiment amélioré quand il s'agrandit (grandes auges) : sur place si la place est
  * libre, sinon décalé de quelques cases ; null s'il n'y a pas la place. Même emprise : sur place.
  */
-export function growSpot(s: GameState, b: { id: number; type: BuildingType; x: number; z: number; level: number }): [number, number] | null {
-  const cur = sizeOf(b.type, b.level);
-  const nxt = sizeOf(b.type, b.level + 1);
+export function growSpot(s: GameState, b: { id: number; type: BuildingType; x: number; z: number; level: number; rot?: number }): [number, number] | null {
+  const cur = sizeOf(b.type, b.level, b.rot);
+  const nxt = sizeOf(b.type, b.level + 1, b.rot);
   if (cur.w === nxt.w && cur.d === nxt.d) return [b.x, b.z];
+  // sur place d'abord, puis en débordant d'un côté ou de l'autre (selon x et z)
   const tries: Array<[number, number]> = [];
-  for (let dx = 0; dx <= nxt.w - cur.w; dx++) for (const dz of [0, -1, 1]) tries.push([b.x - dx, b.z + dz]);
-  for (const dx of [1, -(nxt.w - cur.w) - 1]) tries.push([b.x + dx, b.z]);
-  for (const [x, z] of tries) if (canPlace(s, b.type, x, z, b.id, b.level + 1).ok) return [x, z];
+  for (let dx = 0; dx <= nxt.w - cur.w; dx++) for (let dz = 0; dz <= nxt.d - cur.d; dz++) for (const j of [0, -1, 1]) tries.push(nxt.w > cur.w ? [b.x - dx, b.z - dz + j] : [b.x - dx + j, b.z - dz]);
+  tries.push(nxt.w > cur.w ? [b.x + 1, b.z] : [b.x, b.z + 1]);
+  tries.push(nxt.w > cur.w ? [b.x - (nxt.w - cur.w) - 1, b.z] : [b.x, b.z - (nxt.d - cur.d) - 1]);
+  for (const [x, z] of tries) if (canPlace(s, b.type, x, z, b.id, b.level + 1, b.rot ?? 0).ok) return [x, z];
   return null;
 }
 
@@ -503,15 +519,18 @@ export function upgrade(s: GameState, id: number): ActionResult {
   return OK;
 }
 
-export function move(s: GameState, id: number, x: number, z: number): ActionResult {
+export function move(s: GameState, id: number, x: number, z: number, rot?: number): ActionResult {
   const b = getBuilding(s, id);
   if (!b) return fail('Bâtiment introuvable');
   if (!BUILDINGS[b.type].movable) return fail('Ce bâtiment ne se déplace pas');
-  if (b.x === x && b.z === z) return OK;
-  const place = canPlace(s, b.type, x, z, b.id, b.level);
+  const r = rot ?? b.rot ?? 0;
+  if (b.x === x && b.z === z && r === (b.rot ?? 0)) return OK;
+  const place = canPlace(s, b.type, x, z, b.id, b.level, r);
   if (!place.ok) return fail(place.reason ?? 'Emplacement invalide');
   b.x = x;
   b.z = z;
+  if (r) b.rot = 1;
+  else delete b.rot;
   // les œufs du pondoir suivent
   if (b.type === 'nest') {
     const c = buildingCenter(b);
@@ -524,6 +543,36 @@ export function move(s: GameState, id: number, x: number, z: number): ActionResu
   resetHenAfterLayout(s);
   emit(s, { kind: 'build', buildingId: b.id });
   return OK;
+}
+
+/**
+ * Fait pivoter un bâtiment d'un quart de tour (façade au sud ↔ façade à l'est), autour de son
+ * centre ; s'il ne tient pas tel quel, il est décalé de quelques cases au plus près.
+ */
+export function rotate(s: GameState, id: number): ActionResult {
+  const b = getBuilding(s, id);
+  if (!b) return fail('Bâtiment introuvable');
+  if (!BUILDINGS[b.type].movable) return fail('Ce bâtiment ne pivote pas');
+  const r = b.rot ? 0 : 1;
+  const c = buildingCenter(b);
+  const { w, d } = sizeOf(b.type, b.level, r);
+  const x0 = Math.round(c.x - w / 2);
+  const z0 = Math.round(c.z - d / 2);
+  let best: [number, number] | null = null;
+  let bd = Infinity;
+  let why = '';
+  for (let dz = -3; dz <= 3; dz++)
+    for (let dx = -3; dx <= 3; dx++) {
+      const dist = Math.hypot(dx, dz);
+      if (dist >= bd) continue;
+      const chk = canPlace(s, b.type, x0 + dx, z0 + dz, b.id, b.level, r);
+      if (chk.ok) {
+        bd = dist;
+        best = [x0 + dx, z0 + dz];
+      } else if (dx === 0 && dz === 0) why = chk.reason ?? '';
+    }
+  if (!best) return fail(`Pas la place de le tourner ici${why ? ` (${why.toLowerCase()})` : ''}`);
+  return move(s, id, best[0], best[1], r);
 }
 
 export function demolishRefund(s: GameState, id: number) {

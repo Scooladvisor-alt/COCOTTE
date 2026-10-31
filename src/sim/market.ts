@@ -16,6 +16,7 @@ import {
   XP,
   clamp,
   freshnessFactor,
+  tradeAt,
 } from '../config/balance';
 import { BREEDS } from '../config/breeds';
 import { STAND_POS } from '../config/buildings';
@@ -379,9 +380,15 @@ export function sellWholesale(s: GameState, type: EggType, qty: number, factor =
   return total;
 }
 
+/** Palettes que la centrale d'achat prend par jour (davantage aux hauts niveaux). */
+export function palletsPerDay(s: GameState) {
+  return tradeAt(farmLevel(s)).pallets;
+}
+
 export function palletsLeft(s: GameState) {
   const day = currentDay(s);
-  return day === s.market.palletDay ? Math.max(0, MARKET.palletsPerDay - s.market.pallets) : MARKET.palletsPerDay;
+  const per = palletsPerDay(s);
+  return day === s.market.palletDay ? Math.max(0, per - s.market.pallets) : per;
 }
 
 export function sellPallet(s: GameState, type: EggType) {
@@ -426,7 +433,7 @@ export function generateOrders(s: GameState) {
   if (farmLevel(s) < UNLOCKS.orders) return;
   const day = currentDay(s);
   const offers = s.orders.filter((o) => o.status === 'offer');
-  for (let i = offers.length; i < ORDERS.maxOffers; i++) {
+  for (let i = offers.length; i < tradeAt(farmLevel(s)).orderOffers; i++) {
     if (rand(s) < 0.25) continue;
     const type = pick(s, producedTypes(s));
     // tailles variées, au hasard : la douzaine du café du coin comme les 200 œufs de la cantine ;
@@ -452,10 +459,15 @@ export function generateOrders(s: GameState) {
   }
 }
 
+/** Commandes acceptées en même temps (davantage aux hauts niveaux). */
+export function maxOrders(s: GameState) {
+  return tradeAt(farmLevel(s)).orders;
+}
+
 export function acceptOrder(s: GameState, id: number) {
   const o = s.orders.find((x) => x.id === id);
   if (!o || o.status !== 'offer') return { ok: false, reason: 'Offre introuvable.' };
-  if (s.orders.filter((x) => x.status === 'active').length >= ORDERS.maxActive) return { ok: false, reason: `Maximum ${ORDERS.maxActive} commandes en cours.` };
+  if (s.orders.filter((x) => x.status === 'active').length >= maxOrders(s)) return { ok: false, reason: `Maximum ${maxOrders(s)} commandes en cours.` };
   o.status = 'active';
   return { ok: true };
 }
@@ -512,14 +524,14 @@ export function canDeliver(s: GameState, o: Order) {
 
 // ----------------------------------------------------------- Contrats ----
 export function maxContracts(s: GameState) {
-  return CONTRACTS.maxActive[Math.min(CONTRACTS.maxActive.length - 1, farmLevel(s) - 1)];
+  return tradeAt(farmLevel(s)).contracts;
 }
 
 export function generateContracts(s: GameState) {
   if (farmLevel(s) < UNLOCKS.contracts) return;
   const day = currentDay(s);
   const offers = s.contracts.filter((c) => c.status === 'offer');
-  for (let i = offers.length; i < CONTRACTS.maxOffers; i++) {
+  for (let i = offers.length; i < tradeAt(farmLevel(s)).contractOffers; i++) {
     if (rand(s) < 0.35) continue;
     const type = pick(s, producedTypes(s));
     const prod = Math.max(6, dailyProduction(s, type));

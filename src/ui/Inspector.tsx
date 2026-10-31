@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { BREEDING, COMPOST, EGG_TYPES, TIME, GRADES, HEALTH, LAYING, NATURE, PARCELS, ROBOT, parcelPrice, WORLD } from '../config/balance';
+import { AUTO_DOOR, BREEDING, COMPOST, EGG_TYPES, TIME, GRADES, HEALTH, LAYING, NATURE, PARCELS, ROBOT, parcelPrice, WORLD } from '../config/balance';
 import { season, seasonIndex } from '../sim/seasons';
 import { hopperCount, sellRobot } from '../sim/robots';
 import { crowdedChicks, eggHatchIn, fertileStock, fertility, growthLabel, growthStage, incubatable, incubateAll, incubatingCount, loadIncubator, roosterCount, toggleIncubatorAuto } from '../sim/breeding';
@@ -573,11 +573,24 @@ function BuildingCard({ b }: { b: Building }) {
           </div>
           <Need label="Propreté" value={b.cleanliness} />
           <div class="kv">
-            <span>Trappe</span>
+            <span>Trappe{b.autoDoor ? ' automatique' : ''}</span>
             <b>
               {b.closed ? 'fermée' : 'ouverte'} · {s.hens.filter((h) => h.coopId === b.id && h.act === 'sleep').length} à l’abri
             </b>
           </div>
+          {b.autoDoor ? (
+            <p class="hint good">Trappe automatique : elle s’ouvre seule au lever du jour et se ferme la nuit, dès que {b.type === 'goosehouse' ? 'toutes les oies sont rentrées' : 'toutes les poules sont rentrées'}.</p>
+          ) : (
+            <div class="auto-door">
+              <div>
+                <b>Trappe automatique</b>
+                <small>Elle s’ouvre au lever du jour et se ferme la nuit, {b.type === 'goosehouse' ? 'oies' : 'poules'} rentrées : à l’abri du renard sans y penser.</small>
+              </div>
+              <Btn kind="primary" small disabled={s.money < AUTO_DOOR.cost} onClick={() => game.act(() => A.buyAutoDoor(s, b.id), 'build')}>
+                <Icon name="auto" size={15} /> Poser · {fmtMoney(AUTO_DOOR.cost)}
+              </Btn>
+            </div>
+          )}
           <div class="actions">
             <Btn kind={b.cleanliness < 50 ? 'primary' : 'soft'} disabled={b.cleanliness > 92} onClick={() => game.act(() => A.cleanCoop(s, b.id), 'build')}>
               <Icon name="broom" size={15} /> Nettoyer · {fmtMoney(cleaningCost(b))}
@@ -789,6 +802,11 @@ function BuildingCard({ b }: { b: Building }) {
         {def.movable && (
           <Btn kind="ghost" small onClick={() => game.startPlacing(b.type, b.id)}>
             <Icon name="move" size={14} /> Déplacer
+          </Btn>
+        )}
+        {def.movable && (
+          <Btn kind="ghost" small onClick={() => game.act(() => A.rotate(s, b.id), 'build')} title="Pivoter d’un quart de tour : façade au sud ou à l’est">
+            <Icon name="rotate" size={14} /> Pivoter
           </Btn>
         )}
         {!def.unique &&

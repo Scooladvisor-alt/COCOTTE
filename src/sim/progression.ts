@@ -1,5 +1,5 @@
 // Missions et déblocages.
-import { LEVEL_GATES, UNLOCKS } from '../config/balance';
+import { LEVEL_GATES, UNLOCKS, tradeAt } from '../config/balance';
 import { BREEDS, BREED_ORDER } from '../config/breeds';
 import { BUILDINGS } from '../config/buildings';
 import { MISSIONS } from '../config/missions';
@@ -59,6 +59,15 @@ export function unlocksAt(level: number): string[] {
     pallets: 'Vente en volume (palettes)',
   };
   for (const [k, v] of Object.entries(UNLOCKS)) if (v === level) out.push(f[k]);
+  // les débouchés grandissent encore : plus de contrats, de commandes et de palettes
+  if (level > 1) {
+    const now = tradeAt(level);
+    const before = tradeAt(level - 1);
+    if (level > UNLOCKS.contracts && now.contracts > before.contracts) out.push(`${now.contracts} contrats en même temps`);
+    if (now.contractOffers > before.contractOffers) out.push(`${now.contractOffers} offres de contrat`);
+    if (now.orders > before.orders) out.push(`${now.orders} commandes en cours`);
+    if (now.pallets > before.pallets) out.push(`${now.pallets} palettes par jour`);
+  }
   if (LEVEL_GATES) for (const r of ROLE_ORDER) if (ROLES[r].reqLevel === level) out.push(`Embauche : ${ROLES[r].title.toLowerCase()}`);
   return out;
 }

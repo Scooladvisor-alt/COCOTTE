@@ -169,6 +169,15 @@ const GOOSE_DOORS: Record<number, { door: number; sill: number; foot: number }> 
   2: { door: 2.45, sill: 0.03, foot: 2.75 },
   3: { door: 3.45, sill: 0.03, foot: 3.75 },
 };
+/**
+ * Décalage du coin du modèle pivoté de rot quarts de tour (rotation autour de son coin
+ * nord-ouest) pour qu'il retombe sur son emprise au sol.
+ */
+function turnOffset(type: BuildingType, level: number, rot: number): [number, number] {
+  const { w, d } = sizeOf(type, level);
+  const q = ((rot % 4) + 4) % 4;
+  return q === 1 ? [0, w] : q === 2 ? [w, d] : q === 3 ? [d, 0] : [0, 0];
+}
 /** Hauteur de la poule sur la rampe, pente, et si elle est déjà entièrement à l'intérieur. */
 function coopPassage(type: BuildingType, level: number, lz: number) {
   const d = type === 'goosehouse' ? GOOSE_DOORS[level] ?? GOOSE_DOORS[1] : COOP_DOORS[level] ?? COOP_DOORS[1];
@@ -911,9 +920,11 @@ export class FarmRenderer {
       }
       const y = b.type === 'stand' ? 0 : GRASS_TOP - 0.02;
       v.group.position.set(b.type === 'stand' ? STAND_POS.x : b.x, y, b.type === 'stand' ? STAND_POS.z - 0.2 : b.z);
-      // pivoté d'un quart de tour : la façade regarde l'est, le modèle tourne autour de son coin
-      v.group.rotation.y = b.rot ? Math.PI / 2 : 0;
-      if (b.rot) v.group.position.z += sizeOf(b.type, b.level).w;
+      // pivoté : le modèle tourne autour de son coin, puis se recale sur son emprise
+      const [ox, oz] = turnOffset(b.type, b.level, b.rot ?? 0);
+      v.group.rotation.y = ((b.rot ?? 0) * Math.PI) / 2;
+      v.group.position.x += ox;
+      v.group.position.z += oz;
       if (v.bounce > 0) {
         v.bounce = Math.max(0, v.bounce - dt * 2.2);
         const k = v.bounce;
@@ -2118,8 +2129,9 @@ export class FarmRenderer {
       this.scene.add(this.ghost);
     }
     const d = sizeOf(type, level, rot);
-    this.ghost!.position.set(x, GRASS_TOP + 0.02 + Math.sin(this.time * 5) * 0.03, rot ? z + d.d : z);
-    this.ghost!.rotation.y = rot ? Math.PI / 2 : 0;
+    const [ox, oz] = turnOffset(type, level, rot);
+    this.ghost!.position.set(x + ox, GRASS_TOP + 0.02 + Math.sin(this.time * 5) * 0.03, z + oz);
+    this.ghost!.rotation.y = (rot * Math.PI) / 2;
     this.ghostTiles.visible = true;
     this.ghostTiles.scale.set(d.w, 1, d.d);
     this.ghostTiles.position.set(x + d.w / 2, GRASS_TOP + 0.015, z + d.d / 2);

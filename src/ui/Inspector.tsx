@@ -805,7 +805,7 @@ function BuildingCard({ b }: { b: Building }) {
           </Btn>
         )}
         {def.movable && (
-          <Btn kind="ghost" small onClick={() => game.act(() => A.rotate(s, b.id), 'build')} title="Pivoter d’un quart de tour : façade au sud ou à l’est">
+          <Btn kind="ghost" small onClick={() => game.act(() => A.rotate(s, b.id), 'build')} title="Pivoter d’un quart de tour (4 appuis = un tour complet)">
             <Icon name="rotate" size={14} /> Pivoter
           </Btn>
         )}

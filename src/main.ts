@@ -25,6 +25,19 @@ if (loaded?.source === 'backup') game.toast('Sauvegarde principale illisible : l
 
 render(h(App, { game, fromSave: !!loaded }), document.getElementById('ui')!);
 
+// le navigateur ne zoome pas la page (double appui, pincement sur iPhone et iPad, qui ignorent
+// user-scalable=no) : seul le jeu zoome, avec ses propres gestes
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
+document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+document.addEventListener(
+  'touchmove',
+  (e) => {
+    // pincement à deux doigts hors du terrain de jeu (sur les panneaux) : pas de zoom de la page
+    if (e.touches.length > 1 && !(e.target as HTMLElement)?.closest?.('#world')) e.preventDefault();
+  },
+  { passive: false },
+);
+
 // aperçu de développement : ?nosave&dev=jours,panneau[,onglet] → partie simulée N jours, panneau ouvert
 // (ex. ?nosave&dev=10,hens ou ?nosave&dev=8,market,stand), sans passer par l'accueil
 if (import.meta.env.DEV && noSave && new URLSearchParams(location.search).get('dev')) {

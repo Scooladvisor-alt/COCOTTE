@@ -449,7 +449,7 @@ export function build(s: GameState, type: BuildingType, x: number, z: number, ro
   const L = BUILDINGS[type].levels[0];
   if (!spend(s, L.cost, 'constructions', `Construction : ${L.name}`)) return fail('Fonds insuffisants');
   const b = makeBuilding(newId(s), type, x, z, s.clock.t);
-  if (rot) b.rot = 1;
+  if (rot % 4) b.rot = rot % 4;
   b.invested = L.cost;
   if (type === 'feeder') b.stock = takeGrain(s, L.capacity);
   if (type === 'drinker') b.stock = takeWater(s, L.capacity);
@@ -529,7 +529,7 @@ export function move(s: GameState, id: number, x: number, z: number, rot?: numbe
   if (!place.ok) return fail(place.reason ?? 'Emplacement invalide');
   b.x = x;
   b.z = z;
-  if (r) b.rot = 1;
+  if (r % 4) b.rot = r % 4;
   else delete b.rot;
   // les œufs du pondoir suivent
   if (b.type === 'nest') {
@@ -546,14 +546,15 @@ export function move(s: GameState, id: number, x: number, z: number, rot?: numbe
 }
 
 /**
- * Fait pivoter un bâtiment d'un quart de tour (façade au sud ↔ façade à l'est), autour de son
- * centre ; s'il ne tient pas tel quel, il est décalé de quelques cases au plus près.
+ * Fait pivoter un bâtiment d'un quart de tour (façade au sud → à l'est → au nord → à l'ouest →
+ * au sud), autour de son centre ; s'il ne tient pas tel quel, il est décalé de quelques cases au
+ * plus près.
  */
 export function rotate(s: GameState, id: number): ActionResult {
   const b = getBuilding(s, id);
   if (!b) return fail('Bâtiment introuvable');
   if (!BUILDINGS[b.type].movable) return fail('Ce bâtiment ne pivote pas');
-  const r = b.rot ? 0 : 1;
+  const r = ((b.rot ?? 0) + 1) % 4;
   const c = buildingCenter(b);
   const { w, d } = sizeOf(b.type, b.level, r);
   const x0 = Math.round(c.x - w / 2);

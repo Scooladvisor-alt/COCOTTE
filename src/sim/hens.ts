@@ -730,7 +730,7 @@ interface FeedInfo {
 }
 const spotCache = new WeakMap<Building, { key: number; spots: Array<[number, number]>; feed?: FeedInfo[]; reach: number }>();
 function spotEntry(s: GameState, b: Building) {
-  const key = (((rt(s).version * 8 + b.level) * 2 + (b.rot ?? 0)) * 128 + b.x + 8) * 128 + b.z + 8;
+  const key = (((rt(s).version * 8 + b.level) * 4 + (b.rot ?? 0)) * 128 + b.x + 8) * 128 + b.z + 8;
   let c = spotCache.get(b);
   if (!c || c.key !== key) {
     const layout = feedLayout(b);

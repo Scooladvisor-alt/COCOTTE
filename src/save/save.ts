@@ -214,7 +214,7 @@ export function sanitize(input: unknown): GameState | null {
     nb.stock = num(b.stock, nb.stock, 0, cap);
     nb.cleanliness = num(b.cleanliness, 100, 0, 100);
     nb.closed = isShelterType(type) && bool(b.closed, false);
-    if (def.movable && b.rot === 1) nb.rot = 1;
+    if (def.movable && (b.rot === 1 || b.rot === 2 || b.rot === 3)) nb.rot = b.rot;
     if (isShelterType(type) && bool(b.autoDoor, false)) {
       nb.autoDoor = true;
       if (typeof b.doorDay === 'number') nb.doorDay = int(b.doorDay, 0, 0, 1e7);

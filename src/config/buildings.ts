@@ -274,15 +274,15 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
 };
 
 /**
- * Emprise d'un bâtiment à un niveau donné (cases selon x et z). Pivoté d'un quart de tour
- * (rot = 1), il échange largeur et profondeur.
+ * Emprise d'un bâtiment à un niveau donné (cases selon x et z). Pivoté d'un quart ou de trois
+ * quarts de tour (rot = 1 ou 3), il échange largeur et profondeur.
  */
 export function sizeOf(type: BuildingType, level = 1, rot = 0): { w: number; d: number } {
   const def = BUILDINGS[type];
   const L = def.levels[level - 1];
   const w = L?.w ?? def.w;
   const d = L?.d ?? def.d;
-  return rot ? { w: d, d: w } : { w, d };
+  return rot % 2 ? { w: d, d: w } : { w, d };
 }
 
 export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'incubator'];

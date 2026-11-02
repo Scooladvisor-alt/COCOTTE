@@ -337,7 +337,7 @@ export interface Building {
   /** Case haut-gauche de l'emprise. */
   x: number;
   z: number;
-  /** Pivoté d'un quart de tour (1) : la façade regarde l'est au lieu du sud. */
+  /** Orientation en quarts de tour (0 à 3) : la façade regarde le sud, l'est, le nord ou l'ouest. */
   rot?: number;
   /** Grain (rations) pour une mangeoire, eau (litres) pour un abreuvoir. */
   stock: number;

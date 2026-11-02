@@ -107,20 +107,37 @@ export function buildingCenter(b: Placed) {
   return { x: b.x + w / 2, z: b.z + d / 2 };
 }
 /**
- * Bâtiment pivoté d'un quart de tour (rot = 1) : sa façade, dessinée vers le sud (+z), regarde
- * l'est (+x). Passage d'un point du modèle (lx le long de la façade, lz en profondeur, depuis le
- * coin nord-ouest du modèle non tourné) au monde, et retour.
+ * Orientation d'un bâtiment, en quarts de tour (0 à 3) : sa façade, dessinée vers le sud (+z),
+ * regarde le sud (0), l'est (1), le nord (2) ou l'ouest (3). Passage d'un point du modèle (lx le
+ * long de la façade, lz en profondeur, depuis le coin nord-ouest du modèle non tourné) au monde,
+ * et retour.
  */
+export const quarter = (b: { rot?: number }) => (((b.rot ?? 0) % 4) + 4) % 4;
 export function toWorld(b: Placed, lx: number, lz: number): [number, number] {
-  if (!b.rot) return [b.x + lx, b.z + lz];
-  return [b.x + lz, b.z + sizeOf(b.type, b.level).w - lx];
+  const q = quarter(b);
+  if (!q) return [b.x + lx, b.z + lz];
+  const { w, d } = sizeOf(b.type, b.level);
+  if (q === 1) return [b.x + lz, b.z + w - lx];
+  if (q === 2) return [b.x + w - lx, b.z + d - lz];
+  return [b.x + d - lz, b.z + lx];
 }
 export function toLocal(b: Placed, x: number, z: number): [number, number] {
-  if (!b.rot) return [x - b.x, z - b.z];
-  return [b.z + sizeOf(b.type, b.level).w - z, x - b.x];
+  const q = quarter(b);
+  if (!q) return [x - b.x, z - b.z];
+  const { w, d } = sizeOf(b.type, b.level);
+  if (q === 1) return [b.z + w - z, x - b.x];
+  if (q === 2) return [b.x + w - x, b.z + d - z];
+  return [z - b.z, b.x + d - x];
 }
+/** Direction de la façade (vers l'extérieur) et direction « le long de la façade » (x du modèle). */
+const FACING: Array<{ n: [number, number]; t: [number, number] }> = [
+  { n: [0, 1], t: [1, 0] },
+  { n: [1, 0], t: [0, -1] },
+  { n: [0, -1], t: [-1, 0] },
+  { n: [-1, 0], t: [0, 1] },
+];
 /** Cap (atan2(dx, dz)) de qui sort par la façade. */
-export const facadeHeading = (b: { rot?: number }) => (b.rot ? Math.PI / 2 : 0);
+export const facadeHeading = (b: { rot?: number }) => (quarter(b) * Math.PI) / 2;
 /** Abri où dorment les volailles : le poulailler (poules) ou l'abri à oies (oies). */
 export const isShelterType = (t: BuildingType) => t === 'coop' || t === 'goosehouse';
 export const isShelter = (b: Pick<Building, 'type'>) => isShelterType(b.type);
@@ -136,29 +153,28 @@ export function coopDoor(b: Doored) {
 /** Point devant la trappe d'un abri : `out` m vers l'extérieur, `side` m le long de la façade. */
 export function frontOf(b: Doored, out: number, side = 0): [number, number] {
   const d = coopDoor(b);
-  return b.rot ? [d.x + out, d.z - side] : [d.x + side, d.z + out];
+  const { n, t } = FACING[quarter(b)];
+  return [d.x + n[0] * out + t[0] * side, d.z + n[1] * out + t[1] * side];
 }
 /** Cases juste devant la trappe d'un poulailler (à garder libres). */
 export function coopDoorCells(b: Doored): Array<[number, number]> {
-  const d = coopDoor(b);
-  if (b.rot)
-    return [
-      [d.x, Math.floor(d.z - 0.3)],
-      [d.x, Math.floor(d.z + 0.3)],
-    ];
-  return [
-    [Math.floor(d.x - 0.3), d.z],
-    [Math.floor(d.x + 0.3), d.z],
-  ];
+  // les deux cases de part et d'autre du milieu de la trappe, juste dehors
+  return [-0.3, 0.3].map((side) => {
+    const [x, z] = frontOf(b, 0.5, side);
+    return [Math.floor(x), Math.floor(z)] as [number, number];
+  });
 }
 /** Cases d'accès (où les poules se placent pour utiliser le bâtiment). */
 export function accessCells(b: Placed): Array<[number, number]> {
   const def = { ...BUILDINGS[b.type], ...sizeOf(b.type, b.level, b.rot) };
   const out: Array<[number, number]> = [];
   if (def.access === 'front') {
-    // la façade regarde le sud (ou l'est, bâtiment pivoté)
-    if (b.rot) for (let j = 0; j < def.d; j++) out.push([b.x + def.w, b.z + j]);
-    else for (let i = 0; i < def.w; i++) out.push([b.x + i, b.z + def.d]);
+    // la rangée de cases devant la façade (au sud, à l'est, au nord ou à l'ouest)
+    const q = quarter(b);
+    if (q === 0) for (let i = 0; i < def.w; i++) out.push([b.x + i, b.z + def.d]);
+    else if (q === 1) for (let j = 0; j < def.d; j++) out.push([b.x + def.w, b.z + j]);
+    else if (q === 2) for (let i = 0; i < def.w; i++) out.push([b.x + i, b.z - 1]);
+    else for (let j = 0; j < def.d; j++) out.push([b.x - 1, b.z + j]);
   } else if (def.access === 'around') {
     for (let i = 0; i < def.w; i++) {
       out.push([b.x + i, b.z - 1]);

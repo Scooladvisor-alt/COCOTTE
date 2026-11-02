@@ -56,7 +56,7 @@ export class Game {
   selection: Selection = null;
   panel: Panel = null;
   panelTab: string | null = null;
-  /** Placement en cours : type, bâtiment déplacé, orientation (1 : pivoté d'un quart de tour). */
+  /** Placement en cours : type, bâtiment déplacé, orientation (en quarts de tour, 0 à 3). */
   placing: { type: BuildingType; moveId?: number; rot: number } | null = null;
   /** Dernière position du pointeur pendant le placement (pour redessiner le fantôme après un pivot). */
   private ghostAt: [number, number] | null = null;
@@ -807,10 +807,10 @@ export class Game {
     this.changed();
   }
 
-  /** Pendant le placement : tourne le bâtiment d'un quart de tour (façade au sud ↔ à l'est). */
+  /** Pendant le placement : tourne le bâtiment d'un quart de tour (sud → est → nord → ouest). */
   rotatePlacing() {
     if (!this.placing) return;
-    this.placing.rot = this.placing.rot ? 0 : 1;
+    this.placing.rot = (this.placing.rot + 1) % 4;
     if (this.ghostAt) this.updateGhost(...this.ghostAt);
     this.changed();
   }

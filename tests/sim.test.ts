@@ -7,7 +7,7 @@ import { BUILDINGS, COOP_SCALE, STAND_POS, sizeOf } from '../src/config/building
 import { BACKUP_KEY, SAVE_KEY, deserialize, loadGame, saveGame, serialize, type Storage } from '../src/save/save';
 import * as A from '../src/sim/actions';
 import { canPlace } from '../src/sim/buildings';
-import { accessCells, coopDoor, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable } from '../src/sim/core';
+import { accessCells, coopDoor, coopDoorCells, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable } from '../src/sim/core';
 import { canAfford, farmLevel, spend } from '../src/sim/economy';
 import { addToStorage, collectNest, layEgg, takeFromStorage } from '../src/sim/eggs';
 import {
@@ -2698,10 +2698,50 @@ describe('Bâtiments pivotés', () => {
       expect(h.act).not.toBe('sleep');
       expect(isWalkable(s, h.x, h.z)).toBe(true);
     }
-    // on le remet droit
+    // trois quarts de tour de plus : un tour complet, il revient droit
+    for (const want of [2, 3]) {
+      expect(A.rotate(s, coop.id).ok).toBe(true);
+      expect(coop.rot).toBe(want);
+    }
     expect(A.rotate(s, coop.id).ok).toBe(true);
     expect(coop.rot).toBeUndefined();
     expect(footprint(coop)).toMatchObject({ w: flat.w, d: flat.d });
+  });
+
+  it('dans les quatre orientations, la porte est dehors et les poules rentrent dormir', () => {
+    for (const q of [0, 1, 2, 3]) {
+      const s = newFarm(940 + q);
+      morning(s);
+      s.money = 1e8;
+      const coop = buildingsOf(s, 'coop')[0];
+      for (let k = 0; k < q; k++) expect(A.rotate(s, coop.id).ok).toBe(true);
+      expect(coop.rot ?? 0).toBe(q);
+      const fp = footprint(coop);
+      const door = coopDoor(coop);
+      // la porte est au milieu du côté sud, est, nord ou ouest
+      const expected = [
+        [fp.x + fp.w / 2, fp.z + fp.d],
+        [fp.x + fp.w, fp.z + fp.d / 2],
+        [fp.x + fp.w / 2, fp.z],
+        [fp.x, fp.z + fp.d / 2],
+      ][q];
+      expect([door.x, door.z]).toEqual(expected);
+      // les cases devant la trappe sont hors de l'emprise
+      for (const [cx, cz] of coopDoorCells(coop)) expect(cx >= fp.x && cx < fp.x + fp.w && cz >= fp.z && cz < fp.z + fp.d).toBe(false);
+      for (let i = 0; i < 4; i++) A.buyHen(s, 'rousse');
+      run(s, 2 * HOUR);
+      const day = Math.floor(s.clock.t / TIME.DAY);
+      s.clock.t = day * TIME.DAY + 17.5 * HOUR;
+      s.clock.lastHourTick = Math.floor(s.clock.t / HOUR);
+      run(s, 6 * HOUR);
+      for (const h of s.hens) expect(h.act).toBe('sleep');
+      run(s, 12 * HOUR);
+      // tout le monde est sorti (sauf une poule qui entre pondre au nid ou en ressort)
+      for (const h of s.hens) {
+        expect(h.act).not.toBe('sleep');
+        if (!['enter', 'lay', 'exit'].includes(h.act)) expect(isWalkable(s, h.x, h.z)).toBe(true);
+      }
+    }
   });
 
   it('une auge et un pondoir pivotés gardent leurs places du bon côté', () => {
@@ -2745,6 +2785,9 @@ describe('Bâtiments pivotés', () => {
     const back = deserialize(serialize(s))!;
     const c2 = back.buildings.find((b) => b.id === coop.id)!;
     expect(c2.rot).toBe(1);
+    A.rotate(s, coop.id);
+    A.rotate(s, coop.id);
+    expect(deserialize(serialize(s))!.buildings.find((b) => b.id === coop.id)!.rot).toBe(3);
     expect(c2.autoDoor).toBe(true);
   });
 });

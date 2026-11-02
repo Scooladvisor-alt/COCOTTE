@@ -37,6 +37,18 @@ body {
   user-select: none;
   -webkit-user-select: none;
 }
+/* pas de zoom de la page au double appui ni au pincement (tablette, téléphone) : seul le jeu
+   zoome ; on garde le défilement des panneaux */
+html,
+body,
+#ui,
+#ui * {
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+}
+#ui input[type='range'] {
+  touch-action: none;
+}
 #world {
   position: fixed;
   inset: 0;

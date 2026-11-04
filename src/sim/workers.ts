@@ -21,22 +21,26 @@ const TO_GATE: Array<[number, number]> = [HOUSE, [-6.0, 28.6], [-6.0, LANE_Z], [
 
 /**
  * Le vendeur se tient sur le côté de l'étal, face aux clients : derrière le comptoir,
- * l'auvent et la table le cacheraient à la caméra.
+ * l'auvent et la table le cacheraient à la caméra. Plusieurs vendeurs s'alignent côte à côte
+ * (chacun sa place, quatre par rangée, la rangée suivante juste derrière).
  */
-export function sellerSpot(s: GameState): [number, number] {
+const SELLER_GAP = 0.75;
+const SELLERS_PER_ROW = 4;
+export function sellerSpot(s: GameState, w?: Worker): [number, number] {
   const st = s.buildings.find((b) => b.type === 'stand');
   const level = st?.level ?? 1;
-  if (level === 1) return [STAND_POS.x + 2.35, STAND_POS.z + 0.4];
-  if (level === 2) return [STAND_POS.x + 2.45, STAND_POS.z + 0.6];
-  return [STAND_POS.x + 2.6, STAND_POS.z + 1.05];
+  const [x, z]: [number, number] =
+    level === 1 ? [STAND_POS.x + 2.35, STAND_POS.z + 0.4] : level === 2 ? [STAND_POS.x + 2.45, STAND_POS.z + 0.6] : [STAND_POS.x + 2.6, STAND_POS.z + 1.05];
+  const i = w ? Math.max(0, workersOf(s, 'seller').indexOf(w)) : 0;
+  return [x + (i % SELLERS_PER_ROW) * SELLER_GAP, z - Math.floor(i / SELLERS_PER_ROW) * SELLER_GAP];
 }
-/** Cap du vendeur : tourné vers les clients qui s'arrêtent devant l'étal. */
+/** Cap des vendeurs : tous tournés vers les clients qui s'arrêtent devant l'étal. */
 function sellerHeading(s: GameState) {
   const [x, z] = sellerSpot(s);
   return Math.atan2(STAND_POS.x + 1 - x, STAND_POS.z + 1.25 - z);
 }
-function toCounter(s: GameState): Array<[number, number]> {
-  const [x, z] = sellerSpot(s);
+function toCounter(s: GameState, w: Worker): Array<[number, number]> {
+  const [x, z] = sellerSpot(s, w);
   return [HOUSE, [-6.0, 28.6], [-6.0, LANE_Z], [x, LANE_Z], [x, z]];
 }
 const flat = (pts: Array<[number, number]>) => pts.flatMap(([x, z]) => [x, z]);
@@ -148,15 +152,14 @@ export function hire(s: GameState, role: WorkerRole): ActionResult {
     // embauché en journée : il franchit tout de suite le portail (ou rejoint le comptoir)
     w.onSite = true;
     if (role === 'seller') {
-      const [x, z] = sellerSpot(s);
+      const [x, z] = sellerSpot(s, w);
       w.x = x;
       w.z = WORLD.WALK_Z;
       w.heading = Math.PI;
       w.path = [x, z];
       w.job = { kind: 'commuteIn', targetId: -1, tx: x, tz: z, phase: 'walk', t: 0 };
     } else {
-      w.x = 14.5;
-      w.z = 29.4;
+      [w.x, w.z] = freeSpot(s, w, 14.5, 29.4);
       w.heading = Math.PI;
     }
     emit(s, { kind: 'workerArrived', workerId: w.id, x: w.x, z: w.z });
@@ -183,9 +186,10 @@ export function fire(s: GameState, id: number): ActionResult {
 }
 
 // --------------------------------------------------------- Trajectoires ----
-function follow(w: Worker, dt: number, mult = 1): boolean {
+function follow(s: GameState, w: Worker, dt: number, mult = 1): boolean {
   const commuting = w.job?.kind === 'commuteIn' || w.job?.kind === 'commuteOut';
   let budget = STAFF.walkSpeed * (commuting ? STAFF.commuteSpeed : 1) * mult * dt;
+  unstick(w, dt);
   while (w.path.length >= 2 && budget > 0) {
     const dx = w.path[0] - w.x;
     const dz = w.path[1] - w.z;
@@ -200,6 +204,8 @@ function follow(w: Worker, dt: number, mult = 1): boolean {
     while (diff < -Math.PI) diff += Math.PI * 2;
     w.heading += Math.max(-8 * dt, Math.min(8 * dt, diff));
     const step = Math.min(d, budget);
+    // un collègue juste devant : il ne lui rentre pas dedans, il le contourne (ou il attend)
+    if (stallTime(w) < 0.7 && giveWay(s, w, dx / d, dz / d, step)) return false;
     w.x += (dx / d) * step;
     w.z += (dz / d) * step;
     budget -= step;
@@ -208,11 +214,78 @@ function follow(w: Worker, dt: number, mult = 1): boolean {
   return w.path.length < 2;
 }
 
+/**
+ * Ce pas l'amènerait-il dans un collègue ? Si oui, il s'écarte par sa droite (les deux se croisent
+ * ainsi sans se toucher), sauf derrière quelqu'un qui marche dans le même sens : il le suit.
+ */
+function giveWay(s: GameState, w: Worker, ux: number, uz: number, step: number) {
+  const nx = w.x + ux * step;
+  const nz = w.z + uz * step;
+  for (const o of s.workers) {
+    if (o === w || !o.onSite) continue;
+    const after = Math.hypot(o.x - nx, o.z - nz);
+    if (after >= HUMAN_GAP || after >= Math.hypot(o.x - w.x, o.z - w.z)) continue;
+    if (o.path.length >= 2) {
+      const ox = o.path[0] - o.x;
+      const oz = o.path[1] - o.z;
+      const ol = Math.hypot(ox, oz);
+      if (ol > 1e-3 && (ox * ux + oz * uz) / ol > 0.5) return true;
+    }
+    if (!bump(s, w, uz * HUMAN_SIDESTEP, -ux * HUMAN_SIDESTEP)) bump(s, w, -uz * HUMAN_SIDESTEP, ux * HUMAN_SIDESTEP);
+    return true;
+  }
+  return false;
+}
+
+/** Depuis combien de temps un salarié n'avance plus vers son prochain point de passage. */
+const stalls = new WeakMap<Worker, { n: number; best: number; t: number }>();
+const stallTime = (w: Worker) => stalls.get(w)?.t ?? 0;
+/**
+ * Les salariés sont solides : un collègue peut occuper un point de passage, ou la place visée.
+ * Il passe alors au point suivant ; au bout du trajet, il travaille d'où il est, tout à côté.
+ */
+function unstick(w: Worker, dt: number) {
+  if (w.path.length < 2) return;
+  const d = Math.hypot(w.path[0] - w.x, w.path[1] - w.z);
+  const st = stalls.get(w);
+  if (!st || st.n !== w.path.length || d < st.best - 0.03) {
+    stalls.set(w, { n: w.path.length, best: d, t: 0 });
+    return;
+  }
+  st.t += dt;
+  if (st.t > 0.7 && d < HUMAN_GAP + 0.4) {
+    w.path.splice(0, 2);
+    stalls.delete(w);
+  }
+}
+
 function face(w: Worker, x: number, z: number) {
   if (Math.hypot(x - w.x, z - w.z) > 0.05) w.heading = Math.atan2(x - w.x, z - w.z);
 }
 
-function assign(s: GameState, w: Worker, kind: WorkerJobKind, targetId: number, tx: number, tz: number, workTime: number) {
+/** Une place est-elle prise par un collègue (il s'y tient, ou il y va) ? */
+function spotTaken(s: GameState, w: Worker, x: number, z: number) {
+  return s.workers.some((o) => {
+    if (o === w || !o.onSite) return false;
+    if (Math.hypot(o.x - x, o.z - z) < HUMAN_GAP && o.path.length < 2) return true;
+    return !!o.job && Math.hypot(o.job.tx - x, o.job.tz - z) < HUMAN_GAP;
+  });
+}
+/** La place voulue, ou la plus proche qui soit libre : deux salariés ne visent jamais le même point. */
+function freeSpot(s: GameState, w: Worker, tx: number, tz: number): [number, number] {
+  if (!spotTaken(s, w, tx, tz)) return [tx, tz];
+  for (const r of [0.7, 1.05, 1.5, 2])
+    for (let k = 0; k < 8; k++) {
+      const a = (k / 8) * Math.PI * 2;
+      const x = tx + Math.sin(a) * r;
+      const z = tz + Math.cos(a) * r;
+      if (canStand(s, x, z, 0.16) && !spotTaken(s, w, x, z)) return [x, z];
+    }
+  return [tx, tz];
+}
+
+function assign(s: GameState, w: Worker, kind: WorkerJobKind, targetId: number, tx0: number, tz0: number, workTime: number) {
+  const [tx, tz] = freeSpot(s, w, tx0, tz0);
   const path = humanPath(s, w.x, w.z, tx, tz);
   if (!path) return false;
   w.job = { kind, targetId, tx, tz, phase: 'walk', t: workTime };
@@ -360,7 +433,7 @@ function restock(s: GameState, w: Worker) {
 const lowFundsWarned = new WeakMap<GameState, number>();
 function warnLowFunds(s: GameState, w: Worker, what: string) {
   const last = lowFundsWarned.get(s) ?? -Infinity;
-  if (s.clock.t - last < 180) return;
+  if (s.clock.t - last < TIME.DAY) return;
   lowFundsWarned.set(s, s.clock.t);
   notify(s, `${w.name} n’a pas pu commander ${what} : fonds insuffisants ou réserve trop petite.`, 'warn', '⚠️');
 }
@@ -389,32 +462,39 @@ function chooseFarmhandJob(s: GameState, w: Worker) {
   const taken = reservedBy(s, w);
   const carried = basketCount(w);
   const st = storage(s);
-  // 1. le matin : ouvrir les trappes pour libérer les poules (l'après-midi, une trappe
-  //    fermée par le joueur le reste)
-  for (const b of s.buildings) {
-    if (currentHour(s) >= 12 || !isShelter(b) || !b.closed || b.autoDoor || taken.has(`openCoop:${b.id}`)) continue;
-    const [x, z] = coopDoorPoint(b);
-    if (assign(s, w, 'openCoop', b.id, x, z, STAFF.openTime)) return;
+  const dist = (x: number, z: number) => Math.hypot(x - w.x, z - w.z);
+  // les commis se répartissent : au plus près, mais pas là où un collègue s'active déjà
+  const cost = (x: number, z: number) => dist(x, z) + crowdNear(s, w, x, z) * 8;
+  // 1. le matin : ouvrir les trappes pour libérer les poules, chacun son poulailler (l'après-midi,
+  //    une trappe fermée par le joueur le reste)
+  if (currentHour(s) < 12) {
+    const closed = s.buildings
+      .filter((b) => isShelter(b) && b.closed && !b.autoDoor && !taken.has(`openCoop:${b.id}`))
+      .map((b) => ({ b, c: cost(coopDoor(b).x, coopDoor(b).z) }))
+      .sort((a, b) => a.c - b.c);
+    for (const { b } of closed) {
+      const [x, z] = coopDoorPoint(b);
+      if (assign(s, w, 'openCoop', b.id, x, z, STAFF.openTime)) return;
+    }
   }
-  // 3. entretien : eau, grain, propreté
+  // 2. entretien : eau, grain, propreté
   const care = careTask(s, w);
   if (care && assign(s, w, care.kind, care.b.id, care.at[0], care.at[1], care.time)) return;
-  // 4. panier plein : on le vide avant de continuer
+  // 3. panier plein : on le vide avant de continuer
   if (carried >= STAFF.basketMax * 0.8 && st) {
     const p = besideBuilding(s, st, w);
     if (p && assign(s, w, 'deposit', st.id, p[0], p[1], STAFF.depositTime)) return;
   }
-  // 5. en dernier : les œufs (pondoirs garnis, puis œufs au sol)
-  const dist = (x: number, z: number) => Math.hypot(x - w.x, z - w.z);
+  // 4. en dernier : les œufs (pondoirs garnis, puis œufs au sol)
   const nests = s.buildings
     .filter((b) => b.type === 'nest' && b.eggIds.length >= 2 && !taken.has(`collectNest:${b.id}`))
-    .sort((a, b) => dist(a.x, a.z) - dist(b.x, b.z));
+    .sort((a, b) => cost(a.x, a.z) - cost(b.x, b.z));
   if (nests.length && carried < STAFF.basketMax) {
     const n = nests[0];
     const p = besideBuilding(s, n, w)!;
     if (assign(s, w, 'collectNest', n.id, p[0], p[1], STAFF.collectTime)) return;
   }
-  const ground = s.worldEggs.filter((e) => e.where === 'ground' && !taken.has(`collectGround:${e.id}`)).sort((a, b) => dist(a.x, a.z) - dist(b.x, b.z));
+  const ground = s.worldEggs.filter((e) => e.where === 'ground' && !taken.has(`collectGround:${e.id}`)).sort((a, b) => cost(a.x, a.z) - cost(b.x, b.z));
   if (ground.length && carried < STAFF.basketMax) {
     const e = ground[0];
     if (assign(s, w, 'collectGround', e.id, e.x, e.z + 0.35, STAFF.collectTime * 0.7)) return;
@@ -423,9 +503,46 @@ function chooseFarmhandJob(s: GameState, w: Worker) {
     const p = besideBuilding(s, st, w);
     if (p && assign(s, w, 'deposit', st.id, p[0], p[1], STAFF.depositTime)) return;
   }
-  // rien à faire : ronde de surveillance autour des points d'eau
-  const drinker = s.buildings.find((b) => b.type === 'drinker');
-  wander(s, w, drinker ? buildingCenter(drinker) : st ? buildingCenter(st) : { x: 14.5, z: 26 }, 3);
+  // rien à faire : ronde de surveillance dans un coin de la ferme où personne ne se trouve
+  patrol(s, w);
+}
+
+/** Collègues du même métier qui travaillent (ou vont travailler) près de ce point. */
+function crowdNear(s: GameState, w: Worker, x: number, z: number, r = 6) {
+  let n = 0;
+  for (const o of s.workers) {
+    if (o === w || !o.onSite || o.role !== w.role) continue;
+    if (Math.hypot((o.job?.tx ?? o.x) - x, (o.job?.tz ?? o.z) - z) < r) n++;
+  }
+  return n;
+}
+
+/** Coin de ronde de chaque salarié désœuvré : il y reste un moment, puis va voir ailleurs. */
+const patrols = new WeakMap<Worker, { x: number; z: number; r: number; until: number }>();
+function patrol(s: GameState, w: Worker) {
+  let p = patrols.get(w);
+  if (!p || s.clock.t >= p.until) {
+    const others = s.workers.filter((o) => o !== w && o.onSite && o.role !== 'seller');
+    let best: Building | null = null;
+    let bs = -Infinity;
+    for (const b of s.buildings) {
+      if (b.type === 'stand' || b.type === 'tree') continue;
+      const c = buildingCenter(b);
+      // loin des collègues, sans traverser toute la ferme, avec une part de hasard
+      const near = others.reduce((m, o) => Math.min(m, Math.hypot((o.job?.tx ?? o.x) - c.x, (o.job?.tz ?? o.z) - c.z)), 14);
+      const score = near + rand(s) * 6 - Math.hypot(c.x - w.x, c.z - w.z) * 0.12;
+      if (score > bs) {
+        bs = score;
+        best = b;
+      }
+    }
+    if (!best) return wander(s, w, { x: 14.5, z: 26 }, 4);
+    const c = buildingCenter(best);
+    const { w: bw, d: bd } = sizeOf(best.type, best.level, best.rot);
+    p = { x: c.x, z: c.z, r: Math.max(bw, bd) / 2 + 2, until: s.clock.t + randRange(s, 20, 40) };
+    patrols.set(w, p);
+  }
+  wander(s, w, p, p.r);
 }
 
 function chooseCaretakerJob(s: GameState, w: Worker) {
@@ -481,7 +598,7 @@ function chooseGardenerJob(s: GameState, w: Worker) {
     const z = cellZ(best) + 0.5;
     if (assign(s, w, 'water', best, x, z, STAFF.waterTime)) return;
   }
-  wander(s, w, { x: 14.5, z: 25 }, 5);
+  patrol(s, w);
 }
 
 function wander(s: GameState, w: Worker, around: { x: number; z: number }, radius: number) {
@@ -754,7 +871,7 @@ function huntTick(s: GameState, w: Worker, p: Predator, dt: number) {
       const goal = isWalkable(s, p.x, p.z) ? ([p.x, p.z] as [number, number]) : nearestWalkable(s, p.x, p.z);
       w.path = goal ? humanPath(s, w.x, w.z, goal[0], goal[1]) ?? [] : [];
     }
-    follow(w, dt, H.runFactor);
+    follow(s, w, dt, H.runFactor);
     return;
   }
   // à portée : il s'arrête, épaule et tire
@@ -797,14 +914,16 @@ export function updateWorkers(s: GameState, dt: number) {
     }
   }
   for (const w of s.workers) {
-    for (const l of w.basket) l.freshness = Math.max(1, l.freshness - (FRESHNESS.nestDecayPerDay * dt) / 180);
+    for (const l of w.basket) l.freshness = Math.max(1, l.freshness - (FRESHNESS.nestDecayPerDay * dt) / TIME.DAY);
     const working = workHours(w.role, hour);
     if (!w.onSite) {
       if (working) {
+        // ils partent de la maison l'un après l'autre, à la file : jamais l'un dans l'autre
+        if (s.workers.some((o) => o !== w && o.onSite && Math.hypot(o.x - HOUSE[0], o.z - HOUSE[1]) < HUMAN_GAP * 1.8)) continue;
         w.onSite = true;
         w.x = HOUSE[0];
         w.z = HOUSE[1];
-        w.path = flat(w.role === 'seller' ? toCounter(s) : TO_GATE);
+        w.path = flat(w.role === 'seller' ? toCounter(s, w) : TO_GATE);
         w.job = { kind: 'commuteIn', targetId: -1, tx: w.path[w.path.length - 2], tz: w.path[w.path.length - 1], phase: 'walk', t: 0 };
       }
       continue;
@@ -851,7 +970,7 @@ export function updateWorkers(s: GameState, dt: number) {
         if (p && assign(s, w, 'deposit', st.id, p[0], p[1], STAFF.depositTime)) continue;
       }
       if (w.role === 'seller') {
-        w.path = flat([...toCounter(s)].reverse());
+        w.path = flat([...toCounter(s, w)].reverse());
       } else {
         const inside = humanPath(s, w.x, w.z, 14.5, 29.5) ?? [14.5, 29.5];
         w.path = [...inside, ...flat([...TO_GATE].reverse())];
@@ -863,7 +982,7 @@ export function updateWorkers(s: GameState, dt: number) {
       else if (w.role === 'caretaker') chooseCaretakerJob(s, w);
       else if (w.role === 'gardener') chooseGardenerJob(s, w);
       else if (w.role === 'seller') {
-        const [x, z] = sellerSpot(s);
+        const [x, z] = sellerSpot(s, w);
         w.job = { kind: 'stand', targetId: -1, tx: x, tz: z, phase: 'walk', t: 1e9 };
         w.path = [x, z];
       }
@@ -872,7 +991,7 @@ export function updateWorkers(s: GameState, dt: number) {
     const j = w.job;
     // le comptoir a changé de place (amélioration de l'étal, ancienne sauvegarde) : le vendeur s'y rend
     if (j.kind === 'stand' && j.phase === 'work') {
-      const [x, z] = sellerSpot(s);
+      const [x, z] = sellerSpot(s, w);
       if (Math.hypot(x - w.x, z - w.z) > 0.25) {
         j.phase = 'walk';
         j.tx = x;
@@ -909,7 +1028,7 @@ export function updateWorkers(s: GameState, dt: number) {
           }
         }
       }
-      if (follow(w, dt)) {
+      if (follow(s, w, dt)) {
         j.phase = 'work';
         if (j.kind === 'stand') w.heading = sellerHeading(s);
         else if (j.kind === 'collectNest' || j.kind === 'clean' || j.kind === 'closeCoop' || j.kind === 'openCoop') {
@@ -959,7 +1078,7 @@ export function updateWorkers(s: GameState, dt: number) {
           continue;
         }
         j.t += dt;
-        const waited = (j.t / 180) * 24;
+        const waited = (j.t / TIME.DAY) * 24;
         const night = hour >= STAFF.farmhandEnd || hour < STAFF.farmhandStart;
         // il ne ferme pas au nez d'une poule qui grimpe la rampe ou arrive à la porte
         const d = coopDoor(b);
@@ -982,6 +1101,10 @@ export function updateWorkers(s: GameState, dt: number) {
 // ------------------------------------------------------------ Collisions ----
 // Les poules sont des corps solides : les salariés les écartent doucement sur leur passage.
 const HUMAN_HEN_GAP = 0.38;
+/** Écart minimal entre deux salariés (ils ne se traversent jamais). */
+const HUMAN_GAP = 0.6;
+/** Pas de côté d'un salarié qui en contourne un autre (par pas de simulation). */
+const HUMAN_SIDESTEP = 0.09;
 
 function shove(s: GameState, o: { x: number; z: number }, nx: number, nz: number, inFarm: boolean) {
   if (!inFarm || (canStand(s, nx, nz, 0.1) && !crossesFence(s, o.x, o.z, nx, nz, 'human'))) {
@@ -992,9 +1115,55 @@ function shove(s: GameState, o: { x: number; z: number }, nx: number, nz: number
   return false;
 }
 
+/** Déplace un salarié s'il en a le droit (pas dans un bâtiment, pas à travers le grillage), en glissant au besoin. */
+function bump(s: GameState, w: Worker, dx: number, dz: number) {
+  const go = (x: number, z: number) => {
+    if ((inGrid(Math.floor(x), Math.floor(z)) && !canStand(s, x, z, 0.1)) || crossesFence(s, w.x, w.z, x, z, 'human')) return false;
+    w.x = x;
+    w.z = z;
+    return true;
+  };
+  return go(w.x + dx, w.z + dz) || go(w.x + dx, w.z) || go(w.x, w.z + dz);
+}
+
+/**
+ * Les salariés sont solides, comme les poules : jamais l'un dans l'autre (voir aussi giveWay). S'ils
+ * se retrouvent trop près, qui marche s'écarte de qui travaille ; deux marcheurs s'écartent chacun
+ * de son côté. Un marcheur coincé dans un couloir étroit fait se pousser son collègue.
+ */
+function separateWorkers(s: GameState) {
+  const on = s.workers.filter((w) => w.onSite);
+  for (let i = 0; i < on.length; i++)
+    for (let j = i + 1; j < on.length; j++) {
+      const a = on[i];
+      const b = on[j];
+      let dx = b.x - a.x;
+      let dz = b.z - a.z;
+      let d = Math.hypot(dx, dz);
+      if (d >= HUMAN_GAP) continue;
+      if (d < 1e-4) {
+        // exactement au même endroit : on écarte toujours du même côté (partie déterministe)
+        const ang = a.id * 2.4 + b.id * 1.1;
+        dx = Math.sin(ang);
+        dz = Math.cos(ang);
+        d = 1;
+        a.x -= dx * 1e-3;
+        b.x += dx * 1e-3;
+      }
+      const nx = dx / d;
+      const nz = dz / d;
+      const push = HUMAN_GAP - Math.hypot(b.x - a.x, b.z - a.z);
+      const wa = a.path.length >= 2;
+      const wb = b.path.length >= 2;
+      const ka = wa === wb ? 0.5 : wa ? (stallTime(a) > 0.5 ? 0.5 : 1) : stallTime(b) > 0.5 ? 0.5 : 0;
+      if (ka > 0 && !bump(s, a, -nx * push * ka, -nz * push * ka)) bump(s, b, nx * push * ka, nz * push * ka);
+      if (ka < 1 && !bump(s, b, nx * push * (1 - ka), nz * push * (1 - ka))) bump(s, a, -nx * push * (1 - ka), -nz * push * (1 - ka));
+    }
+}
+
 export function separateBodies(s: GameState) {
-  // Les salariés se traversent entre eux (sinon ils se bloquent dans les couloirs étroits) ;
-  // ce sont les poules libres qui s'écartent sur leur passage, jamais l'inverse.
+  separateWorkers(s);
+  // ce sont les poules libres qui s'écartent sur le passage des salariés, jamais l'inverse
   for (const w of s.workers) {
     if (!w.onSite) continue;
     for (const h of s.hens) {

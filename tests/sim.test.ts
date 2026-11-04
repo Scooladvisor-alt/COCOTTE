@@ -46,7 +46,7 @@ import { newFarm } from '../src/sim/starter';
 import { creditLimit, dailyDue, loanRate, pauseLoan, quoteLoan, repayLoan, takeLoan } from '../src/sim/bank';
 import type { GameState } from '../src/sim/types';
 import { goodPlayer, guard, lazyPlayer } from '../scripts/bot';
-import { hire } from '../src/sim/workers';
+import { fire, hire, sellerSpot } from '../src/sim/workers';
 import { distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
 import { buyDog } from '../src/sim/dog';
 import { buyRobot, dockOf } from '../src/sim/robots';
@@ -2692,11 +2692,11 @@ describe('Bâtiments pivotés', () => {
       expect(h.act).toBe('sleep');
       expect(h.coopId).toBe(coop.id);
     }
-    // au matin, elles sortent par la trappe de l'est et se retrouvent dehors
+    // au matin, elles sortent par la trappe de l'est et se retrouvent dehors (sauf au nid)
     run(s, 12 * HOUR);
     for (const h of s.hens) {
       expect(h.act).not.toBe('sleep');
-      expect(isWalkable(s, h.x, h.z)).toBe(true);
+      if (!['enter', 'lay', 'exit'].includes(h.act)) expect(isWalkable(s, h.x, h.z)).toBe(true);
     }
     // trois quarts de tour de plus : un tour complet, il revient droit
     for (const want of [2, 3]) {
@@ -2920,5 +2920,142 @@ describe('Commis, jardinier et coucher des poules', () => {
     expect(coop.closed).toBe(false);
     run(s, 1.5 * HOUR);
     expect(s.hens.filter((h) => h.act !== 'sleep').length).toBe(0);
+  });
+});
+
+describe('Le personnel se répartit et ne se traverse pas', () => {
+  const closeOf = (s: GameState) => {
+    let min = Infinity;
+    const on = s.workers.filter((w) => w.onSite);
+    for (let i = 0; i < on.length; i++) for (let j = i + 1; j < on.length; j++) min = Math.min(min, Math.hypot(on[i].x - on[j].x, on[i].z - on[j].z));
+    return min;
+  };
+  /** Une ferme à 3 poulaillers et 3 commis. */
+  const threeCoops = (seed: number) => {
+    const s = newFarm(seed);
+    s.settings.predators = false;
+    s.money = 1e7;
+    s.xp = 99999;
+    let n = 0;
+    for (let z = 0; z < 28 && n < 2; z++) for (let x = 0; x < 30 && n < 2; x++) if (canPlace(s, 'coop', x, z).ok && A.build(s, 'coop', x, z).ok) n++;
+    expect(n).toBe(2);
+    for (let i = 0; i < 12; i++) A.buyHen(s, 'rousse');
+    for (let i = 0; i < 3; i++) expect(hire(s, 'farmhand').ok).toBe(true);
+    return s;
+  };
+
+  it('une journée dure 4 minutes', () => {
+    expect(TIME.DAY).toBe(240);
+    expect(HOUR).toBe(10);
+  });
+
+  it('le matin, chaque commis va ouvrir son poulailler', () => {
+    const s = threeCoops(951);
+    // on saute à la nuit : tout est fermé, on observe l'arrivée de 4 h
+    run(s, TIME.DAY * 1.9);
+    for (const b of buildingsOf(s, 'coop')) b.closed = true;
+    const day = Math.floor(s.clock.t / TIME.DAY);
+    let opening = 0;
+    let maxTargets = 0;
+    while (Math.floor(s.clock.t / TIME.DAY) === day || s.clock.t % TIME.DAY < 9 * HOUR) {
+      step(s, TIME.STEP);
+      drainEvents(s);
+      const targets = new Set(s.workers.filter((w) => w.job?.kind === 'openCoop').map((w) => w.job!.targetId));
+      const jobs = s.workers.filter((w) => w.job?.kind === 'openCoop').length;
+      // jamais deux commis sur le même poulailler
+      expect(targets.size).toBe(jobs);
+      maxTargets = Math.max(maxTargets, jobs);
+      if (jobs) opening++;
+    }
+    // les trois poulaillers en même temps
+    expect(maxTargets).toBe(3);
+    expect(opening).toBeGreaterThan(0);
+    for (const b of buildingsOf(s, 'coop')) expect(b.closed).toBe(false);
+  });
+
+  it('les commis ne se superposent jamais, même en arrivant', () => {
+    const s = threeCoops(952);
+    let min = Infinity;
+    for (let t = 0; t < 2 * TIME.DAY; t += TIME.STEP) {
+      step(s, TIME.STEP);
+      drainEvents(s);
+      min = Math.min(min, closeOf(s));
+    }
+    // l'écart voulu est de 0,6 m : un pas de simulation peut l'entamer un instant, jamais les confondre
+    expect(min).toBeGreaterThan(0.45);
+  });
+
+  it('désœuvrés, ils ne restent pas tous au même endroit', () => {
+    const s = threeCoops(953);
+    morning(s);
+    run(s, TIME.DAY);
+    morning(s);
+    run(s, 2 * HOUR);
+    const places: string[] = [];
+    let spread = 0;
+    let n = 0;
+    run(
+      s,
+      8 * HOUR,
+      () => {
+        const on = s.workers.filter((w) => w.onSite);
+        for (const w of on) places.push(`${Math.floor(w.x / 6)},${Math.floor(w.z / 6)}`);
+        let far = 0;
+        for (let i = 0; i < on.length; i++) for (let j = i + 1; j < on.length; j++) far = Math.max(far, Math.hypot(on[i].x - on[j].x, on[i].z - on[j].z));
+        spread += far;
+        n++;
+      },
+      HOUR / 2,
+    );
+    expect(new Set(places).size).toBeGreaterThan(4);
+    expect(spread / n).toBeGreaterThan(4);
+  });
+
+  it('les vendeurs se tiennent côte à côte, chacun à sa place', () => {
+    const s = newFarm(954);
+    morning(s);
+    s.money = 1e7;
+    s.xp = 99999;
+    for (let i = 0; i < 3; i++) expect(hire(s, 'seller').ok).toBe(true);
+    run(s, 2 * HOUR);
+    const sellers = s.workers.filter((w) => w.role === 'seller');
+    expect(sellers.every((w) => w.job?.kind === 'stand' && w.job.phase === 'work')).toBe(true);
+    expect(closeOf(s)).toBeGreaterThanOrEqual(0.6);
+    // en rang, à la même hauteur, tous tournés du même côté
+    expect(new Set(sellers.map((w) => w.z.toFixed(2))).size).toBe(1);
+    expect(new Set(sellers.map((w) => w.heading.toFixed(2))).size).toBe(1);
+    sellers.forEach((w) => {
+      const [x, z] = sellerSpot(s, w);
+      expect(Math.hypot(w.x - x, w.z - z)).toBeLessThan(0.05);
+    });
+    // l'un s'en va : les autres se resserrent
+    const third = sellers[2];
+    fire(s, sellers[0].id);
+    run(s, HOUR);
+    const [x0, z0] = sellerSpot(s);
+    expect(Math.min(...s.workers.map((w) => Math.hypot(w.x - x0, w.z - z0)))).toBeLessThan(0.05);
+    expect(third.job?.kind).toBe('stand');
+  });
+
+  it('une ancienne sauvegarde (journée de 180 s) reste au même jour et à la même heure', () => {
+    const s = newFarm(955);
+    morning(s);
+    run(s, 2 * HOUR);
+    const egg = s.worldEggs[0] ?? (s.worldEggs.push({ ...layEgg(s, s.hens[0], null) }), s.worldEggs[0]);
+    const raw = JSON.parse(serialize(s));
+    // comme si elle avait été écrite avant l'allongement des journées
+    const k = 180 / TIME.DAY;
+    raw.version = 9;
+    raw.clock.t *= k;
+    raw.lastPredatorT *= k;
+    for (const e of raw.worldEggs) e.laidAt *= k;
+    for (const b of raw.buildings) b.builtAt *= k;
+    const back = deserialize(JSON.stringify(raw))!;
+    expect(back.clock.t).toBeCloseTo(s.clock.t, 3);
+    expect(currentDay(back)).toBe(currentDay(s));
+    expect(back.worldEggs.find((e) => e.id === egg.id)!.laidAt).toBeCloseTo(egg.laidAt, 3);
+    expect(back.clock.lastHourTick).toBe(s.clock.lastHourTick);
+    // et une sauvegarde récente n'est pas étirée une seconde fois
+    expect(deserialize(serialize(back))!.clock.t).toBeCloseTo(back.clock.t, 3);
   });
 });

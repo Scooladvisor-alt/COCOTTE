@@ -1,6 +1,6 @@
 // Sauvegarde locale robuste : double emplacement (principal + secours), versionnage,
 // et assainissement complet des données lues (valeurs manquantes, corrompues ou obsolètes).
-import { DELIVERY, EGG_ORDER, EGG_TYPES, GRAIN_BINS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, SAVE_VERSION, WATER, WATER_TANKS, WORLD, clamp } from '../config/balance';
+import { DELIVERY, EGG_ORDER, EGG_TYPES, GRAIN_BINS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, HOUR, SAVE_VERSION, TIME, WATER, WATER_TANKS, WORLD, clamp } from '../config/balance';
 import { BREEDS } from '../config/breeds';
 import { BUILDINGS } from '../config/buildings';
 import { MISSIONS } from '../config/missions';
@@ -130,6 +130,26 @@ function migrate(raw: Raw): Raw {
     raw.fenceH = [];
     raw.fenceV = [];
   }
+  // v9 -> v10 : la journée passe de 180 à 240 secondes. Les dates enregistrées sont en secondes :
+  // on les étire pour rester au même jour et à la même heure (œufs, couveuses, camions…)
+  if (v < 10) {
+    const k = TIME.DAY / 180;
+    const stretch = (o: unknown, key: string) => {
+      const r = o as Raw;
+      if (typeof r?.[key] === 'number') r[key] = (r[key] as number) * k;
+    };
+    stretch(raw.clock, 't');
+    stretch(raw, 'lastPredatorT');
+    for (const e of arr(raw.worldEggs)) stretch(e, 'laidAt');
+    for (const b of arr(raw.buildings)) {
+      stretch(b, 'builtAt');
+      for (const e of arr((b as Raw)?.hatch)) stretch(e, 't');
+    }
+    for (const d of arr(raw.deliveries)) {
+      stretch(d, 'eta');
+      stretch(d, 'leave');
+    }
+  }
   return raw;
 }
 
@@ -160,9 +180,9 @@ export function sanitize(input: unknown): GameState | null {
   const clock = obj(raw.clock);
   s.clock.t = num(clock.t, s.clock.t, 0);
   s.clock.speed = [0, 1, 3, 10].includes(clock.speed as number) ? (clock.speed as number) : 1;
-  s.clock.lastClosedDay = int(clock.lastClosedDay, Math.floor(s.clock.t / 180), 0);
+  s.clock.lastClosedDay = int(clock.lastClosedDay, Math.floor(s.clock.t / TIME.DAY), 0);
   s.clock.lastContractDay = int(clock.lastContractDay, 0, 0);
-  s.clock.lastHourTick = int(clock.lastHourTick, Math.floor(s.clock.t / 7.5), 0);
+  s.clock.lastHourTick = int(clock.lastHourTick, Math.floor(s.clock.t / HOUR), 0);
   s.money = int(raw.money, s.money, -1e9, 1e12);
   s.xp = int(raw.xp, 0, 0, 1e9);
   s.reputation = num(raw.reputation, s.reputation, 0, 100);

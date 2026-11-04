@@ -8,8 +8,8 @@ import type { EggType, Grade } from '../sim/types';
 
 // ---------------------------------------------------------------- Temps ----
 export const TIME = {
-  /** Durée d'une journée de jeu en secondes simulées (vitesse x1 = temps réel). */
-  DAY: 180,
+  /** Durée d'une journée de jeu en secondes simulées (vitesse x1 = temps réel) : 4 minutes. */
+  DAY: 240,
   /** Pas fixe de simulation (secondes simulées). Indépendant du nombre d'images. */
   STEP: 0.1,
   /** Pas plus grossier utilisé pour la progression hors-ligne. */
@@ -739,7 +739,7 @@ export function parcelPrice(owned: number): number {
 }
 
 export const AUTOSAVE_SECONDS = 15;
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 
 /**
  * Mentions légales (obligatoires en France, même pour un site personnel non commercial).

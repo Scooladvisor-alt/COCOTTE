@@ -1,3 +1,4 @@
+import { TIME } from './balance';
 import type { GameState } from '../sim/types';
 
 export interface MissionDef {
@@ -219,7 +220,7 @@ export const MISSIONS: MissionDef[] = [
     desc: 'Traversez les quatre saisons (28 jours).',
     money: 6000,
     xp: 60,
-    progress: (s) => count(Math.floor(s.clock.t / 180), 28),
+    progress: (s) => count(Math.floor(s.clock.t / TIME.DAY), 28),
     hint: 'L’hiver, l’herbe ne pousse plus : prévoyez du grain',
   },
   {

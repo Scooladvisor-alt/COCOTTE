@@ -2,7 +2,7 @@
 // ferme, ramassent d'abord les œufs pondus au sol (qui pourriraient), puis vident les pondoirs,
 // déchargent au stockage et retournent se recharger chacun sur sa borne (rangées le long du
 // stockage). Ils restent à l'intérieur des clôtures.
-import { HOUR, ROBOT, gradeOf } from '../config/balance';
+import { HOUR, ROBOT, TIME, gradeOf } from '../config/balance';
 import { BUILDINGS, sizeOf } from '../config/buildings';
 import { buildingCenter, canStand, crossesFence, emit, newId, notify, planPath, currentDay, rt, toWorld } from './core';
 import { henMovable } from './hens';
@@ -190,7 +190,7 @@ const thinkT = new WeakMap<Robot, number>();
 
 export function updateRobots(s: GameState, dt: number) {
   for (const r of s.robots) {
-    for (const l of r.hopper) l.freshness = Math.max(1, l.freshness - (9 * dt) / 180);
+    for (const l of r.hopper) l.freshness = Math.max(1, l.freshness - (9 * dt) / TIME.DAY);
     const [dx, dz] = dockPoint(s, r);
     const docked = r.task === 'dock' && !r.path.length && Math.hypot(dx - r.x, dz - r.z) < 0.35;
     if (docked) {

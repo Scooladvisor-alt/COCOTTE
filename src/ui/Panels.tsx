@@ -2,7 +2,7 @@ import { useEffect, useState } from 'preact/hooks';
 import { ShowPanel } from './Show';
 import { BankPanel } from './Bank';
 import { music } from '../audio/music';
-import { LEGAL, LEVELS, LEVEL_GATES, levelAt } from '../config/balance';
+import { LEGAL, LEVELS, LEVEL_GATES, TIME, levelAt } from '../config/balance';
 import { MISSIONS } from '../config/missions';
 import { deleteSave, deserialize, saveGame, serialize } from '../save/save';
 import { farmLevel, fmtMoney } from '../sim/economy';
@@ -222,7 +222,7 @@ function SettingsPanel() {
             const blob = new Blob([serialize(s)], { type: 'application/json' });
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = `cocotte-${s.farmName.replace(/[^\w-]+/g, '-').toLowerCase() || 'ferme'}-jour-${Math.floor(s.clock.t / 180) + 1}.json`;
+            a.download = `cocotte-${s.farmName.replace(/[^\w-]+/g, '-').toLowerCase() || 'ferme'}-jour-${Math.floor(s.clock.t / TIME.DAY) + 1}.json`;
             a.click();
             setTimeout(() => URL.revokeObjectURL(a.href), 2000);
             setMsg('Sauvegarde téléchargée ✓');

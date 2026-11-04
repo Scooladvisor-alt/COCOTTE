@@ -7,10 +7,21 @@ import { Inspector } from './Inspector';
 import { LevelUpModal, NightFade, OfflineModal, PlacementBar, PredatorAlert, TitleScreen, Toasts, Tutorial } from './Overlays';
 import { PanelHost } from './Panels';
 import { ShowResultModal } from './Show';
+import { JoinPrompt, VisitBar, VisitDock } from './Online';
 
 function Hud({ fromSave }: { fromSave: boolean }) {
   const game = useGame();
   if (!game.started) return <TitleScreen fromSave={fromSave && game.persist && hasSave()} />;
+  // visite d'une autre ferme : on regarde, on zoome, on se déplace, rien d'autre
+  if (game.visiting)
+    return (
+      <>
+        <VisitBar />
+        <VisitDock />
+        <PanelHost />
+        <Toasts />
+      </>
+    );
   return (
     <>
       <LeftPanel />
@@ -26,6 +37,7 @@ function Hud({ fromSave }: { fromSave: boolean }) {
       <OfflineModal />
       <NightFade />
       <ShowResultModal />
+      <JoinPrompt />
       {game.state.money < 0 && <div class="debt-banner">Compte à découvert : vendez des œufs pour éviter les agios</div>}
     </>
   );

@@ -13,6 +13,8 @@ import { MarketPanel } from './Market';
 import { ShopPanel } from './Shop';
 import { HenListPanel } from './HenList';
 import { TeamPanel } from './Team';
+import { OnlineSettings, RankingPanel } from './Online';
+import { identity } from '../online/farms';
 
 export function PanelHost() {
   const game = useGame();
@@ -26,6 +28,7 @@ export function PanelHost() {
     settings: 'Réglages',
     hens: 'Mes poules',
     team: 'Équipe de la ferme',
+    ranking: 'Classement des éleveurs',
   };
   return (
     <div class="panel-wrap" onPointerDown={(e) => e.target === e.currentTarget && game.openPanel(null)}>
@@ -44,6 +47,7 @@ export function PanelHost() {
         {p === 'settings' && <SettingsPanel />}
         {p === 'hens' && <HenListPanel />}
         {p === 'team' && <TeamPanel />}
+        {p === 'ranking' && <RankingPanel />}
       </div>
     </div>
   );
@@ -164,12 +168,15 @@ function SettingsPanel() {
           type="text"
           value={s.farmName}
           maxLength={32}
+          readOnly={!!identity()}
+          title={identity() ? 'Le nom de la ferme est celui du classement en ligne' : undefined}
           onChange={(e) => {
             s.farmName = (e.target as HTMLInputElement).value.trim().slice(0, 32) || s.farmName;
             game.changed();
           }}
         />
       </div>
+      <OnlineSettings />
       <h5>Affichage & son</h5>
       {toggle('labels', 'Étiquettes au-dessus des éléments (sinon : seulement à la sélection)')}
       {toggle('sound', 'Effets sonores')}

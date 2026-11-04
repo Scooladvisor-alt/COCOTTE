@@ -5,7 +5,8 @@ import { sound } from './audio/sound';
 import { music } from './audio/music';
 import { FarmRenderer, type PickResult } from './render/farmRenderer';
 import { Vector3 as THREE_V } from 'three';
-import { saveGame } from './save/save';
+import { deserialize, saveGame } from './save/save';
+import { fetchFarm, pushFarm } from './online/farms';
 import * as A from './sim/actions';
 import { canPlace } from './sim/buildings';
 import { buildingCenter, drainEvents, isNightHour, currentHour, parcelCenter } from './sim/core';
@@ -30,7 +31,7 @@ export type Selection =
   | { kind: 'building'; id: number }
   | { kind: 'parcel'; key: string }
   | null;
-export type Panel = null | 'shop' | 'market' | 'finance' | 'missions' | 'settings' | 'hens' | 'team';
+export type Panel = null | 'shop' | 'market' | 'finance' | 'missions' | 'settings' | 'hens' | 'team' | 'ranking';
 
 export interface Toast {
   id: number;
@@ -69,6 +70,9 @@ export class Game {
   /** Fondu au noir pendant « Passer la nuit ». */
   skipping = false;
   started = false;
+  /** Visite d'une autre ferme (lecture seule) ; la nôtre attend à côté, intacte. */
+  visiting: { name: string; level: number; hens: number } | null = null;
+  private home: GameState | null = null;
   private listeners = new Set<() => void>();
   private toastId = 1;
   private last = performance.now();
@@ -326,9 +330,61 @@ export class Game {
   }
 
   save() {
-    if (!this.started || !this.persist) return false;
+    if (!this.started || !this.persist || this.visiting) return false;
     this.lastSaveOk = saveGame(this.state);
+    // le registre en ligne (classement et visites) : en tâche de fond, sans gêner le jeu
+    if (this.lastSaveOk) void pushFarm(this.state);
     return this.lastSaveOk;
+  }
+
+  // ------------------------------------------------------------- Visites ----
+  /** Va voir la ferme d'un autre joueur : même vue que la nôtre, mais rien ne se touche. */
+  async visitFarm(name: string): Promise<boolean> {
+    try {
+      const row = await fetchFarm(name);
+      const visited = row ? deserialize(row.save) : null;
+      if (!row || !visited) {
+        this.toast('Cette ferme n’est pas visitable pour le moment.', 'warn');
+        return false;
+      }
+      // la visite ne change rien : ni prédateurs, ni son ou musique de l'autre joueur
+      visited.settings.predators = false;
+      visited.settings.sound = this.state.settings.sound;
+      visited.settings.music = this.state.settings.music;
+      visited.settings.musicVolume = this.state.settings.musicVolume;
+      visited.clock.speed = 1;
+      visited.tutorial.done = true;
+      if (!this.visiting) {
+        this.save();
+        this.home = this.state;
+      }
+      this.visiting = { name: row.name, level: row.level, hens: row.hens };
+      this.select(null);
+      this.panel = null;
+      this.placing = null;
+      this.renderer.resetWorld();
+      this.replaceState(visited);
+      this.goHome(true);
+      return true;
+    } catch {
+      this.toast('Impossible de joindre le serveur. Vérifiez votre connexion.', 'warn');
+      return false;
+    }
+  }
+
+  /** Retour à notre ferme, exactement comme on l'a laissée. */
+  leaveVisit() {
+    if (!this.visiting || !this.home) return;
+    const home = this.home;
+    this.home = null;
+    this.visiting = null;
+    this.select(null);
+    this.panel = null;
+    this.renderer.resetWorld();
+    this.replaceState(home);
+    this.goHome(true);
+    this.wall = performance.now();
+    this.last = performance.now();
   }
 
   toast(text: string, tone: Toast['tone'] = 'info', icon?: string, action?: NotifyAction) {
@@ -368,6 +424,8 @@ export class Game {
   /** Exécute une action joueur et donne un retour immédiat. */
   act(fn: () => ActionResult, okSound: Parameters<typeof sound.play>[0] = 'click'): boolean {
     sound.unlock();
+    // en visite, on regarde sans toucher
+    if (this.visiting) return false;
     const r = fn();
     if (!r.ok) {
       if (r.reason) this.toast(r.reason, 'warn');
@@ -728,6 +786,7 @@ export class Game {
   }
 
   private onLabelClick(key: string) {
+    if (this.visiting) return;
     if (key.startsWith('b')) {
       const id = Number(key.slice(1));
       const b = getBuilding(this.state, id);
@@ -855,6 +914,7 @@ export class Game {
 
   private onClick(clientX: number, clientY: number) {
     sound.unlock();
+    if (this.visiting) return;
     if (this.placing) {
       this.updateGhost(clientX, clientY);
       this.confirmPlacing();
@@ -977,6 +1037,7 @@ export class Game {
     window.addEventListener('keydown', (e) => {
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
       if (!this.started) return;
+      if (this.visiting && e.key !== 'Escape') return;
       if (e.key === 'Escape') {
         if (this.placing) this.cancelPlacing();
         else if (this.panel) this.openPanel(null);

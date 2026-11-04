@@ -9,6 +9,8 @@ import { currentDay } from '../sim/core';
 import { fmtMoney, fmtSigned } from '../sim/economy';
 import { unlocksAt } from '../sim/progression';
 import { newFarm } from '../sim/starter';
+import { identity, pushFarm } from '../online/farms';
+import { OnlineForm } from './Online';
 import type { GameState } from '../sim/types';
 import { Btn, Icon, useGame } from './common';
 import { PREDATOR_INFO, livePredators } from '../sim/predators';
@@ -343,16 +345,27 @@ export function TitleScreen({ fromSave }: { fromSave: boolean }) {
   const s = game.state;
   const [confirm, setConfirm] = useState(false);
   const [saved, setSaved] = useState(fromSave);
+  // 'create' : nom de ferme unique à choisir ; 'restore' : retrouver sa ferme en ligne
+  const [step, setStep] = useState<'home' | 'create' | 'restore'>('home');
   if (game.started) return null;
-  const startNew = () => {
+  const begin = (name?: string, restored?: GameState) => {
     sound.unlock();
-    if (saved && !confirm) return setConfirm(true);
     if (game.persist) deleteSave();
-    const fresh = newFarm();
+    const fresh = restored ?? newFarm();
+    if (name) fresh.farmName = name;
     game.replaceState(fresh);
     setSaved(false);
     game.start(0);
     game.save();
+    if (identity()) void pushFarm(game.state, true);
+  };
+  const startNew = () => {
+    sound.unlock();
+    if (saved && !confirm) return setConfirm(true);
+    // déjà inscrit sur cet appareil : la nouvelle ferme garde le même nom au classement
+    const id = identity();
+    if (id) return begin(id.name);
+    setStep('create');
   };
   const cont = () => {
     sound.unlock();
@@ -360,6 +373,26 @@ export function TitleScreen({ fromSave }: { fromSave: boolean }) {
     game.start(secs);
   };
   const resume = saved && hasSave();
+  if (step !== 'home')
+    return (
+      <div class="landing">
+        <div class="ld-veil" />
+        <main class="ld-hero ld-form">
+          <h1 class="ld-title small">{step === 'create' ? 'Votre ferme' : 'Retrouver ma ferme'}</h1>
+          <p class="ld-lead">
+            {step === 'create'
+              ? 'Choisissez le nom de votre ferme : il est unique, personne d’autre ne pourra le prendre. C’est lui qui vous identifie dans le classement des éleveurs.'
+              : 'Entrez le nom de votre ferme et votre code secret pour la retrouver sur cet appareil.'}
+          </p>
+          <OnlineForm
+            mode={step}
+            onDone={({ name, state }) => begin(name, state)}
+            onOffline={step === 'create' ? () => begin() : undefined}
+            onCancel={() => setStep('home')}
+          />
+        </main>
+      </div>
+    );
   return (
     <div class="landing">
       <div class="ld-veil" />
@@ -393,6 +426,9 @@ export function TitleScreen({ fromSave }: { fromSave: boolean }) {
             </button>
           )}
         </div>
+        <button class="ld-link" onClick={() => setStep('restore')}>
+          J’ai déjà une ferme en ligne
+        </button>
         <small class="ld-note">Gratuit · dans le navigateur · sauvegarde automatique</small>
       </main>
       <footer class="ld-feats">

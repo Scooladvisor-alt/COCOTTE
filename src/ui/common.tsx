@@ -40,9 +40,11 @@ export function Btn(props: {
   small?: boolean;
   block?: boolean;
   tut?: string;
+  type?: 'button' | 'submit';
 }) {
   return (
     <button
+      type={props.type ?? 'button'}
       class={`btn ${props.kind ?? 'soft'} ${props.small ? 'small' : ''} ${props.block ? 'block' : ''}`}
       disabled={props.disabled}
       title={props.title}

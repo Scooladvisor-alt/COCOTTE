@@ -406,13 +406,14 @@ export function Dock() {
   const lvlN = farmLevel(s);
   const orders = s.orders.filter((o) => o.status === 'offer').length + s.contracts.filter((c) => c.status === 'offer').length;
   const watch = s.hens.filter((h) => h.sick || h.health < 40 || h.satiety < 30 || h.hydration < 30).length;
-  const items: Array<{ id: 'shop' | 'market' | 'finance' | 'missions' | 'hens' | 'team'; icon: string; label: string; badge?: number; tut?: string }> = [
+  const items: Array<{ id: 'shop' | 'market' | 'finance' | 'missions' | 'hens' | 'team' | 'ranking'; icon: string; label: string; badge?: number; tut?: string }> = [
     { id: 'shop', icon: 'shop', label: 'Boutique', tut: 'shop' },
     { id: 'market', icon: 'sell', label: 'Vente', badge: lvlN >= UNLOCKS.orders ? orders : 0, tut: 'market' },
     { id: 'hens', icon: 'hen', label: 'Poules', badge: watch },
     { id: 'team', icon: 'team', label: 'Équipe' },
     { id: 'finance', icon: 'bank', label: 'Banque' },
     { id: 'missions', icon: 'flag', label: 'Missions' },
+    { id: 'ranking', icon: 'trophy', label: 'Classement' },
   ];
   return (
     <nav class="dock card">

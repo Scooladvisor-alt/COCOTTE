@@ -7525,3 +7525,70 @@ body {
     display: none;
   }
 }
+
+/* transition en nuages entre deux fermes */
+.cloud-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  overflow: hidden;
+  pointer-events: none;
+  visibility: hidden;
+}
+.cloud-veil.in,
+.cloud-veil.out {
+  visibility: visible;
+  pointer-events: auto;
+}
+.cv-haze {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(#dcebff, #f4f9ff);
+  opacity: 0;
+  transition: opacity 0.7s ease;
+}
+.cloud-veil.in .cv-haze {
+  opacity: 0.92;
+  transition-delay: 0.3s;
+}
+.cloud {
+  position: absolute;
+  --x: 0px;
+  background:
+    radial-gradient(circle closest-side at 20% 64%, #fff 0 96%, transparent 100%) 0 0 / 34% 62% no-repeat,
+    radial-gradient(circle closest-side at 50% 50%, #fff 0 96%, transparent 100%) 18% 0 / 38% 78% no-repeat,
+    radial-gradient(circle closest-side at 50% 50%, #fff 0 96%, transparent 100%) 46% 8% / 36% 72% no-repeat,
+    radial-gradient(circle closest-side at 50% 50%, #fff 0 96%, transparent 100%) 72% 30% / 28% 60% no-repeat,
+    radial-gradient(ellipse closest-side at 50% 50%, #fff 0 96%, transparent 100%) 6% 38% / 88% 56% no-repeat;
+  filter: drop-shadow(0 6px 10px rgba(120, 150, 200, 0.35));
+  transform: translateX(var(--from)) scale(var(--s, 1));
+  transition: transform 0.9s cubic-bezier(0.3, 0.7, 0.2, 1);
+  transition-delay: var(--d, 0ms);
+  will-change: transform;
+}
+.cloud.l {
+  left: -8vw;
+  --from: -130vw;
+}
+.cloud.r {
+  right: -8vw;
+  --from: 130vw;
+}
+.cloud-veil.in .cloud {
+  transform: translateX(0) scale(var(--s, 1));
+}
+/* à la sortie, les nuages continuent leur route de l'autre côté */
+.cloud-veil.out .cloud.l {
+  --from: 130vw;
+}
+.cloud-veil.out .cloud.r {
+  --from: -130vw;
+}
+.cloud-veil.out .cv-haze {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cloud {
+    transition-duration: 0.01s;
+  }
+}

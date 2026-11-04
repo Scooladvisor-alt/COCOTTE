@@ -261,6 +261,32 @@ export function RankingPanel() {
 }
 
 // ---------------------------------------------------------------- Visite ----
+/** Nuages en bordure et au centre : [haut %, largeur vw, côté, retard ms, échelle]. */
+const CLOUDS: Array<[number, number, 'l' | 'r', number, number]> = [
+  [-6, 70, 'l', 0, 1],
+  [12, 60, 'r', 80, 0.9],
+  [28, 75, 'l', 160, 1.1],
+  [44, 65, 'r', 40, 1],
+  [58, 80, 'l', 120, 1.05],
+  [72, 62, 'r', 200, 0.95],
+  [86, 70, 'l', 60, 1],
+  [34, 55, 'r', 260, 0.8],
+  [62, 50, 'r', 300, 0.85],
+];
+
+/** Transition entre deux fermes : des nuages traversent l'écran, la nouvelle ferme apparaît derrière. */
+export function CloudVeil() {
+  const game = useGame();
+  return (
+    <div class={`cloud-veil ${game.cloud}`} aria-hidden="true">
+      <i class="cv-haze" />
+      {CLOUDS.map(([top, w, side, delay, sc], i) => (
+        <b key={i} class={`cloud ${side}`} style={{ top: `${top}%`, width: `${w}vw`, height: `${w * 0.42}vw`, '--d': `${delay}ms`, '--s': sc } as never} />
+      ))}
+    </div>
+  );
+}
+
 /** Bandeau du mode visiteur : où l'on est, et le retour vers sa ferme. */
 export function VisitBar() {
   const game = useGame();
@@ -275,7 +301,7 @@ export function VisitBar() {
           Niveau {v.level} · {v.hens.toLocaleString('fr-FR')} volaille{v.hens > 1 ? 's' : ''} · vous regardez, rien ne se touche
         </small>
       </div>
-      <Btn kind="primary" small onClick={() => game.leaveVisit()}>
+      <Btn kind="primary" small onClick={() => void game.leaveVisit()}>
         Retour à ma ferme
       </Btn>
     </div>

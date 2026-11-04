@@ -7,7 +7,7 @@ import { Inspector } from './Inspector';
 import { LevelUpModal, NightFade, OfflineModal, PlacementBar, PredatorAlert, TitleScreen, Toasts, Tutorial } from './Overlays';
 import { PanelHost } from './Panels';
 import { ShowResultModal } from './Show';
-import { JoinPrompt, VisitBar, VisitDock } from './Online';
+import { CloudVeil, JoinPrompt, VisitBar, VisitDock } from './Online';
 
 function Hud({ fromSave }: { fromSave: boolean }) {
   const game = useGame();
@@ -64,6 +64,7 @@ export function App({ game, fromSave }: { game: Game; fromSave: boolean }) {
       <div class="hud">
         <Hud fromSave={fromSave} />
       </div>
+      <CloudVeil />
       <RotateHint />
     </GameCtx.Provider>
   );

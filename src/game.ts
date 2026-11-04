@@ -51,6 +51,10 @@ export const TOAST_LIFE: Record<Toast['tone'], number> = { info: 3800, good: 420
 export const toastLife = (t: Pick<Toast, 'tone' | 'action'>) => TOAST_LIFE[t.tone] * (t.action ? 2.6 : 1);
 
 
+const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
+/** Durée d'une traversée des nuages (ms). */
+export const CLOUD_MS = 1000;
+
 export class Game {
   state: GameState;
   renderer: FarmRenderer;
@@ -73,6 +77,8 @@ export class Game {
   /** Visite d'une autre ferme (lecture seule) ; la nôtre attend à côté, intacte. */
   visiting: { name: string; level: number; hens: number } | null = null;
   private home: GameState | null = null;
+  /** Nuages de transition entre deux fermes : ils couvrent l'écran ('in'), puis se dégagent ('out'). */
+  cloud: 'off' | 'in' | 'out' = 'off';
   private listeners = new Set<() => void>();
   private toastId = 1;
   private last = performance.now();
@@ -340,11 +346,16 @@ export class Game {
   // ------------------------------------------------------------- Visites ----
   /** Va voir la ferme d'un autre joueur : même vue que la nôtre, mais rien ne se touche. */
   async visitFarm(name: string): Promise<boolean> {
+    if (this.cloud !== 'off') return false;
+    this.panel = null;
+    this.setCloud('in');
     try {
-      const row = await fetchFarm(name);
+      // les nuages ont le temps de couvrir l'écran pendant que la ferme se télécharge
+      const [row] = await Promise.all([fetchFarm(name), sleep(CLOUD_MS)]);
       const visited = row ? deserialize(row.save) : null;
       if (!row || !visited) {
         this.toast('Cette ferme n’est pas visitable pour le moment.', 'warn');
+        this.clearCloud();
         return false;
       }
       // la visite ne change rien : ni prédateurs, ni son ou musique de l'autre joueur
@@ -365,16 +376,31 @@ export class Game {
       this.renderer.resetWorld();
       this.replaceState(visited);
       this.goHome(true);
+      this.clearCloud();
       return true;
     } catch {
       this.toast('Impossible de joindre le serveur. Vérifiez votre connexion.', 'warn');
+      this.clearCloud();
       return false;
     }
   }
 
+  private setCloud(c: 'off' | 'in' | 'out') {
+    this.cloud = c;
+    this.changed();
+  }
+  /** Les nuages se dégagent et laissent voir la nouvelle ferme. */
+  private clearCloud() {
+    this.setCloud('out');
+    window.setTimeout(() => this.cloud === 'out' && this.setCloud('off'), CLOUD_MS);
+  }
+
   /** Retour à notre ferme, exactement comme on l'a laissée. */
-  leaveVisit() {
-    if (!this.visiting || !this.home) return;
+  async leaveVisit() {
+    if (!this.visiting || !this.home || this.cloud !== 'off') return;
+    this.setCloud('in');
+    await sleep(CLOUD_MS);
+    if (!this.visiting || !this.home) return this.clearCloud();
     const home = this.home;
     this.home = null;
     this.visiting = null;
@@ -385,6 +411,7 @@ export class Game {
     this.goHome(true);
     this.wall = performance.now();
     this.last = performance.now();
+    this.clearCloud();
   }
 
   toast(text: string, tone: Toast['tone'] = 'info', icon?: string, action?: NotifyAction) {

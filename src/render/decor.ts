@@ -2,11 +2,12 @@
 // potager de la mairie, verger et ruches, puits, charrette fleurie, lampadaires, massifs de fleurs,
 // chat, papillons, lucioles, oiseaux et montgolfière. (Décor seul : rien ici n'influence la simulation.)
 import * as THREE from 'three';
-import { GRID_H, GRID_W, GRID_Z0, WORLD } from '../config/balance';
-import { C, GLOW, MAT, box, cone, cyl, finalizeExport, merge, mesh, prism, sph } from './geo';
+import { BIRD_ORDERS, GRID_H, GRID_W, GRID_Z0, TRUCK_BAY, WORLD } from '../config/balance';
+import { PET_PLOT } from '../config/buildings';
+import { C, GLOW, MAT, box, cone, cyl, finalizeExport, merge, mergeChunks, mesh, prism, sph, type V3 } from './geo';
 import { FieldKit, lavenderGeometry, type CropKind } from './fields';
-import { LANTERN_GLOW, tractor } from './models';
-import { CROP_CLUMPS, GROUND_MAT, SEASON, SHADOW_RADIUS, WATER_MAT, WATER_U, contactShadows, floweringBush, lump, plant, pondGeometry, reed, setCropWind, shingledCone, speciesGeometry, type Plant } from './nature';
+import { LANTERN_GLOW, textPanel, tractor } from './models';
+import { CROP_CLUMPS, GROUND_MAT, SEASON, SHADOW_RADIUS, Soup, WATER_MAT, WATER_U, contactShadows, floweringBush, lump, plant, pondGeometry, reed, setCropWind, shingledCone, speciesGeometry, type Plant } from './nature';
 
 function hash(i: number) {
   const x = Math.sin(i * 127.1 + 311.7) * 43758.5453;
@@ -31,7 +32,8 @@ export function inDecorZone(x: number, z: number) {
 
 export interface Decor {
   update(time: number, dt: number, day: number): void;
-  /** L'animalerie ouverte : la clôture cède la place à son dallage. */
+  /** L'emplacement de l'animalerie (on clique dessus) ; il disparaît quand elle est construite. */
+  petPlot: THREE.Group;
   setPetShop(open: boolean): void;
 }
 
@@ -178,18 +180,80 @@ function duckGeometry(kind: 'drake' | 'hen' | 'chick') {
   return merge(parts);
 }
 
-/** Barque en bois (la moitié basse est sous l'eau). */
+/**
+ * Barque en bois, proue vers +x : une vraie coque creuse, faite d'anneaux qui suivent son contour
+ * (le bas est sous l'eau). Bordé, plat-bord, fond et bancs sont tous à des hauteurs différentes.
+ */
 function rowBoat() {
-  const k: [number, number, number] = [1.45, 1, 0.5];
-  return merge([
-    cyl(0.62, 0.44, 0.22, 14, 0x4f7f8f, [0, 0.11, 0], [0, 0, 0], k),
-    cyl(0.63, 0.63, 0.03, 14, 0xe6dcc4, [0, 0.225, 0], [0, 0, 0], k),
-    cyl(0.56, 0.56, 0.01, 14, 0x6b4d33, [0, 0.235, 0], [0, 0, 0], [1.45, 1, 0.46]),
-    box(0.1, 0.03, 0.54, 0xa3794f, [0.3, 0.27, 0]),
-    box(0.1, 0.03, 0.54, 0xa3794f, [-0.3, 0.27, 0]),
-    box(1.2, 0.018, 0.03, 0xc9a877, [0.05, 0.285, 0.1], [0, 0.1, 0]),
-    box(0.14, 0.018, 0.06, 0xc9a877, [0.68, 0.285, 0.16]),
-  ]);
+  const L = 0.82;
+  const W = 0.3;
+  const N = 22;
+  // contour : pointu à la proue, arrondi à la poupe
+  const ring = (k: number, y: number): V3[] =>
+    Array.from({ length: N }, (_, i) => {
+      const a = (i / N) * Math.PI * 2;
+      const c = Math.cos(a);
+      const sharp = 1 - 0.42 * Math.pow(Math.max(0, c), 1.5);
+      return [L * k * c, y, W * k * Math.sin(a) * sharp] as V3;
+    });
+  const hull = new Soup();
+  // paroi extérieure : a est en dessous de b
+  const outer = (A: V3[], B: V3[], color: number) => {
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N;
+      hull.tri(A[i], B[i], A[j], color);
+      hull.tri(A[j], B[i], B[j], color);
+    }
+  };
+  // paroi tournée vers l'intérieur
+  const inner = (A: V3[], B: V3[], color: number) => {
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N;
+      hull.tri(A[i], A[j], B[i], color);
+      hull.tri(A[j], B[j], B[i], color);
+    }
+  };
+  const keel = ring(0.66, 0);
+  const chine = ring(0.92, 0.14);
+  const strake = ring(1, 0.25);
+  const rimIn = ring(0.9, 0.262);
+  const rimOut = ring(1.02, 0.262);
+  const floor = ring(0.66, 0.1);
+  outer(keel, chine, 0x4f7f8f);
+  outer(chine, strake, 0xf1e8d4);
+  outer(strake, rimOut, 0x8a6a48);
+  // plat-bord : l'anneau de bois qui fait le tour, vu de dessus
+  for (let i = 0; i < N; i++) {
+    const j = (i + 1) % N;
+    hull.tri(rimOut[i], rimIn[i], rimOut[j], 0xa3794f);
+    hull.tri(rimOut[j], rimIn[i], rimIn[j], 0xa3794f);
+  }
+  inner(floor, rimIn, 0x8b6743);
+  // le fond
+  for (let i = 0; i < N; i++) hull.tri([0, 0.1, 0], floor[(i + 1) % N], floor[i], 0x6b4d33);
+  const parts: THREE.BufferGeometry[] = [hull.geometry()];
+  // lattes du fond, deux bancs, deux avirons posés sur les bancs
+  for (const z of [-0.09, 0, 0.09]) parts.push(box(0.8, 0.012, 0.05, 0x8b6743, [-0.03, 0.115, z]));
+  for (const [x, w] of [[0.2, 0.44], [-0.28, 0.48]] as const) parts.push(box(0.12, 0.024, w, 0xb48a5c, [x, 0.2, 0]));
+  for (const z of [-0.07, 0.07]) {
+    parts.push(box(0.92, 0.016, 0.018, 0xd2b184, [-0.04, 0.225, z]));
+    parts.push(box(0.16, 0.014, 0.05, 0xd2b184, [0.46, 0.225, z]));
+  }
+  // anneau d'amarrage à la proue
+  parts.push(cyl(0.012, 0.012, 0.05, 6, IRON, [L * 0.98, 0.285, 0]));
+  return merge(parts);
+}
+
+/** Bout de corde tendu entre deux points. */
+function rope(a: V3, b: V3, r = 0.008) {
+  const A = new THREE.Vector3(...a);
+  const B = new THREE.Vector3(...b);
+  const d = B.clone().sub(A);
+  const g = finalizeExport(new THREE.CylinderGeometry(r, r, d.length(), 4), 0xc9b98a, [0, 0, 0]);
+  g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), d.clone().normalize()));
+  const m = A.clone().add(B).multiplyScalar(0.5);
+  g.translate(m.x, m.y, m.z);
+  return g;
 }
 
 // -------------------------------------------------------------- Montgolfière ----
@@ -278,7 +342,8 @@ export function buildDecor(scene: THREE.Scene): Decor {
     const [x, z] = onShore(a, 1.0);
     for (let k = 0; k < 7; k++) reed(x + (hash(i * 7 + k) - 0.5) * 0.46, z + (hash(i * 3 + k * 5) - 0.5) * 0.42, 0.55 + hash(i + k * 3) * 0.5, statics, (hash(k + i) - 0.5) * 0.2, k % 2 === 0);
   }
-  for (const a of [0.72, 0.92]) {
+  // (à l'est de la mare : la barque et le ponton restent dégagés)
+  for (const a of [-0.42, -0.2]) {
     const [x, z] = onShore(a, 1.0);
     for (let k = 0; k < 5; k++) reed(x + (hash(a * 7 + k) - 0.5) * 0.36, z + (hash(a * 3 + k * 5) - 0.5) * 0.34, 0.45 + hash(a + k * 3) * 0.35, statics, (hash(k + a) - 0.5) * 0.2, k % 2 === 0);
   }
@@ -307,11 +372,18 @@ export function buildDecor(scene: THREE.Scene): Decor {
   statics.push(cyl(0.045, 0.05, 0.56, 6, 0x6e5238, [JX + 0.36, 0.3, 8.62]));
   statics.push(cyl(0.11, 0.09, 0.15, 8, 0xc69a63, [JX - 0.2, 0.28, 8.82]), cyl(0.112, 0.112, 0.012, 8, 0x4d3b2a, [JX - 0.2, 0.33, 8.82]));
   const boat = mesh(rowBoat());
-  boat.position.set(-8.15, 0, 8.25);
-  boat.rotation.y = Math.PI / 2 + 0.18;
+  // amarrée au ponton, la proue vers lui
+  const BOAT = { x: -8.2, z: 8.0, ry: -Math.PI / 2 + 0.2 };
+  boat.position.set(BOAT.x, 0, BOAT.z);
+  boat.rotation.y = BOAT.ry;
   scene.add(boat);
-  // la corde d'amarrage
-  statics.push(box(0.008, 0.008, 0.68, 0xc9b98a, [-8.56, 0.26, 8.72], [0, 0.72, 0]));
+  // la corde : du pieu du ponton à l'anneau de la proue, avec un peu de mou
+  {
+    const ring: V3 = [BOAT.x + Math.cos(BOAT.ry) * 0.8, 0.29, BOAT.z - Math.sin(BOAT.ry) * 0.8];
+    const post: V3 = [JX + 0.36, 0.5, 8.62];
+    const slack: V3 = [(ring[0] + post[0]) / 2, 0.24, (ring[2] + post[2]) / 2];
+    statics.push(rope(post, slack), rope(slack, ring), cyl(0.05, 0.05, 0.03, 6, 0xc9b98a, [post[0], 0.5, post[2]]));
+  }
 
   // la famille canard fait le tour de la mare
   const drakeG = duckGeometry('drake');
@@ -457,7 +529,6 @@ export function buildDecor(scene: THREE.Scene): Decor {
   }
 
   // -------------------------------------------------- L'allée de la mairie ----
-  let plotFence: THREE.Mesh;
   // bordures de lavande, entre le chemin du personnel et le trottoir
   {
     const walkN = WORLD.WALK_Z - 0.6;
@@ -466,11 +537,29 @@ export function buildDecor(scene: THREE.Scene): Decor {
     plant(scene, lavenderGeometry(), null, items, { mat: CROP_CLUMPS.garden, spread: 0.06, chunk: 1000 });
     // clôture rustique le long du trottoir
     railFence(statics, -26, -7.6, walkN - 0.32);
-    railFence(statics, -3.9, 1.0, walkN - 0.32);
-    const plot: THREE.BufferGeometry[] = [];
-    railFence(plot, 1.0, 10.6, walkN - 0.32);
-    plotFence = mesh(merge(plot));
-    scene.add(plotFence);
+    railFence(statics, -3.9, -0.5, walkN - 0.32);
+    railFence(statics, 3.7, 10.6, walkN - 0.32);
+  }
+
+  // ---------------------------------------------------- Le chemin du camion ----
+  // de la route au grand portail, puis dans l'enclos : de la terre battue, deux ornières, de l'herbe au milieu
+  {
+    const DIRT = 0xb0926a;
+    const RUT = 0x8d7350;
+    const X = BIRD_ORDERS.laneX;
+    const track = (z0: number, z1: number, y: number, w: number) => {
+      const c = (z0 + z1) / 2;
+      const l = z1 - z0;
+      statics.push(box(w, 0.012, l, DIRT, [X, y, c]));
+      for (const s of [-1, 1]) statics.push(box(0.3, 0.004, l, RUT, [X + s * 0.56, y + 0.008, c]));
+      statics.push(box(0.34, 0.004, l, 0x93b866, [X, y + 0.008, c]));
+      for (let z = z0 + 0.3; z < z1 - 0.1; z += 0.62) statics.push(lump(0.09 + hash(z) * 0.05, 0, 0x8fbb5c, [X + (hash(z * 3) - 0.5) * 0.22, y + 0.02, z], [1, 0.5, 1], z, 0.05));
+    };
+    track(30.1, 37.3, 0.05, 2.4);
+    track(TRUCK_BAY.z0 - 0.4, 30, 0.106, 1.94);
+    // l'entrée du chemin s'évase au bord du trottoir, et le trottoir s'abaisse pour le laisser passer
+    statics.push(box(1.3, 0.012, 1.1, DIRT, [X + 1.5, 0.05, 36.75]), box(1.1, 0.012, 0.6, DIRT, [X - 1.5, 0.05, 37]));
+    statics.push(box(3.6, 0.008, 1.22, 0xd5cbb6, [X + 0.5, 0.069, WORLD.WALK_Z]));
   }
 
   // --------------------------------------------- Charrette fleurie, arbres ----
@@ -498,13 +587,13 @@ export function buildDecor(scene: THREE.Scene): Decor {
     }
     const g = merge(cart);
     g.rotateY(-0.42);
-    g.translate(-2.45, 0, 34.5);
+    g.translate(5.6, 0, 33.9);
     statics.push(g);
-    // tilleuls et rosiers le long de l'herbe (de x = 1 à la place : la parcelle de l'animalerie reste libre)
-    const limes: Plant[] = [[-0.2, 33.1, 0.6, 1.08], [-22.2, 35.0, 4.2, 1.2], [-13.4, 35.2, 1.1, 1.05]];
+    // tilleuls et rosiers le long de l'herbe
+    const limes: Plant[] = [[-2.3, 35.1, 0.6, 1.08], [8.3, 34.5, 2.1, 1.16], [-22.2, 35.0, 4.2, 1.2], [-13.4, 35.2, 1.1, 1.05]];
     plant(scene, speciesGeometry('lime'), speciesGeometry('lime', true), limes, { cast: true, spread: 0.1 });
-    const roses: Plant[] = [[0.4, 36.2, 0.7, 0.95], [-0.5, 36.3, 2, 0.84], [-2.9, 32.7, 1.2, 0.9], [-3.8, 32.5, 3, 0.8], [-9.2, 34.9, 5, 0.9], [-17.4, 34.3, 1.6, 0.95], [-18.4, 34.5, 2.6, 0.84]];
-    const hyd: Plant[] = [[-25, 35, 2, 0.96], [-24.1, 35.3, 3, 0.86], [-10.3, 35.5, 4, 0.92], [-4.5, 36.1, 5, 0.86]];
+    const roses: Plant[] = [[4.8, 35.6, 0.7, 0.95], [5.7, 35.75, 2, 0.84], [-2.9, 32.7, 1.2, 0.9], [-3.8, 32.5, 3, 0.8], [10, 32.4, 4, 0.9], [-9.2, 34.9, 5, 0.9], [-17.4, 34.3, 1.6, 0.95], [-18.4, 34.5, 2.6, 0.84]];
+    const hyd: Plant[] = [[9.2, 35.7, 1, 0.92], [-25, 35, 2, 0.96], [-24.1, 35.3, 3, 0.86], [-10.3, 35.5, 4, 0.92], [-4.5, 34.7, 5, 0.86]];
     plant(scene, floweringBush(0xe85d75, 1), speciesGeometry('bush', true), roses, { cast: true, spread: 0.06 });
     plant(scene, floweringBush(0x8ea6e8, 2), speciesGeometry('bush', true), hyd, { cast: true, spread: 0.06 });
     scene.add(contactShadows([...limes.map(([x, z, , s]) => [x, z, SHADOW_RADIUS.lime * s] as [number, number, number]), ...[...roses, ...hyd].map(([x, z, , s]) => [x, z, 0.46 * s] as [number, number, number])]));
@@ -624,8 +713,7 @@ export function buildDecor(scene: THREE.Scene): Decor {
   const poolMat = new THREE.MeshBasicMaterial({ map: LANTERN_GLOW.map, color: 0xffd27a, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
   const lampPositions: Array<[number, number]> = [];
   // au bord du trottoir côté ferme, la crosse penchée au-dessus des passants (pas sur le parking)
-  // (celui de x = 6 laisserait un poteau devant l'animalerie)
-  for (let x = -12; x <= GRID_W + 12; x += 9) if ((x < 32.5 || x > 42.5) && x !== 6) lampPositions.push([x, WORLD.WALK_Z - 0.75]);
+  for (let x = -12; x <= GRID_W + 12; x += 9) if (x < 32.5 || x > 42.5) lampPositions.push([x, WORLD.WALK_Z - 0.75]);
   const lampGlass: THREE.BufferGeometry[] = [];
   lampPositions.forEach(([x, z], i) => {
     // socle mouluré, fût à bagues, crosse à volute, lanterne à quatre pans
@@ -661,8 +749,7 @@ export function buildDecor(scene: THREE.Scene): Decor {
   pools.renderOrder = 2;
   scene.add(pools);
 
-  const st = mesh(merge(statics), true, true);
-  scene.add(st);
+  for (const g of mergeChunks(statics, 16)) scene.add(mesh(g, true, true));
 
   // saule et arbres de la mare
   const willows: Plant[] = [[-14.3, 4.6, 0.8, 1.16], [-5.8, 3.7, 2.3, 0.94]];
@@ -703,13 +790,59 @@ export function buildDecor(scene: THREE.Scene): Decor {
   scene.add(flock);
   let flockT = 8;
 
+  // ---------------------------------------------- L'emplacement de l'animalerie ----
+  // tant qu'elle n'est pas construite : du gravier, des piquets et un grand panneau
+  const petPlot = new THREE.Group();
+  {
+    const P = PET_PLOT;
+    const w = P.x1 - P.x0;
+    const d = P.z1 - P.z0;
+    const cx = (P.x0 + P.x1) / 2;
+    const cz = (P.z0 + P.z1) / 2;
+    const parts: THREE.BufferGeometry[] = [box(w, 0.05, d, 0xcbbf9f, [cx, 0.025, cz])];
+    for (let k = 0; k < 90; k++) parts.push(lump(0.05 + hash(k) * 0.07, 0, k % 2 ? 0xb5a98a : 0xd9cfb4, [P.x0 + 0.3 + hash(k * 3.1) * (w - 0.6), 0.055, P.z0 + 0.3 + hash(k * 5.7) * (d - 0.6)], [1, 0.35, 1], k, 0.1));
+    // piquets et cordeau tout autour
+    const corners: Array<[number, number]> = [
+      [P.x0 + 0.2, P.z0 + 0.2],
+      [P.x1 - 0.2, P.z0 + 0.2],
+      [P.x1 - 0.2, P.z1 - 0.2],
+      [P.x0 + 0.2, P.z1 - 0.2],
+    ];
+    corners.forEach(([x, z], i) => {
+      const [nx, nz] = corners[(i + 1) % 4];
+      const len = Math.hypot(nx - x, nz - z);
+      const n = Math.round(len / 2.2);
+      for (let k = 0; k < n; k++) {
+        const t = k / n;
+        parts.push(box(0.07, 0.62, 0.07, 0xe9dfc8, [x + (nx - x) * t, 0.34, z + (nz - z) * t]), box(0.078, 0.1, 0.078, 0xe85d3a, [x + (nx - x) * t, 0.6, z + (nz - z) * t]));
+      }
+      parts.push(nx !== x ? box(len, 0.018, 0.018, 0xe85d3a, [(x + nx) / 2, 0.52, z]) : box(0.018, 0.018, len, 0xe85d3a, [x, 0.52, (z + nz) / 2]));
+    });
+    // le panneau, bien visible depuis la route
+    const sx = cx - 2.2;
+    const sz = P.z1 - 1.6;
+    parts.push(box(0.12, 1.75, 0.12, C.woodDark, [sx - 1.35, 0.9, sz]), box(0.12, 1.75, 0.12, C.woodDark, [sx + 1.35, 0.9, sz]), box(3.1, 1.2, 0.07, C.woodDark, [sx, 1.3, sz - 0.03]), box(3.3, 0.06, 0.26, C.roof, [sx, 1.93, sz]));
+    // planches et sable, prêts pour le chantier
+    for (let k = 0; k < 5; k++) parts.push(box(2.3, 0.06, 0.26, k % 2 ? 0xc99c63 : 0xb98c56, [cx + 2.6, 0.1 + Math.floor(k / 3) * 0.07, cz - 1.2 + (k % 3) * 0.3]));
+    parts.push(lump(0.7, 1, 0xdcc99a, [cx + 3.2, 0.06, cz + 1.25], [1.3, 0.5, 1], 4, 0.1));
+    const m = mesh(merge(parts), true, true);
+    petPlot.add(m);
+    const big = textPanel('ANIMALERIE', 2.9, 0.62, 0x2f6f4e, '#fbf6e8');
+    big.position.set(sx, 1.52, sz + 0.02);
+    const small = textPanel('Emplacement à construire', 2.9, 0.4, 0xf3efe6, '#2f6f4e');
+    small.position.set(sx, 0.98, sz + 0.02);
+    petPlot.add(big, small);
+    scene.add(petPlot);
+  }
+
   // ------------------------------------------------------- Montgolfière ----
   const balloon = mesh(balloonModel(), false, false);
   scene.add(balloon);
 
   return {
+    petPlot,
     setPetShop(open) {
-      plotFence.visible = !open;
+      petPlot.visible = !open;
     },
     update(time, dt, day) {
       WATER_U.uTime.value = time;
@@ -728,8 +861,9 @@ export function buildDecor(scene: THREE.Scene): Decor {
         d.position.set(dx + Math.cos(a) * rx, 0.045 + Math.sin(time * 2 + i) * 0.008, dz + Math.sin(a) * rz);
         d.rotation.y = Math.atan2(-Math.sin(a) * rx, Math.cos(a) * rz);
       });
-      boat.position.y = Math.sin(time * 0.9) * 0.012;
-      boat.rotation.z = Math.sin(time * 0.7) * 0.018;
+      // elle tangue doucement ; prise dans la glace, elle ne bouge plus
+      boat.position.y = frozen ? 0 : Math.sin(time * 0.9) * 0.012;
+      boat.rotation.z = frozen ? 0 : Math.sin(time * 0.7) * 0.018;
       M.blades.rotation.z -= dt * 0.5;
       tail.rotation.y = Math.sin(time * 1.3) * 0.5;
       // le tracteur laboure aux heures du jour et rentre dans son coin la nuit

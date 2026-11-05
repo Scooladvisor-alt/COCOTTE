@@ -1,13 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { AUTO_DOOR, BIRD_ORDERS, BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, GRID_W, GRID_Z0, HOUR, LEVELS, levelAt, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, tradeAt, waterPrice } from '../src/config/balance';
-import { GATE_EDGE, farmEnclosed, perimeter } from '../src/sim/fences';
+import { AUTO_DOOR, BIRD_ORDERS, PETSHOP, TRUCK_BAY, BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, GRID_W, GRID_Z0, HOUR, LEVELS, levelAt, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, tradeAt, waterPrice } from '../src/config/balance';
+import { GATE_EDGE, TRUCK_GATE_EDGES, farmEnclosed, perimeter } from '../src/sim/fences';
+import { RAMP_FOOT, TRUCK_REAR, TRUCK_X, boardPath } from '../src/sim/deliveries';
 import { waterCapacity } from '../src/sim/stocks';
 import { BREEDS, BREED_ORDER, GOOSE_NAMES, isGoose } from '../src/config/breeds';
-import { BUILDINGS, COOP_SCALE, PET_POS, STAND_POS, sizeOf, standLayout } from '../src/config/buildings';
+import { BUILDINGS, BUILD_ORDER, COOP_SCALE, PET_POS, STAND_POS, petLayout, sizeOf, standLayout } from '../src/config/buildings';
 import { BACKUP_KEY, SAVE_KEY, deserialize, loadGame, saveGame, serialize, type Storage } from '../src/save/save';
 import * as A from '../src/sim/actions';
 import { canPlace } from '../src/sim/buildings';
-import { accessCells, buildingCenter, coopDoor, coopDoorCells, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable, rt, toLocal, toWorld } from '../src/sim/core';
+import { makeBuilding } from '../src/sim/state';
+import { accessCells, blocksMover, buildingCenter, cellIndex, coopDoor, coopDoorCells, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable, rt, toLocal, toWorld } from '../src/sim/core';
 import { freeSeats, hostedIncubators, nurseryCount, nurseryPlan, nurseryWithRoom, readyToLeave } from '../src/sim/nursery';
 import {
   birdOrdersNewDay,
@@ -19,6 +21,7 @@ import {
   orderLabel,
   orderStock,
   petBuyChance,
+  petCustomersPerDay,
   petPrice,
   petShopHourly,
   petShopOf,
@@ -30,7 +33,13 @@ import {
   stockOf,
   stockOfKind,
   suggestedPrice,
-  togglePetAuto,
+  firePetSeller,
+  hirePetSeller,
+  isRareBird,
+  petKeep,
+  setPetKeep,
+  togglePetRestock,
+  unstockBird,
   unstockBirds,
 } from '../src/sim/petshop';
 import { onlineIsNewer } from '../src/online/farms';
@@ -72,7 +81,7 @@ import { newFarm } from '../src/sim/starter';
 import { creditLimit, dailyDue, loanRate, pauseLoan, quoteLoan, repayLoan, takeLoan } from '../src/sim/bank';
 import type { GameState } from '../src/sim/types';
 import { goodPlayer, guard, lazyPlayer } from '../scripts/bot';
-import { fire, hire, sellerSpot } from '../src/sim/workers';
+import { buyWorkerSkill, dailyWages, fire, hire, sellerSpot, workerSkillsHourly } from '../src/sim/workers';
 import { enterNursery } from '../src/sim/hens';
 import { catchable, distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
 import { buyDog } from '../src/sim/dog';
@@ -3934,7 +3943,29 @@ describe('Animalerie', () => {
     return petShopOf(s)!;
   };
 
-  it('ne s’ouvre qu’une fois, à sa place à côté de l’étal, sans prendre de case à la ferme', () => {
+  it('elle reste à sa place à droite du parking, même au rechargement d’une ancienne partie', () => {
+    const s = farm(1513);
+    const b = open(s);
+    // les trois places du parking s'arrêtent à x = 41,8 ; le dallage de la boutique commence juste après
+    expect(PET_POS.x).toBeGreaterThan(41.8);
+    // les parcs ne mordent ni sur le trottoir ni sur la clôture de la ferme, jusqu'au dernier niveau
+    for (let lv = 1; lv <= BUILDINGS.petshop.levels.length; lv++) {
+      const L = petLayout(lv);
+      expect(PET_POS.z).toBeGreaterThan(WORLD.Z0 + WORLD.ROWS * WORLD.PARCEL);
+      expect(PET_POS.z + 6.7).toBeLessThanOrEqual(WORLD.WALK_Z - 0.6 + 1e-9);
+      expect(L.hens.x0).toBeGreaterThan(L.bw);
+      expect(L.geese.x0).toBeGreaterThan(L.hens.x1);
+    }
+    // une partie sauvegardée quand elle était à côté de l'étal
+    const raw = JSON.parse(serialize(s));
+    const old = raw.buildings.find((x: { id: number }) => x.id === b.id);
+    old.x = 6;
+    old.z = 34;
+    const back = petShopOf(deserialize(JSON.stringify(raw))!)!;
+    expect([back.x, back.z]).toEqual([PET_POS.x, PET_POS.z]);
+  });
+
+  it('ne s’ouvre qu’une fois, à droite du parking, sans prendre de case à la ferme', () => {
     const s = farm(1501);
     invalidateLayout(s);
     const walk = rt(s).walk.reduce((a: number, v: number) => a + v, 0);
@@ -4073,27 +4104,105 @@ describe('Animalerie', () => {
     const ids = flockOf(s, 'marans').slice(0, 2).map((h) => h.id);
     stockBirds(s, 'marans', 2);
     setPetPrice(s, 'marans', 7000);
-    s.petShop.auto = true;
+    hirePetSeller(s);
+    togglePetRestock(s);
+    setPetKeep(s, 12);
     const back = deserialize(serialize(s))!;
     expect(back.petShop.birds.map((h) => h.id).sort()).toEqual(ids.sort());
     expect(petPrice(back, 'marans')).toBe(7000);
-    expect(back.petShop.auto).toBe(true);
+    expect(back.petShop.seller).toBe(true);
+    expect(back.petShop.restock).toBe(true);
+    expect(petKeep(back)).toBe(12);
     // aucun identifiant réutilisé par la suite
     expect(back.nextId).toBeGreaterThan(Math.max(...back.petShop.birds.map((h) => h.id)));
   });
 
-  it('le surplus part tout seul en vitrine quand on le demande, les meilleures restent', () => {
-    const s = farm(1511);
+  it('elle n’est pas dans la boutique : on la construit sur son emplacement, au niveau 15', () => {
+    expect(BUILD_ORDER).not.toContain('petshop');
+    const s = newFarm(1514);
+    s.money = 1e8;
+    while (farmLevel(s) < 14) s.xp += 500;
+    expect(A.openPetShop(s).ok).toBe(false);
+    while (farmLevel(s) < 15) s.xp += 500;
+    expect(A.openPetShop(s).ok).toBe(true);
+    expect(petShopOf(s)!.level).toBe(1);
+    expect(BUILDINGS.petshop.levels.length).toBeGreaterThanOrEqual(5);
+    const caps = BUILDINGS.petshop.levels.map((l) => l.capacity!);
+    expect(caps).toEqual([...caps].sort((x, y) => x - y));
+    expect(petShopOf(s)).toBeTruthy();
+    expect(A.upgrade(s, petShopOf(s)!.id).ok).toBe(true);
+    expect(lvl(petShopOf(s)!).capacity).toBe(caps[1]);
+  });
+
+  it('on prévient une seule fois que l’emplacement est disponible', () => {
+    const s = farm(1515);
+    drainEvents(s);
+    birdOrdersNewDay(s);
+    birdOrdersNewDay(s);
+    const said = drainEvents(s).filter((e) => e.kind === 'notify' && /animalerie/.test(e.text));
+    expect(said).toHaveLength(1);
+  });
+
+  it('une volaille reprise dans son parc revient à la ferme, à sa place', () => {
+    const s = farm(1516);
     open(s);
-    flock(s, 'rousse', 30);
-    const top = s.hens.filter((h) => sellable(h)).at(-1)!;
-    top.genes = { p: 5, r: 5, b: 5 };
-    expect(s.hens.length).toBeGreaterThan(flockCapacity(s));
+    flock(s, 'rousse', 3);
+    const n = s.hens.length;
+    const h = stockOf(s, 'rousse').length ? stockOf(s, 'rousse')[0] : (stockBirds(s, 'rousse', 1), s.petShop.birds[0]);
+    expect(s.hens).toHaveLength(n - 1);
+    expect(unstockBird(s, h.id).ok).toBe(true);
+    expect(s.hens).toHaveLength(n);
+    expect(s.hens).toContain(h);
+    expect(s.petShop.birds).not.toContain(h);
+    expect(unstockBird(s, h.id).ok).toBe(false);
+  });
+
+  it('le vendeur coûte 15 € par jour et amène du monde', () => {
+    const s = farm(1517);
+    open(s);
+    const flow = petCustomersPerDay(s);
+    const wages = dailyWages(s);
+    expect(hirePetSeller(s).ok).toBe(true);
+    expect(hirePetSeller(s).ok).toBe(false);
+    expect(dailyWages(s) - wages).toBe(1500);
+    expect(petCustomersPerDay(s)).toBeGreaterThan(flow);
+    firePetSeller(s);
+    expect(dailyWages(s)).toBe(wages);
+    expect(s.petShop.seller).toBeUndefined();
+  });
+
+  it('il ne remet des volailles que si c’est coché, jamais de rares, toujours les moins bonnes', () => {
+    const s = farm(1518);
+    open(s);
+    A.upgrade(s, petShopOf(s)!.id);
+    s.hens = s.hens.filter((h) => h.rooster || h.young);
+    flock(s, 'rousse', 12);
+    const list = s.hens.filter((h) => sellable(h));
+    list.forEach((h, i) => (h.genes = { p: 1 + (i % 3), r: 1, b: 1 }));
+    const rare = list[0];
+    rare.genes = { p: 5, r: 3, b: 2 };
+    const golden = list[1];
+    golden.golden = true;
+    setPetKeep(s, 2);
+    // sans vendeur, ou sans la case cochée : rien
     petShopHourly(s);
     expect(s.petShop.birds).toHaveLength(0);
-    togglePetAuto(s);
+    hirePetSeller(s);
+    petShopHourly(s);
+    expect(s.petShop.birds).toHaveLength(0);
+    togglePetRestock(s);
     expect(s.petShop.birds.length).toBeGreaterThan(0);
-    expect(s.hens).toContain(top);
+    expect(s.petShop.birds.length).toBeLessThanOrEqual(PETSHOP.sellerPerHour);
+    for (const h of s.petShop.birds) expect(isRareBird(h)).toBe(false);
+    expect(s.hens).toContain(rare);
+    expect(s.hens).toContain(golden);
+    // les premières sorties sont les moins performantes
+    const out = Math.max(...s.petShop.birds.map((h) => h.genes!.p));
+    const stay = Math.min(...s.hens.filter((h) => sellable(h) && !isRareBird(h)).map((h) => h.genes!.p));
+    expect(out).toBeLessThanOrEqual(stay);
+    // il laisse à la ferme ce qu'on lui a demandé
+    for (let i = 0; i < 10; i++) petShopHourly(s);
+    expect(s.hens.filter((h) => !h.young && !h.rooster).length).toBeGreaterThanOrEqual(2);
   });
 
   it('démontable seulement une fois vidée', () => {
@@ -4229,6 +4338,88 @@ describe('Commandes de revendeurs et grand camion', () => {
     expect(s.hens.filter((h) => h.breed === 'rousse')).toHaveLength(rousses);
   });
 
+  it('le camion entre dans l’enclos : son chemin reste libre, et le grand portail retient les poules', () => {
+    const s = farm(1620);
+    // rien ne se construit sur le chemin
+    expect(canPlace(s, 'tree', TRUCK_BAY.x0, TRUCK_BAY.z1).ok).toBe(false);
+    expect(canPlace(s, 'tree', TRUCK_BAY.x1, TRUCK_BAY.z0).ok).toBe(false);
+    expect(canPlace(s, 'tree', TRUCK_BAY.x1 + 1, TRUCK_BAY.z0).ok).toBe(true);
+    // le portail est une vraie clôture : les poules et le personnel ne passent pas
+    expect(farmEnclosed(s)).toBe(true);
+    for (const c of TRUCK_GATE_EDGES) {
+      expect(s.fenceH[c]).toBe(5);
+      expect(blocksMover(s.fenceH[c], 'hen')).toBe(true);
+      expect(blocksMover(s.fenceH[c], 'human')).toBe(true);
+    }
+    // ... et il est à sa place sur une ancienne partie
+    const back = deserialize(serialize(s))!;
+    expect(back.fenceH[TRUCK_GATE_EDGES[0]]).toBe(5);
+    // pendant le chargement, le camion prend de la place dans l'enclos
+    invalidateLayout(s);
+    expect(rt(s).blocked[cellIndex(TRUCK_BAY.x0, TRUCK_BAY.z0 + 2)]).toBe(0);
+    hire(s, 'farmhand');
+    flock(s, 'rousse', 6);
+    expect(callTruck(s, order(s).id).ok).toBe(true);
+    run(s, 1);
+    rt(s);
+    if (s.birdLoad?.called) expect(rt(s).blocked[cellIndex(TRUCK_BAY.x0, TRUCK_BAY.z0 + 2)]).toBe(1);
+  });
+
+  it('un bâtiment d’une ancienne partie sur le chemin empêche d’appeler le camion, avec un message clair', () => {
+    const s = farm(1621);
+    hire(s, 'farmhand');
+    flock(s, 'rousse', 6);
+    const o = order(s);
+    expect(checkCallTruck(s, o).ok).toBe(true);
+    s.buildings.push(makeBuilding(s.nextId++, 'tree', TRUCK_BAY.x0, TRUCK_BAY.z0 + 1, s.clock.t));
+    invalidateLayout(s);
+    expect(checkCallTruck(s, o).reason).toMatch(/chemin du camion/);
+  });
+
+  it('les commis poussent les volailles vers la rampe : elles y montent, le groupe se resserre', () => {
+    const s = farm(1622);
+    hire(s, 'farmhand');
+    run(s, 2 * HOUR);
+    flock(s, 'rousse', 12);
+    const o = order(s, { count: 8 });
+    expect(callTruck(s, o.id).ok).toBe(true);
+    const rampDist = () => {
+      const l = s.hens.filter((h) => h.ship);
+      return l.reduce((a, h) => a + Math.hypot(h.x - TRUCK_X, h.z - RAMP_FOOT), 0) / Math.max(1, l.length);
+    };
+    // on attend qu'elles prennent le chemin du camion, puis qu'il arrive à l'heure dite
+    while (!s.birdLoad!.called) run(s, 1);
+    run(s, 0.1);
+    const far = rampDist();
+    const eta = s.birdLoad!.eta;
+    run(s, Math.max(0, eta - s.clock.t) - 1);
+    expect(rampDist()).toBeLessThan(far);
+    let sawBehind = false;
+    let inside = true;
+    const each = () => {
+      for (const w of s.workers)
+        if (w.job?.kind === 'loadTruck' && w.job.phase === 'work') {
+          sawBehind = true;
+          // le commis reste dans la ferme : il ne sort plus sur la route
+          if (w.z > 30) inside = false;
+        }
+      const L = s.birdLoad;
+      if (L) for (const q of L.gone) {
+        const p = boardPath(q.x, q.z);
+        expect(p[p.length - 1][1]).toBeLessThan(TRUCK_REAR);
+        expect(p[1][1]).toBe(RAMP_FOOT);
+      }
+    };
+    for (let i = 0; i < 900 && s.birdLoad; i++) {
+      run(s, 0.1);
+      each();
+    }
+    expect(sawBehind).toBe(true);
+    expect(inside).toBe(true);
+    expect(s.birdLoad).toBeNull();
+    expect(s.birdOrders.find((x) => x.id === o.id)).toBeUndefined();
+  });
+
   it('sans commis, le camion repart à vide et la commande reste à livrer', () => {
     const s = farm(1608);
     hire(s, 'farmhand');
@@ -4313,5 +4504,104 @@ describe('Commandes de revendeurs et grand camion', () => {
     expect(A.maleWords([male('rousse', coop), male('rousse', coop), male('oie', house)])).toBe('2 coqs et 1 jars');
     expect(A.maleWords([male('oie', house), male('oie', house)])).toBe('2 jars');
     expect(A.maleWords([male('rousse', coop)])).toBe('1 coq');
+  });
+});
+
+describe('Options du commis', () => {
+  const farm = (seed: number) => {
+    const s = newFarm(seed);
+    morning(s);
+    s.money = 10_000_000;
+    s.xp = 99999;
+    s.settings.predators = false;
+    return s;
+  };
+  const coq = (s: GameState, p: number) => {
+    const coop = buildingsOf(s, 'coop')[0];
+    const h = createHen(s, 'rousse', coop, false, { rooster: true, at: [coop.x + 1, coop.z + 5] });
+    h.genes = { p, r: 2, b: 2 };
+    s.hens.push(h);
+    return h;
+  };
+  const onDutyFarmhand = (s: GameState) => {
+    expect(hire(s, 'farmhand').ok).toBe(true);
+    const w = s.workers[0];
+    w.onSite = true;
+    return w;
+  };
+
+  it('chaque option se paie une fois, à son prix, et reste acquise après une sauvegarde', () => {
+    const s = farm(1701);
+    const w = onDutyFarmhand(s);
+    const money = s.money;
+    expect(buyWorkerSkill(s, w.id, 'roosters').ok).toBe(true);
+    expect(money - s.money).toBe(100000);
+    expect(buyWorkerSkill(s, w.id, 'roosters').ok).toBe(false);
+    const m2 = s.money;
+    expect(buyWorkerSkill(s, w.id, 'sick').ok).toBe(true);
+    expect(m2 - s.money).toBe(300000);
+    expect(deserialize(serialize(s))!.workers[0].skills).toEqual(['roosters', 'sick']);
+    s.money = 100;
+    const other = farm(1702);
+    const w2 = onDutyFarmhand(other);
+    other.money = 100;
+    expect(buyWorkerSkill(other, w2.id, 'sick').ok).toBe(false);
+    expect(w2.skills).toBeUndefined();
+  });
+
+  it('réservées aux commis de ferme', () => {
+    const s = farm(1703);
+    expect(hire(s, 'gardener').ok).toBe(true);
+    expect(buyWorkerSkill(s, s.workers[0].id, 'sick').ok).toBe(false);
+  });
+
+  it('il vend les coqs en trop et garde le meilleur, sans l’option rien ne bouge', () => {
+    const s = farm(1704);
+    const w = onDutyFarmhand(s);
+    s.hens = s.hens.filter((h) => !h.rooster);
+    const a = coq(s, 1);
+    const b = coq(s, 5);
+    const c = coq(s, 2);
+    workerSkillsHourly(s);
+    expect(s.hens.filter((h) => h.rooster)).toHaveLength(3);
+    buyWorkerSkill(s, w.id, 'roosters');
+    const money = s.money;
+    workerSkillsHourly(s);
+    expect(s.hens).toContain(b);
+    expect(s.hens).not.toContain(a);
+    expect(s.hens).not.toContain(c);
+    expect(s.money).toBeGreaterThan(money);
+    // absent de la ferme : il attendra son retour
+    const d = coq(s, 1);
+    w.onSite = false;
+    workerSkillsHourly(s);
+    expect(s.hens).toContain(d);
+  });
+
+  it('il vend les malades et en rachète de la même race quand c’est possible', () => {
+    const s = farm(1705);
+    const w = onDutyFarmhand(s);
+    buyWorkerSkill(s, w.id, 'sick');
+    const coop = buildingsOf(s, 'coop')[0];
+    const h = createHen(s, 'rousse', coop, false, { at: [coop.x + 1, coop.z + 5] });
+    h.sick = true;
+    s.hens.push(h);
+    const n = s.hens.length;
+    workerSkillsHourly(s);
+    expect(s.hens).not.toContain(h);
+    expect(s.hens.length + s.deliveries.reduce((x, d) => x + d.count, 0)).toBe(n);
+    // ni la poule d'or ni les fonds vides ne le font faire de bêtise
+    const g = createHen(s, 'rousse', coop, false, { at: [coop.x + 1, coop.z + 5] });
+    g.sick = true;
+    g.golden = true;
+    s.hens.push(g);
+    const v = createHen(s, 'rousse', coop, false, { at: [coop.x + 1, coop.z + 5] });
+    v.sick = true;
+    s.hens.push(v);
+    s.money = 0;
+    workerSkillsHourly(s);
+    expect(s.hens).toContain(g);
+    expect(s.hens).not.toContain(v);
+    expect(s.money).toBeGreaterThanOrEqual(0);
   });
 });

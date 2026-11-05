@@ -7971,3 +7971,17 @@ body {
     flex-direction: column;
   }
 }
+
+/* Le vendeur de l'animalerie et les options d'un commis */
+.seller { margin: 8px 0; padding: 10px 12px; border-radius: 12px; background: rgba(47, 111, 78, 0.08); display: flex; flex-direction: column; gap: 8px; }
+.seller-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.seller-top span { display: flex; flex-direction: column; min-width: 0; }
+.seller-top small { opacity: 0.75; }
+.seller .toggle.restock { margin: 0; }
+.seller-keep { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
+.worker-skills { margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.worker-skills h5 { margin: 0 0 2px; }
+.worker-skill { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(0, 0, 0, 0.04); }
+.worker-skill.on { background: rgba(63, 143, 99, 0.13); }
+.worker-skill span { display: flex; flex-direction: column; min-width: 0; font-size: 13px; }
+.worker-skill small { opacity: 0.75; line-height: 1.25; }

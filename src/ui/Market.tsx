@@ -70,7 +70,7 @@ export function MarketPanel() {
           { id: 'orders', label: 'Commandes', locked: lvl < UNLOCKS.orders, badge: offers },
           { id: 'contracts', label: 'Contrats', locked: lvl < UNLOCKS.contracts, badge: coffers },
           { id: 'auto', label: 'Automatisation', locked: lvl < UNLOCKS.autoWholesale },
-          { id: 'pets', label: 'Animalerie' },
+          { id: 'pets', label: 'Animalerie', locked: lvl < BIRD_ORDERS.reqLevel && !s.buildings.some((b) => b.type === 'petshop') },
           { id: 'dealers', label: 'Revendeurs', locked: lvl < BIRD_ORDERS.reqLevel, badge: birdOffers },
         ]}
         active={tab}
@@ -85,7 +85,7 @@ export function MarketPanel() {
         {tab === 'orders' && (lvl >= UNLOCKS.orders ? <OrdersTab /> : <Locked level={UNLOCKS.orders} what="Des commerçants passent des commandes ponctuelles bien payées." />)}
         {tab === 'contracts' && (lvl >= UNLOCKS.contracts ? <ContractsTab /> : <Locked level={UNLOCKS.contracts} what="Des contrats de livraison quotidienne assurent un revenu régulier." />)}
         {tab === 'auto' && (lvl >= UNLOCKS.autoWholesale ? <AutoTab /> : <Locked level={UNLOCKS.autoWholesale} what="Vendez automatiquement le surplus au-delà d’un seuil de stock." />)}
-        {tab === 'pets' && <PetShopTab />}
+        {tab === 'pets' && (lvl >= BIRD_ORDERS.reqLevel || s.buildings.some((b) => b.type === 'petshop') ? <PetShopTab /> : <Locked level={BIRD_ORDERS.reqLevel} what="Construisez une animalerie à droite du parking pour vendre vos poules et vos oies en trop." />)}
         {tab === 'dealers' && (lvl >= BIRD_ORDERS.reqLevel ? <DealersTab /> : <Locked level={BIRD_ORDERS.reqLevel} what="Des revendeurs et des associations vous commandent des poules et des oies : un grand camion vient les chercher." />)}
       </div>
     </>

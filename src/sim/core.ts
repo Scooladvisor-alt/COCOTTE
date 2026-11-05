@@ -1,5 +1,5 @@
 // Briques de base : hasard déterministe, horloge, grille et caches de navigation.
-import { GRID_H, GRID_W, GRID_Z0, GRID_Z1, HOUR, TIME, WORLD } from '../config/balance';
+import { GRID_H, GRID_W, GRID_Z0, GRID_Z1, HOUR, TIME, TRUCK_BAY, TRUCK_BODY_Z1, WORLD } from '../config/balance';
 import { BUILDINGS, sizeOf } from '../config/buildings';
 import type { Building, BuildingType, GameEvent, GameState, NotifyAction } from './types';
 
@@ -90,9 +90,14 @@ export function parcelOrigin(c: number, r: number): [number, number] {
 export function parcelCenter(c: number, r: number): [number, number] {
   return [c * WORLD.PARCEL + WORLD.PARCEL / 2, GRID_Z0 + r * WORLD.PARCEL + WORLD.PARCEL / 2];
 }
+const parcelMemo = new Map<string, [number, number]>();
 export function parcelCoords(key: string): [number, number] {
-  const [c, r] = key.split(',').map(Number);
-  return [c, r];
+  let p = parcelMemo.get(key);
+  if (!p) {
+    const [c, r] = key.split(',').map(Number);
+    parcelMemo.set(key, (p = [c, r]));
+  }
+  return p;
 }
 /** Case de l'entrée de la ferme (portail), toujours réservée. */
 export const GATE = { x: 14, z: 29 };
@@ -265,6 +270,9 @@ function rebuild(s: GameState, r: Runtime) {
           r.occupant[cellIndex(x, z)] = b.id;
         }
   }
+  // le camion du revendeur est garé dans l'enclos : on le contourne
+  if (s.birdLoad?.called)
+    for (let z = TRUCK_BAY.z0; z <= TRUCK_BODY_Z1; z++) for (let x = TRUCK_BAY.x0; x <= TRUCK_BAY.x1; x++) if (inGrid(x, z)) r.blocked[cellIndex(x, z)] = 1;
   // les poules peuvent aller partout hors des bâtiments : seules les clôtures les retiennent
   for (let i = 0; i < r.walk.length; i++) r.walk[i] = r.blocked[i] ? 0 : 1;
   r.fences = 0;

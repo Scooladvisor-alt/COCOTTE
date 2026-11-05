@@ -340,7 +340,22 @@ export const PETSHOP = {
   servePerBird: 0.45,
   maxQueue: 3,
   patience: [8, 16] as [number, number],
+  /** Le vendeur : son salaire, les clients en plus, et ce qu'il remet en vitrine à chaque heure. */
+  sellerWage: 1500,
+  sellerFlow: 1.5,
+  sellerPerHour: 8,
+  /** Poules et oies qu'il laisse toujours à la ferme, par défaut. */
+  keepDefault: 30,
+  keepGeese: 4,
+  /** Il ne met jamais en vente une reproductrice de cette valeur (étoiles) ou plus. */
+  rareStars: 4,
 };
+
+/** Options payantes d'un commis de ferme : un droit de plus, une fois pour toutes. */
+export const WORKER_SKILLS = {
+  roosters: { name: 'Vendre les coqs en trop', price: 100000, desc: 'Il vend de lui-même les coqs et les jars les moins bons, et garde toujours le meilleur de chaque.' },
+  sick: { name: 'Remplacer les malades', price: 300000, desc: 'Il vend les poules et les oies malades, et en rachète une de la même race quand c’est possible.' },
+} as const;
 
 /** Les commandes de revendeurs et d'associations, et le grand camion qui vient les chercher. */
 export const BIRD_ORDERS = {
@@ -375,14 +390,20 @@ export const BIRD_ORDERS = {
   gapMax: 0.85,
   helpers: 2,
   /** Une volaille monte quand elle est assez près du portail ; une retardataire finit par être portée. */
-  boardFrom: 4,
+  boardFrom: 3.2,
   lateAfter: 12,
   maxWait: 45,
-  /** Retard toléré du camion pris dans la circulation (secondes). */
-  truckGrace: 25,
+  /** Retard toléré du camion, pris dans la circulation ou en train de reculer (secondes). */
+  truckGrace: 40,
   closeUp: 2,
-  /** Place du camion au bord de la route (x), et position de son hayon par rapport à lui. */
-  stopX: 7,
+  /**
+   * Le camion s'arrête sur la route en x = stopX, tourne dans le chemin de terre (x = laneX), passe le
+   * portail et entre dans l'enclos, le nez vers le nord : son hayon (z = rearZ) fait face au portail.
+   */
+  stopX: 6.5,
+  laneX: 1,
+  rearZ: 27.2,
+  /** Demi-longueur du camion (de son milieu à l'arrière). */
   tail: 2.7,
   clients: [
     'Volailles du Val',
@@ -397,6 +418,12 @@ export const BIRD_ORDERS = {
     'École des Tilleuls',
   ],
 };
+
+/** Les cases où le camion entre dans l'enclos : jamais de bâtiment dessus. */
+export const TRUCK_BAY = { x0: 0, x1: 1, z0: 21, z1: 29 };
+/** Dernière rangée sous le camion garé (derrière, la place de la rampe reste libre pour les volailles). */
+export const TRUCK_BODY_Z1 = 27;
+export const inTruckBay = (x: number, z: number) => x >= TRUCK_BAY.x0 && x <= TRUCK_BAY.x1 && z >= TRUCK_BAY.z0 && z <= TRUCK_BAY.z1;
 
 export const ORDERS = {
   maxOffers: 3,

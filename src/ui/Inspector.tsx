@@ -1,5 +1,5 @@
 import { useState } from 'preact/hooks';
-import { AUTO_DOOR, BREEDING, COMPOST, EGG_TYPES, TIME, GRADES, HEALTH, LAYING, NATURE, PARCELS, ROBOT, parcelPrice, WORLD } from '../config/balance';
+import { AUTO_DOOR, BREEDING, COMPOST, EGG_TYPES, TIME, GRADES, HEALTH, LAYING, NATURE, PARCELS, ROBOT, WORKER_SKILLS, parcelPrice, WORLD } from '../config/balance';
 import { season, seasonIndex } from '../sim/seasons';
 import { hopperCount, sellRobot } from '../sim/robots';
 import { crowdedChicks, crowdedGoslings, dadCount, eggHatchIn, fertileStock, fertility, hatchesGeese, isIncubator, growthLabel, growthStage, incubatable, incubateAll, incubatingCount, loadIncubator, nextHatchIn, roosterCount, toggleIncubatorAuto } from '../sim/breeding';
@@ -12,21 +12,22 @@ import { BREEDS, isGoose, skinName } from '../config/breeds';
 import { BUILDINGS, type BuildingLevel } from '../config/buildings';
 import * as A from '../sim/actions';
 import { cleaningCost } from '../sim/buildings';
-import { fmtMoney, maxParcelsOf } from '../sim/economy';
+import { farmLevel, fmtMoney, maxParcelsOf } from '../sim/economy';
 import { parcelGrass } from '../sim/grass';
 import { actLabel, eggsPerDayOf, henStatus, henValue, productivity } from '../sim/hens';
 import { hostedIncubators, incubatorSeat, nurseryCount, nurseryPlan, readyToLeave } from '../sim/nursery';
-import { petPrice, petRoom, petShopOf, sellable, stockBird } from '../sim/petshop';
+import { petPrice, petRoom, petShopOf, sellable, stockBird, unstockBird } from '../sim/petshop';
 import { customersPerDay, lostToday, queueLength, standCounters } from '../sim/market';
 import { buildingsOf, coopOccupancy, getBuilding, getHen, lvl, storageCapacity, storedCount } from '../sim/queries';
 import { GRASS } from '../config/balance';
-import type { Building, Hen, Robot, Worker } from '../sim/types';
+import type { Building, Hen, Robot, Worker, WorkerSkill } from '../sim/types';
 import { ROLES } from '../config/staff';
 import { SHOW_HOUR, eligible, enterShow, nextShowDay, showScore } from '../sim/show';
 import { GeneStars } from './Show';
-import { basketCount, endLabel, fire, startLabel } from '../sim/workers';
+import { basketCount, buyWorkerSkill, endLabel, fire, startLabel } from '../sim/workers';
 import { RestockToggle, workerStats, workerStatus } from './Team';
 import { Bar, Btn, Chip, EggDot, Icon, WorkerFace, n1, useGame } from './common';
+import { SellerCard } from './PetShop';
 
 export function Inspector() {
   const game = useGame();
@@ -48,6 +49,10 @@ export function Inspector() {
     const r = game.state.robots.find((x) => x.id === sel.id);
     if (r) body = <RobotCard r={r} />;
   } else if (sel.kind === 'parcel') body = <ParcelCard keyId={sel.key} />;
+  else if (sel.kind === 'petbird') {
+    const h = game.state.petShop.birds.find((x) => x.id === sel.id);
+    if (h) body = <PetBirdCard h={h} />;
+  } else if (sel.kind === 'petplot') body = petShopOf(game.state) ? null : <PetPlotCard />;
   if (!body) return null;
   return (
     <div class={`inspector card ${sel.kind === 'parcel' ? 'compact' : ''}`}>
@@ -199,6 +204,134 @@ function FollowBtn() {
   );
 }
 
+/** Une volaille dans son parc, à l'animalerie. */
+function PetBirdCard({ h }: { h: Hen }) {
+  const game = useGame();
+  const s = game.state;
+  const def = BREEDS[h.breed];
+  const goose = isGoose(h.breed);
+  return (
+    <div class="insp">
+      <div class="insp-head">
+        <div class="avatar bld">
+          <img src={birdThumb(h)} alt="" />
+        </div>
+        <div>
+          <h3>{h.name}</h3>
+          <div class="chips">
+            <Chip tone="blue">{def.name}</Chip>
+            <Chip>À vendre</Chip>
+          </div>
+        </div>
+      </div>
+      {h.genes && (
+        <div class="kv">
+          <span>Valeur de reproductrice</span>
+          <GeneStars h={h} />
+        </div>
+      )}
+      <div class="kv">
+        <span>Prix en boutique</span>
+        <b>{fmtMoney(petPrice(s, h.breed))}</b>
+      </div>
+      <p class="hint">{goose ? 'Cette oie attend' : 'Cette poule attend'} un client dans son parc. Vous pouvez encore changer d’avis.</p>
+      <div class="actions">
+        <Btn
+          kind="primary"
+          onClick={() => {
+            if (game.act(() => unstockBird(s, h.id), 'pop')) game.select(null);
+          }}
+        >
+          <Icon name="close" size={15} /> Reprendre à la ferme
+        </Btn>
+        <Btn kind="soft" onClick={() => game.openPanel('market', 'pets')}>
+          Gérer les prix
+        </Btn>
+      </div>
+    </div>
+  );
+}
+
+/** L'emplacement à droite du parking : on y fait construire l'animalerie, à partir du niveau 15. */
+function PetPlotCard() {
+  const game = useGame();
+  const s = game.state;
+  const L = BUILDINGS.petshop.levels[0];
+  const chk = A.checkBuild(s, 'petshop');
+  const lv = farmLevel(s);
+  return (
+    <div class="insp">
+      <div class="insp-head">
+        <div class="avatar bld">
+          <img src={buildingThumb('petshop', 1)} alt="" />
+        </div>
+        <div>
+          <h3>Emplacement de l’animalerie</h3>
+          <div class="chips">
+            <Chip tone={lv >= L.reqLevel ? 'good' : 'warn'}>{lv >= L.reqLevel ? 'Disponible' : `Niveau ${L.reqLevel} requis`}</Chip>
+          </div>
+        </div>
+      </div>
+      <p class="hint">{BUILDINGS.petshop.description}</p>
+      <div class="kv">
+        <span>Pour commencer</span>
+        <b>{L.capacity} volailles</b>
+      </div>
+      <div class="kv">
+        <span>Au dernier niveau</span>
+        <b>{BUILDINGS.petshop.levels[BUILDINGS.petshop.levels.length - 1].capacity} volailles</b>
+      </div>
+      <div class="actions">
+        <Btn
+          kind="primary"
+          disabled={!chk.ok}
+          title={chk.reason}
+          onClick={() => {
+            if (game.act(() => A.openPetShop(s), 'build')) {
+              const b = petShopOf(s);
+              if (b) game.select({ kind: 'building', id: b.id });
+              game.toast('L’animalerie est construite : mettez-y des volailles, ou embauchez un vendeur.', 'good', '🐔');
+            }
+          }}
+        >
+          <Icon name="hammer" size={15} /> Construire · {fmtMoney(L.cost)}
+        </Btn>
+      </div>
+      {!chk.ok && chk.reason && <small class="hint warn">{chk.reason}</small>}
+    </div>
+  );
+}
+
+/** Les droits qu'on peut acheter pour un commis : une fois pour toutes, il s'en occupe ensuite tout seul. */
+function WorkerSkills({ w }: { w: Worker }) {
+  const game = useGame();
+  const s = game.state;
+  return (
+    <div class="worker-skills">
+      <h5>Options</h5>
+      {(Object.keys(WORKER_SKILLS) as WorkerSkill[]).map((k) => {
+        const d = WORKER_SKILLS[k];
+        const has = !!w.skills?.includes(k);
+        return (
+          <div class={`worker-skill ${has ? 'on' : ''}`} key={k}>
+            <span>
+              <b>{d.name}</b>
+              <small>{d.desc}</small>
+            </span>
+            {has ? (
+              <Chip tone="good">Acquise</Chip>
+            ) : (
+              <Btn kind="primary" small disabled={s.money < d.price} title={s.money < d.price ? 'Fonds insuffisants' : undefined} onClick={() => game.act(() => buyWorkerSkill(s, w.id, k), 'coin')}>
+                {fmtMoney(d.price)}
+              </Btn>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function WorkerCard({ w }: { w: Worker }) {
   const game = useGame();
   const s = game.state;
@@ -248,6 +381,7 @@ function WorkerCard({ w }: { w: Worker }) {
         {w.role === 'farmhand' ? ' Il ouvre les trappes à l’aube et ne rentre qu’après avoir enfermé les poules.' : ' Le soir, retour à la maison.'}
       </p>
       {w.role === 'farmhand' && <RestockToggle />}
+      {w.role === 'farmhand' && <WorkerSkills w={w} />}
       <div class="actions small">
         {!confirm ? (
           <Btn kind="ghost" small onClick={() => setConfirm(true)}>
@@ -742,6 +876,7 @@ function BuildingCard({ b }: { b: Building }) {
               {s.petShop.birds.filter((x) => !isGoose(x.breed)).length} · {s.petShop.birds.filter((x) => isGoose(x.breed)).length}
             </b>
           </div>
+          <SellerCard />
           <div class="actions">
             <Btn kind="primary" onClick={() => game.openPanel('market', 'pets')}>
               <Icon name="sell" size={15} /> Gérer les ventes et les prix

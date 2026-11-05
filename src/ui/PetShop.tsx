@@ -25,7 +25,11 @@ import {
   stockOf,
   stockBirds,
   suggestedPrice,
-  togglePetAuto,
+  firePetSeller,
+  hirePetSeller,
+  petKeep,
+  setPetKeep,
+  togglePetRestock,
   unstockBirds,
 } from '../sim/petshop';
 import { lvl } from '../sim/queries';
@@ -44,40 +48,85 @@ function speedOf(p: number) {
 
 function OpenCard() {
   const game = useGame();
-  const s = game.state;
   const L = BUILDINGS.petshop.levels[0];
-  const chk = A.checkBuild(s, 'petshop');
   return (
     <div class="pet-open">
       <img src={buildingThumb('petshop', 1)} alt="" />
       <div>
-        <h4>Ouvrir une animalerie</h4>
+        <h4>Pas encore d’animalerie</h4>
         <p>{BUILDINGS.petshop.description}</p>
         <ul class="effects">
           <li>
             <b>Vous fixez les prix</b> : environ la moitié du prix d’achat par défaut, plus ou moins à votre guise
           </li>
           <li>
-            <b>{L.capacity} volailles en vitrine</b>, poules d’un côté et oies de l’autre
-          </li>
-          <li>
-            <b>Niveau {BIRD_ORDERS.reqLevel}</b> : des revendeurs et des associations passent commande
+            <b>{L.capacity} volailles</b> pour commencer, dans de vrais parcs en herbe ; jusqu’à {BUILDINGS.petshop.levels[4].capacity} au dernier niveau
           </li>
         </ul>
         <Btn
           kind="primary"
-          disabled={!chk.ok}
           onClick={() => {
-            if (game.act(() => A.openPetShop(s), 'build')) {
-              game.toast('L’animalerie est ouverte : mettez-y des volailles, les clients viendront avec leur carton.', 'good', '🐔');
-              game.renderer.focusOn(PET_POS.x, PET_POS.z);
-            }
+            game.openPanel(null);
+            game.select({ kind: 'petplot' });
+            game.renderer.focusOn(PET_POS.x + 6, PET_POS.z + 3);
           }}
         >
-          <Icon name="hammer" size={15} /> Ouvrir · {fmtMoney(L.cost)}
+          <Icon name="hammer" size={15} /> Voir l’emplacement, à droite du parking
         </Btn>
-        {!chk.ok && chk.reason && <small class="hint warn">{chk.reason}</small>}
       </div>
+    </div>
+  );
+}
+
+/** Le vendeur : un salaire par jour, davantage de clients, et il garnit les parcs si on le lui demande. */
+export function SellerCard() {
+  const game = useGame();
+  const s = game.state;
+  const P = s.petShop;
+  const keep = petKeep(s);
+  return (
+    <div class="seller">
+      <div class="seller-top">
+        <span>
+          <b>Vendeur</b>
+          <small>{fmtMoney(PETSHOP.sellerWage)} par jour · {Math.round((PETSHOP.sellerFlow - 1) * 100)} % de clients en plus</small>
+        </span>
+        {P.seller ? (
+          <Btn kind="ghost" small onClick={() => game.act(() => firePetSeller(s))}>
+            Le renvoyer
+          </Btn>
+        ) : (
+          <Btn kind="primary" small onClick={() => game.act(() => hirePetSeller(s), 'build')}>
+            Embaucher
+          </Btn>
+        )}
+      </div>
+      {P.seller && (
+        <>
+          <label class="toggle restock">
+            <input type="checkbox" checked={!!P.restock} onChange={() => (togglePetRestock(s), game.changed())} />
+            <span>
+              <b>Il remet des volailles à vendre</b>
+              <small>Toujours les moins performantes, jamais une volaille rare (reproductrice {PETSHOP.rareStars} étoiles ou plus, poule d’or, légendaire).</small>
+            </span>
+          </label>
+          {P.restock && (
+            <div class="seller-keep">
+              <span>
+                Garder au moins <b>{keep}</b> poules à la ferme
+              </span>
+              <div class="row-btns">
+                <button class="step" onClick={() => (setPetKeep(s, keep - 10), game.changed())}>
+                  −
+                </button>
+                <button class="step" onClick={() => (setPetKeep(s, keep + 10), game.changed())}>
+                  +
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -194,12 +243,10 @@ export function PetShopTab() {
         </div>
       </div>
       <p class="hint">
-        Ouverte de {TIME.SHOP_OPEN} h à {TIME.SHOP_CLOSE} h. Les clients viennent avec leur carton et repartent avec {Math.min(...PETSHOP.wantChoices)} à {Math.max(...PETSHOP.wantChoices)} volailles. Les meilleures reproductrices restent à la ferme ; les jeunes, les coqs, les jars et les spécimens rares ne se vendent pas ici.
+        Ouverte de {TIME.SHOP_OPEN} h à {TIME.SHOP_CLOSE} h. Les clients viennent avec leur carton et repartent avec {Math.min(...PETSHOP.wantChoices)} à {Math.max(...PETSHOP.wantChoices)} volailles. Cliquez sur une volaille dans son parc pour la reprendre à la ferme. Les jeunes, les coqs, les jars et les spécimens rares ne se vendent pas ici.
       </p>
+      <SellerCard />
       <div class="row-btns pet-top">
-        <Btn kind={s.petShop.auto ? 'good' : 'ghost'} small onClick={() => (togglePetAuto(s), game.changed())} title="Quand le troupeau dépasse la place disponible, le surplus part tout seul en vitrine">
-          {s.petShop.auto ? '✓ Surplus envoyé en vitrine' : 'Envoyer le surplus en vitrine'}
-        </Btn>
         {next && (
           <Btn kind="primary" small disabled={!up.ok} title={up.reason ?? next.perk} onClick={() => game.act(() => A.upgrade(s, shop.id), 'build')}>
             {next.name} · {fmtMoney(next.cost)}
@@ -235,9 +282,9 @@ function LoadCard({ o }: { o: BirdOrder }) {
       : left > 0
         ? left > BIRD_ORDERS.delay + 1
           ? `Le camion passera le matin, à ${BIRD_ORDERS.morningHour} h.`
-          : `Le camion arrive dans ${Math.ceil((left / TIME.DAY) * 24 * 10) / 10} h. Les ${o.goose ? 'oies' : 'poules'} rejoignent le portail.`
+          : `Le camion arrive dans ${Math.ceil((left / TIME.DAY) * 24 * 10) / 10} h. Les ${o.goose ? 'oies' : 'poules'} se rassemblent près du grand portail.`
         : helpers
-          ? `Chargement : ${L.loaded} / ${o.count} · ${helpers} commis au camion`
+          ? `Chargement : ${L.loaded} / ${o.count} · ${helpers} commis poussent les volailles`
           : hasRole(s, 'farmhand')
             ? 'Le camion attend un commis pour charger…'
             : 'Le camion attend : il faut un commis de ferme.';
@@ -259,12 +306,12 @@ export function DealersTab() {
   return (
     <>
       <p class="hint">
-        Des revendeurs et des associations cherchent des poules et des oies pour des particuliers. Une fois la commande acceptée, vous appelez leur grand camion : il se gare devant l’animalerie, un commis de ferme aide à charger, et vous êtes payé quand il repart. Ni coqs, ni jars, ni jeunes : les meilleures reproductrices partent en dernier.
+        Des revendeurs et des associations cherchent des poules et des oies pour des particuliers. Une fois la commande acceptée, vous appelez leur camion : il prend le chemin de terre, entre dans l’enclos par le grand portail, et les commis de ferme poussent les volailles sur sa rampe. Vous êtes payé quand il repart. Ni coqs, ni jars, ni jeunes : les meilleures reproductrices partent en dernier.
       </p>
       {!commis && (
         <div class="notice">
           <span>
-            Il faut au moins un <b>commis de ferme</b> pour charger le camion.
+            Il faut au moins un <b>commis de ferme</b> pour pousser les volailles dans le camion.
           </span>
           <Btn kind="soft" small onClick={() => game.openPanel('team')}>
             Voir l’équipe

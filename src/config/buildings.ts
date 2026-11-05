@@ -295,7 +295,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   petshop: {
     type: 'petshop',
     name: 'Animalerie',
-    description: 'Une petite boutique à côté de l’étal, pour vendre vos poules et vos oies en trop. Vous y mettez les volailles que vous voulez, au prix que vous voulez ; les gens du village viennent avec leur carton et en emportent quelques-unes pour leur tenir compagnie.',
+    description: 'La boutique où vous vendez vos poules et vos oies en trop, à droite du parking. Chacune a son grand parc en herbe ; les gens du village viennent avec leur carton et en emportent quelques-unes pour leur tenir compagnie.',
     // à sa place fixe, le long du trottoir : aucune case de la ferme
     w: 0,
     d: 0,
@@ -303,11 +303,14 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     unique: true,
     buildable: true,
     movable: false,
+    strictLevel: true,
     icon: '🐔',
     levels: [
-      { name: 'Petite animalerie', cost: 20000, reqLevel: 1, upkeep: 30, capacity: 12, flow: 0.7, perk: 'Un comptoir, un parc à poules et un parc à oies : 12 volailles en vitrine' },
-      { name: 'Animalerie', cost: 90000, reqLevel: 1, upkeep: 70, capacity: 30, flow: 1.4, perk: 'Vraie boutique, parcs plus grands : 30 volailles, deux fois plus de clients' },
-      { name: 'Grande animalerie', cost: 300000, reqLevel: 1, upkeep: 150, capacity: 80, flow: 2.6, perk: 'Deux comptoirs et de grands parcs : 80 volailles, une clientèle fidèle' },
+      { name: 'Petite animalerie', cost: 100000, reqLevel: 15, upkeep: 40, capacity: 12, flow: 0.8, perk: 'Une échoppe de bois, un parc à poules et un parc à oies : 12 volailles' },
+      { name: 'Animalerie', cost: 300000, reqLevel: 15, upkeep: 80, capacity: 30, flow: 1.4, perk: 'Vraie boutique, parcs plus grands : 30 volailles, davantage de clients' },
+      { name: 'Belle animalerie', cost: 800000, reqLevel: 15, upkeep: 150, capacity: 60, flow: 2.2, perk: 'Devanture vitrée, deux comptoirs : 60 volailles' },
+      { name: 'Grande animalerie', cost: 2000000, reqLevel: 15, upkeep: 280, capacity: 120, flow: 3.4, perk: 'Deux étages, des parcs très longs : 120 volailles' },
+      { name: 'Maison des volailles', cost: 5000000, reqLevel: 15, upkeep: 500, capacity: 250, flow: 5, perk: 'La référence de la région, trois comptoirs : 250 volailles' },
     ],
   },
   stand: {
@@ -342,7 +345,7 @@ export function sizeOf(type: BuildingType, level = 1, rot = 0): { w: number; d: 
   return rot % 2 ? { w: d, d: w } : { w, d };
 }
 
-export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'nursery', 'incubator', 'gooseincubator', 'petshop'];
+export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'nursery', 'incubator', 'gooseincubator'];
 
 /**
  * Hôtel de ville (décor, à l'ouest de la grille), où logent les salariés : ligne de sa façade, et
@@ -353,22 +356,32 @@ export const HALL_DOOR: [number, number] = [-6, 25.72];
 
 /** Position fixe de l'étal (hors parcelles, sur la place pavée qui donne sur le trottoir). */
 export const STAND_POS = { x: 17.2, z: 31.8 };
-/** L'animalerie : sur l'herbe entre le chemin du personnel et le trottoir, juste à l'ouest de l'étal. */
-export const PET_POS = { x: 5.9, z: 34.4 };
+/** L'animalerie : son coin nord-ouest, juste à droite des trois places du parking. */
+export const PET_POS = { x: 42.7, z: 30.45 };
+/** L'emplacement à construire, tant qu'elle n'existe pas (on clique dessus). */
+export const PET_PLOT = { x0: 42.6, x1: 55.7, z0: 30.3, z1: 37.3 };
 
 /**
- * Plan de l'animalerie (coordonnées locales autour de PET_POS, façade vers le trottoir). Une allée
- * centrale mène au comptoir ; de part et d'autre, un parc pour les poules et un pour les oies.
+ * Plan de l'animalerie (coordonnées locales depuis PET_POS, façade vers le trottoir) : la boutique et
+ * son dallage à l'ouest, puis les parcs en herbe, de plus en plus longs : poules d'abord, oies ensuite.
  */
 export function petLayout(level = 1) {
-  const half = level >= 3 ? { x1: 4.6, z0: -0.15, z1: 1.95 } : level === 2 ? { x1: 4.1, z0: -0.2, z1: 1.85 } : { x1: 3.5, z0: -0.35, z1: 1.6 };
+  const i = Math.max(0, Math.min(4, level - 1));
+  const w = [13, 19, 25, 31, 38][i];
+  const bw = [5.5, 6.5, 8, 9, 10.5][i];
+  const x0 = bw + 0.9;
+  const split = x0 + (w - x0) * 0.66;
   return {
-    cx: PET_POS.x,
-    stopZ: PET_POS.z + 0.62,
-    gap: 0.9,
-    /** Parcs (locaux) : les poules à l'ouest, les oies à l'est. */
-    hens: { x0: -half.x1, x1: -1.05, z0: half.z0, z1: half.z1 },
-    geese: { x0: 1.05, x1: half.x1, z0: half.z0, z1: half.z1 },
+    w,
+    bw,
+    /** Milieu des comptoirs (monde), où s'arrêtent les clients, écart entre comptoirs. */
+    cx: PET_POS.x + 0.3 + bw / 2,
+    stopZ: PET_POS.z + 4.55,
+    gap: 1.15,
+    counters: level >= 5 ? 3 : level >= 3 ? 2 : 1,
+    hens: { x0, x1: split, z0: 0.3, z1: 6.2 },
+    geese: { x0: split + 0.3, x1: w - 0.1, z0: 0.3, z1: 6.2 },
+    center: { x: PET_POS.x + w / 2, z: PET_POS.z + 3.2 },
   };
 }
 

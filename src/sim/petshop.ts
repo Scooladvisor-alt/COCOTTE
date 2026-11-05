@@ -1,19 +1,19 @@
-// L'animalerie, près de l'étal : le joueur y met des poules et des oies en vente au prix qu'il veut, et
+// L'animalerie, à droite du parking (au niveau 15) : le joueur y met des poules et des oies en vente au prix qu'il veut, et
 // les gens du village viennent avec leur carton et en emportent quelques-unes. À partir du niveau 15,
-// des revendeurs et des associations passent aussi commande : un grand camion vient chercher les
-// volailles au bord de la route et un commis de ferme aide à les charger.
+// des revendeurs et des associations passent aussi commande : un camion fermé prend le chemin de
+// terre jusque dans l'enclos, et les commis poussent les volailles sur sa rampe arrière.
 //
 // Les volailles en vitrine ne font plus partie du troupeau (elles ne mangent pas et ne pondent pas) :
 // elles attendent à la boutique, et on peut les reprendre tant qu'elles n'ont pas été vendues.
 import { BIRD_ORDERS, HOUR, MARKET, PETSHOP, TIME, WORLD, XP, clamp } from '../config/balance';
 import { BREEDS, BREED_ORDER, isGoose } from '../config/breeds';
-import { PET_POS, petLayout } from '../config/buildings';
+import { BUILDINGS, petLayout } from '../config/buildings';
 import { STAFF } from '../config/staff';
-import { GATE, currentDay, currentHour, emit, isShopOpen, newId, notify, pick, rand, randInt, randNormal, randRange } from './core';
-import { boardTime, GATE_IN } from './deliveries';
+import { currentDay, currentHour, emit, invalidateLayout, isShopOpen, newId, notify, pick, rand, randInt, randNormal, randRange } from './core';
+import { GATE_IN, RAMP_FOOT, TRUCK_X, boardTime, truckBlockedBy } from './deliveries';
 import { addXp, earn, farmLevel, fmtMoney } from './economy';
 import { productivity } from './hens';
-import { coopFor, flockCapacity, lvl } from './queries';
+import { coopFor, lvl } from './queries';
 import { hasRole } from './workers';
 import type { ActionResult, BirdOrder, BreedId, Customer, GameState, Hen } from './types';
 
@@ -81,6 +81,17 @@ function moveToShop(s: GameState, h: Hen) {
   emit(s, { kind: 'henGone', henId: h.id, reason: 'moved' });
 }
 
+function backToFarm(s: GameState, h: Hen, coopId: number) {
+  s.petShop.birds.splice(s.petShop.birds.indexOf(h), 1);
+  h.coopId = coopId;
+  h.x = GATE_IN[0] + (rand(s) - 0.5) * 0.3;
+  h.z = GATE_IN[1] - 0.4;
+  h.act = 'idle';
+  h.actT = 0.3;
+  h.targetId = -1;
+  s.hens.push(h);
+}
+
 /** Met cette poule (ou cette oie) en vente. */
 export function stockBird(s: GameState, henId: number): ActionResult {
   const shop = petShopOf(s);
@@ -113,45 +124,74 @@ export function unstockBirds(s: GameState, breed: BreedId, n: number): ActionRes
   for (const h of list) {
     const coop = coopFor(s, breed);
     if (!coop) break;
-    s.petShop.birds.splice(s.petShop.birds.indexOf(h), 1);
-    h.coopId = coop.id;
-    h.x = GATE_IN[0] + (rand(s) - 0.5) * 0.3;
-    h.z = GATE_IN[1] - 0.4;
-    h.act = 'idle';
-    h.actT = 0.3;
-    h.targetId = -1;
-    s.hens.push(h);
+    backToFarm(s, h, coop.id);
     back++;
   }
   if (!back) return fail(isGoose(breed) ? 'Plus de place à l’abri des oies' : 'Plus de place au poulailler pour cette race');
   return { ok: true, count: back };
 }
 
-export function togglePetAuto(s: GameState) {
-  s.petShop.auto = !s.petShop.auto;
-  if (s.petShop.auto) petShopHourly(s);
+/** Reprend cette volaille à la ferme (on l'a sélectionnée dans son parc). */
+export function unstockBird(s: GameState, id: number): ActionResult {
+  const h = s.petShop.birds.find((x) => x.id === id);
+  if (!h) return fail('Elle n’est plus en vitrine');
+  const coop = coopFor(s, h.breed);
+  if (!coop) return fail(isGoose(h.breed) ? 'Plus de place à l’abri des oies' : 'Plus de place au poulailler pour cette race');
+  backToFarm(s, h, coop.id);
+  return OK;
 }
 
-/** Chaque heure, si le joueur l'a demandé : le surplus du troupeau part en vitrine. */
+// ---------------------------------------------------------------- Le vendeur ----
+export function hirePetSeller(s: GameState): ActionResult {
+  if (!petShopOf(s)) return fail('Construisez d’abord l’animalerie');
+  if (s.petShop.seller) return fail('Le vendeur est déjà là');
+  s.petShop.seller = true;
+  return OK;
+}
+export function firePetSeller(s: GameState): ActionResult {
+  delete s.petShop.seller;
+  delete s.petShop.restock;
+  return OK;
+}
+export function togglePetRestock(s: GameState) {
+  if (!s.petShop.seller) return;
+  s.petShop.restock = !s.petShop.restock;
+  if (s.petShop.restock) petShopHourly(s);
+}
+export const petKeep = (s: GameState) => s.petShop.keep ?? PETSHOP.keepDefault;
+export function setPetKeep(s: GameState, n: number) {
+  s.petShop.keep = Math.max(0, Math.round(n));
+}
+/** Salaire du vendeur, par jour. */
+export const petSellerWage = (s: GameState) => (s.petShop.seller && petShopOf(s) ? PETSHOP.sellerWage : 0);
+/** Une volaille rare : le vendeur n'y touche jamais, même si le joueur peut la vendre lui-même. */
+export const isRareBird = (h: Hen) => !!h.golden || !!h.legendary || !!h.black || (h.genes ? Math.max(h.genes.p, h.genes.r, h.genes.b) >= PETSHOP.rareStars : false);
+
+/** Chaque heure, si la case est cochée : le vendeur remet en vitrine les volailles les moins performantes. */
 export function petShopHourly(s: GameState) {
-  if (!s.petShop.auto || !petShopOf(s)) return;
-  let over = s.hens.length - flockCapacity(s);
-  if (over <= 0) return;
-  const list = s.hens.filter(sellable).sort(weakestFirst);
-  for (const h of list) {
-    if (over <= 0 || petRoom(s) <= 0) break;
-    moveToShop(s, h);
-    over--;
+  if (!s.petShop.seller || !s.petShop.restock || !petShopOf(s)) return;
+  let quota = PETSHOP.sellerPerHour;
+  for (const goose of [false, true]) {
+    const flock = s.hens.filter((h) => isGoose(h.breed) === goose && !h.young && !h.rooster);
+    const keep = goose ? Math.min(petKeep(s), PETSHOP.keepGeese) : petKeep(s);
+    let spare = flock.length - keep;
+    const list = flock.filter((h) => sellable(h) && !isRareBird(h)).sort(weakestFirst);
+    for (const h of list) {
+      if (spare <= 0 || quota <= 0 || petRoom(s) <= 0) break;
+      moveToShop(s, h);
+      spare--;
+      quota--;
+    }
   }
 }
 
 // ------------------------------------------------------------- Les clients ----
 export const petCustomersPerHour = (s: GameState) => {
   const b = petShopOf(s);
-  return b ? (lvl(b).flow ?? 0.6) * MARKET.repFlow(s.reputation) : 0;
+  return b ? (lvl(b).flow ?? 0.6) * MARKET.repFlow(s.reputation) * (s.petShop.seller ? PETSHOP.sellerFlow : 1) : 0;
 };
 export const petCustomersPerDay = (s: GameState) => petCustomersPerHour(s) * (TIME.SHOP_CLOSE - TIME.SHOP_OPEN);
-const counters = (s: GameState) => ((petShopOf(s)?.level ?? 1) >= 3 ? 2 : 1);
+const counters = (s: GameState) => layoutOf(s).counters;
 const layoutOf = (s: GameState) => petLayout(petShopOf(s)?.level ?? 1);
 const laneZ = (dir: 1 | -1) => WORLD.WALK_Z + (dir > 0 ? 0.25 : -0.25);
 /** Rangée juste devant la boutique, le long du trottoir (d'où l'on entre dans l'allée centrale). */
@@ -166,7 +206,7 @@ function spawnPetCustomer(s: GameState) {
     want: pick(s, PETSHOP.wantChoices),
     wtp: Math.exp(PETSHOP.wtpSigma * randNormal(s)),
     state: 'toStand',
-    x: PET_POS.x - dir * MARKET.spawnDistance,
+    x: layoutOf(s).cx - dir * MARKET.spawnDistance,
     z: laneZ(dir) + randRange(s, -0.06, 0.06),
     dir,
     t: 0,
@@ -223,7 +263,7 @@ function servePetCustomer(s: GameState, c: Customer) {
   addXp(s, qty * XP.perTwoSold);
   c.mood = 'happy';
   c.bought = qty;
-  emit(s, { kind: 'sale', amount, qty, x: PET_POS.x, z: PET_POS.z, channel: 'animalerie' });
+  emit(s, { kind: 'sale', amount, qty, x: layoutOf(s).cx, z: layoutOf(s).stopZ - 1, channel: 'animalerie' });
   emit(s, { kind: 'customerMood', customerId: c.id, mood: c.mood });
 }
 
@@ -301,7 +341,7 @@ export function updatePetCustomers(s: GameState, dt: number) {
       else c.x += c.dir * speed * dt;
     }
   }
-  s.petCustomers = s.petCustomers.filter((c) => Math.abs(c.x - PET_POS.x) <= MARKET.spawnDistance + 1 && c.t < 120);
+  s.petCustomers = s.petCustomers.filter((c) => Math.abs(c.x - L.cx) <= MARKET.spawnDistance + 1 && c.t < 120);
 }
 
 // ----------------------------------------------------- Commandes de revendeurs ----
@@ -373,6 +413,11 @@ export function checkCallTruck(s: GameState, o: BirdOrder): ActionResult {
   if (!hasRole(s, 'farmhand')) return fail('Il faut au moins un commis de ferme pour charger le camion');
   const have = orderStock(s, o);
   if (have < o.count) return fail(`Pas assez de ${o.goose ? 'oies' : 'poules'} adultes : ${have} / ${o.count}`);
+  const gene = truckBlockedBy(s);
+  if (gene >= 0) {
+    const b = s.buildings.find((x) => x.id === gene);
+    return fail(`Déplacez ${b ? `« ${BUILDINGS[b.type].levels[b.level - 1].name} »` : 'ce bâtiment'} : il gêne le chemin du camion, derrière le grand portail`);
+  }
   return OK;
 }
 
@@ -395,7 +440,7 @@ export function callTruck(s: GameState, id: number): ActionResult {
   o.status = 'loading';
   s.birdLoad = { id: newId(s), orderId: o.id, eta, called: false, henIds: [], loaded: 0, gone: [], nextT: eta };
   const later = eta - s.clock.t > BIRD_ORDERS.delay + 1;
-  notify(s, later ? `Le camion de ${o.client} passera demain matin à ${BIRD_ORDERS.morningHour} h : les commis ne sont plus là ce soir.` : `Le camion de ${o.client} est en route. Les ${o.goose ? 'oies' : 'poules'} se dirigent vers le portail.`, 'info', '🚚');
+  notify(s, later ? `Le camion de ${o.client} passera demain matin à ${BIRD_ORDERS.morningHour} h : les commis ne sont plus là ce soir.` : `Le camion de ${o.client} est en route : il va entrer dans l’enclos par le grand portail.`, 'info', '🚚');
   return OK;
 }
 
@@ -408,11 +453,12 @@ function finishLoad(s: GameState) {
   const o = s.birdOrders.find((x) => x.id === L.orderId);
   for (const h of s.hens) if (h.ship) delete h.ship;
   s.birdLoad = null;
+  invalidateLayout(s);
   if (!o) return;
   const amount = L.loaded * o.unitPrice;
   if (amount > 0) {
     earn(s, amount, 'animalerie', `Livraison à ${o.client}`);
-    emit(s, { kind: 'sale', amount, qty: L.loaded, x: PET_POS.x, z: PET_POS.z, channel: 'animalerie' });
+    emit(s, { kind: 'sale', amount, qty: L.loaded, x: TRUCK_X, z: RAMP_FOOT, channel: 'animalerie' });
     s.stats.hensSold += L.loaded;
     s.stats.birdsSoldDealers = (s.stats.birdsSoldDealers ?? 0) + L.loaded;
     addXp(s, BIRD_ORDERS.xp + Math.floor(L.loaded / 4));
@@ -431,7 +477,7 @@ function finishLoad(s: GameState) {
   }
 }
 
-/** La volaille prend le chemin du portail. */
+/** La volaille prend le chemin du camion. */
 function reserve(s: GameState, o: BirdOrder, need: number, ids: number[]) {
   const list = s.hens.filter(orderHens(o)).sort(weakestFirst).slice(0, need);
   for (const h of list) {
@@ -457,6 +503,7 @@ export function updateBirdLoad(s: GameState) {
   if (!L.called) {
     if (t < L.eta - BIRD_ORDERS.prep) return;
     L.called = true;
+    invalidateLayout(s);
     reserve(s, o, o.count, L.henIds);
   }
   // une volaille vendue ou croquée entre-temps est remplacée si possible
@@ -477,14 +524,14 @@ export function updateBirdLoad(s: GameState) {
     return;
   }
   if (t >= L.nextT && L.henIds.length) {
-    const gx = GATE.x + 0.5;
-    const gz = GATE.z + 0.3;
+    // celle qui est le plus près de la rampe monte la première
+    const fz = RAMP_FOOT;
     let best: Hen | null = null;
     let bd = Infinity;
     for (const id of L.henIds) {
       const h = s.hens.find((x) => x.id === id);
       if (!h || h.act === 'caught') continue;
-      const d = Math.hypot(h.x - gx, h.z - gz);
+      const d = Math.hypot(h.x - TRUCK_X, h.z - fz);
       if (d < bd) {
         bd = d;
         best = h;
@@ -492,11 +539,12 @@ export function updateBirdLoad(s: GameState) {
     }
     const late = t - (L.lastT ?? L.eta) > BIRD_ORDERS.lateAfter;
     if (best && (bd < BIRD_ORDERS.boardFrom || late)) {
-      const fromGate = bd >= BIRD_ORDERS.boardFrom;
+      const x = bd < BIRD_ORDERS.boardFrom ? best.x : TRUCK_X;
+      const z = bd < BIRD_ORDERS.boardFrom ? best.z : fz;
       L.henIds = L.henIds.filter((id) => id !== best!.id);
       s.hens.splice(s.hens.indexOf(best), 1);
       emit(s, { kind: 'henGone', henId: best.id, reason: 'moved' });
-      L.gone.push({ t, breed: best.breed, x: fromGate ? gx : best.x, z: fromGate ? gz : best.z });
+      L.gone.push({ t, breed: best.breed, x, z });
       if (L.gone.length > 60) L.gone.splice(0, L.gone.length - 60);
       L.loaded++;
       L.lastT = t;
@@ -512,6 +560,11 @@ export function updateBirdLoad(s: GameState) {
 /** Chaque matin : offres périmées, commandes en retard, nouvelles offres. */
 export function birdOrdersNewDay(s: GameState) {
   const day = currentDay(s);
+  // le jour où le niveau est atteint : on prévient que l'emplacement à droite du parking est prêt
+  if (birdOrdersOpen(s) && !s.petShop.announced) {
+    s.petShop.announced = true;
+    if (!petShopOf(s)) notify(s, 'Niveau 15 : vous pouvez construire une animalerie sur l’emplacement à droite du parking. Cliquez dessus !', 'good', '🐔');
+  }
   for (const o of [...s.birdOrders]) {
     if (o.status === 'active' && o.deadlineDay < day) {
       s.birdOrders.splice(s.birdOrders.indexOf(o), 1);

@@ -530,7 +530,7 @@ export function offerNursery(s: GameState, spots: Array<[number, number]> = [], 
   return b;
 }
 
-/** Ouvre l'animalerie : elle a sa place à elle, le long du trottoir, à côté de l'étal. */
+/** Ouvre l'animalerie : elle a sa place à elle, le long du trottoir, à droite du parking. */
 export function openPetShop(s: GameState): ActionResult {
   const chk = checkBuild(s, 'petshop');
   if (!chk.ok) return chk;

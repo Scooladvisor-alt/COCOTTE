@@ -1,7 +1,7 @@
 // Clôture de la ferme : un grillage posé d'office tout autour du terrain possédé, portail côté
 // route. Il suit automatiquement les parcelles achetées.
 // Une arête est codée par un entier : horizontale (ligne z) → hIdx ≥ 0 ; verticale → -(vIdx + 1).
-import { GRID_W, GRID_Z0, GRID_Z1 } from '../config/balance';
+import { GRID_W, GRID_Z0, GRID_Z1, TRUCK_BAY } from '../config/balance';
 import { GATE, hIdx, invalidateLayout, isOwnedCell, rt, setFence, vIdx } from './core';
 import type { GameState } from './types';
 
@@ -50,6 +50,8 @@ export function fencedEdges(s: GameState) {
 
 /** Arête du portail d'entrée (côté route, sous la case d'entrée). */
 export const GATE_EDGE = hCode(GATE.x, GATE.z + 1);
+/** Grand portail du camion : deux arêtes au bout du chemin de terre (code 5 : portail fermé). */
+export const TRUCK_GATE_EDGES = [hCode(TRUCK_BAY.x0, TRUCK_BAY.z1 + 1), hCode(TRUCK_BAY.x1, TRUCK_BAY.z1 + 1)];
 
 /** Contour du terrain possédé (arêtes entre une case possédée et une case qui ne l'est pas). */
 export function perimeter(s: GameState) {
@@ -72,7 +74,7 @@ export function perimeter(s: GameState) {
 export function autoEnclose(s: GameState) {
   s.fenceH.fill(0);
   s.fenceV.fill(0);
-  for (const c of perimeter(s)) setFence(s, c, c === GATE_EDGE ? 3 : 1);
+  for (const c of perimeter(s)) setFence(s, c, c === GATE_EDGE ? 3 : TRUCK_GATE_EDGES.includes(c) ? 5 : 1);
   invalidateLayout(s);
 }
 

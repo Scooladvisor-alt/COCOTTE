@@ -1,5 +1,5 @@
 // Bâtiments : validation de placement, remplissages automatiques, encrassement.
-import { AUTO_DOOR, COOP_HYGIENE, GRID_H, GRID_W, NATURE, TIME } from '../config/balance';
+import { AUTO_DOOR, COOP_HYGIENE, GRID_H, GRID_W, NATURE, TIME, inTruckBay } from '../config/balance';
 import { seasonIndex } from './seasons';
 import { BUILDINGS, sizeOf } from '../config/buildings';
 import { GATE, accessCells, cellIndex, cellX, cellZ, coopDoorCells, currentDay, currentHour, fenceValue, hIdx, inGrid, invalidateLayout, isNightHour, isOwnedCell, notify, rt, vIdx, isShelter, isShelterType } from './core';
@@ -28,6 +28,7 @@ export function canPlace(s: GameState, type: BuildingType, x: number, z: number,
       const occ = r.occupant[cellIndex(cx, cz)];
       if (occ >= 0 && occ !== ignoreId) return { ok: false, reason: 'Emplacement occupé' };
       if (cx === GATE.x && cz === GATE.z) return { ok: false, reason: 'Laissez l’entrée libre' };
+      if (inTruckBay(cx, cz)) return { ok: false, reason: 'Laissez libre le chemin du camion' };
       fp.add(cellIndex(cx, cz));
     }
   // pas de grillage au travers de l'emprise

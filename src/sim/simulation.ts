@@ -21,10 +21,10 @@ import { updateRobots } from './robots';
 import { dogUpkeep, updateDog } from './dog';
 import { updateVaults } from './vault';
 import { updateDeliveries } from './actions';
-import { petShopHourly, updateBirdLoad, updatePetCustomers } from './petshop';
+import { petSellerWage, petShopHourly, updateBirdLoad, updatePetCustomers } from './petshop';
 import { autoWholesale, checkOrdersReady, deliverContracts, marketNewDay, updateCustomers } from './market';
 import { checkMissions } from './progression';
-import { dailyWages, hasRole, onDuty, resetWorkersDay, separateBodies, updateWorkers } from './workers';
+import { dailyWages, hasRole, onDuty, resetWorkersDay, separateBodies, updateWorkers, workerSkillsHourly } from './workers';
 import { ROLES, STAFF } from '../config/staff';
 import { buildingsOf, lvl, storageFree, totalUpkeep } from './queries';
 import type { GameState } from './types';
@@ -71,6 +71,7 @@ export function closeDay(s: GameState, day: number) {
     spend(s, c.upkeep, 'entretien', 'Entretien des installations', true);
     spend(s, c.land, 'foncier', 'Taxe foncière', true);
     for (const w of s.workers) spend(s, ROLES[w.role].wage, 'salaires', `Salaire de ${w.name}`, true);
+    if (petSellerWage(s)) spend(s, petSellerWage(s), 'salaires', 'Salaire du vendeur de l’animalerie', true);
     if (s.money < 0) spend(s, Math.max(1, Math.round(-s.money * COSTS.overdraftRate)), 'agios', 'Agios (découvert)', true);
     today(s).cashEnd = s.money;
   });
@@ -150,6 +151,7 @@ function hourly(s: GameState) {
   breedingHourly(s);
   showHourly(s);
   petShopHourly(s);
+  workerSkillsHourly(s);
 
   // Alertes de gestion
   if (s.hens.length > 0) {

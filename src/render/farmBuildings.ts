@@ -1463,73 +1463,150 @@ export function dustbathBasin(parts: Parts, slots: number) {
 
 // ============================================================ ANIMALERIE ====
 /**
- * La boutique de l'animalerie, centrée sur son origine, façade vers le trottoir (+z) : du kiosque de
- * bois au grand magasin, avec son comptoir au bout de l'allée, son auvent rayé et ses cartons.
- * Les parcs et les enseignes sont ajoutés à part (models.ts).
+ * La boutique de l'animalerie, façade vers le trottoir (+z), de l'échoppe de bois à la grande maison à
+ * étage : un mur de planches ou d'enduit, une devanture, un auvent rayé au-dessus du long comptoir, des
+ * fleurs aux fenêtres, des sacs et des cartons. Coordonnées depuis le coin nord-ouest de la parcelle.
+ * Renvoie le haut des murs, pour poser l'enseigne.
  */
-export function petShopHouse(parts: Parts, windows: THREE.Mesh[], level: number) {
-  const hw = level >= 3 ? 3.1 : level === 2 ? 2.5 : 1.75;
-  const z0 = -2.15;
-  const z1 = -0.55;
-  const y1 = level >= 3 ? 2.05 : level === 2 ? 1.7 : 1.4;
+export function petShopHouse(parts: Parts, windows: THREE.Mesh[], level: number, bw: number, counters: number) {
+  const x0 = 0.3;
+  const x1 = x0 + bw;
+  const cx = x0 + bw / 2;
+  const z0 = 0.2;
+  const z1 = 3.0;
+  const d = z1 - z0;
   const cz = (z0 + z1) / 2;
-  const WALL = level === 1 ? 0x8a6a48 : 0xf3ead6;
-  const AW_A = 0x3f8f63;
-  const AW_B = 0xf6f2ea;
-  parts.push(box(hw * 2 + 0.06, 0.16, z1 - z0 + 0.06, STONE, [0, 0.1, cz]));
-  parts.push(box(hw * 2, y1 - 0.16, z1 - z0, WALL, [0, (y1 + 0.16) / 2, cz]));
+  const upper = level >= 4;
+  const y1 = [1.85, 1.95, 2.2, 3.15, 3.4][level - 1];
+  const WALL = [0xc98f52, 0xf3ead6, 0xf1e4cc, 0xf3ead6, 0xefdcc0][level - 1];
+  const PAINT = 0x2f6f4e;
+  const FLOWERS = [0xe85d75, 0xf5c542, 0xfaf6ee, 0x9a7ad6];
+  parts.push(box(bw + 0.08, 0.26, d + 0.08, STONE, [cx, 0.13, cz]));
+  parts.push(box(bw, y1 - 0.26, d, WALL, [cx, (y1 + 0.26) / 2, cz]));
   if (level === 1) {
-    boardsZ(parts, -hw, hw, 0.16, y1, z1, C.wood, 0xc98f52, 0.17);
-    boardsX(parts, z0, z1, 0.16, y1, hw, C.wood, 0xc98f52, 0.17);
+    boardsZ(parts, x0, x1, 0.26, y1, z1, C.wood, 0xc98f52, 0.2);
+    boardsX(parts, z0, z1, 0.26, y1, x1, C.wood, 0xc98f52, 0.2);
   }
+  // chaînes d'angle
   for (const [x, z] of [
-    [-hw, z1],
-    [hw, z1],
-    [hw, z0],
+    [x0, z1],
+    [x1, z1],
+    [x1, z0],
   ])
-    parts.push(box(0.08, y1 - 0.16, 0.08, level === 1 ? TIMBER : TRIM, [x, (y1 + 0.16) / 2, z]));
-  // ouverture sombre derrière le comptoir, étagères de sacs de grain
-  parts.push(box(2.3, 1.0, 0.02, 0x3b312a, [0, 0.82, z1 + 0.012]));
-  for (const y of [0.74, 1.08]) parts.push(box(2.1, 0.03, 0.04, TIMBER, [0, y, z1 + 0.03]));
-  for (let k = 0; k < 7; k++) {
-    const x = -0.9 + k * 0.3;
-    parts.push(box(0.2, 0.26, 0.05, k % 2 ? 0xe9dfc8 : 0xd8c08a, [x, 0.89, z1 + 0.04]));
-    if (k % 2 === 0) parts.push(box(0.17, 0.2, 0.05, k % 4 ? 0x6fa64c : 0xc9694a, [x, 1.2, z1 + 0.04]));
+    parts.push(box(0.1, y1 - 0.26, 0.1, level === 1 ? TIMBER : level >= 4 ? STONE : TRIM, [x, (y1 + 0.26) / 2, z]));
+  const flowerBox = (x: number, y: number, z: number, w: number, onX = false) => {
+    parts.push(onX ? box(0.14, 0.1, w, PAINT, [x + 0.08, y, z]) : box(w, 0.1, 0.14, PAINT, [x, y, z + 0.08]));
+    const n = Math.max(3, Math.round(w / 0.14));
+    for (let k = 0; k < n; k++) {
+      const u = -w / 2 + ((k + 0.5) * w) / n;
+      parts.push(ico(0.055, 0, k % 2 ? 0x6ea84f : FLOWERS[(k + Math.round(x * 3)) % 4], onX ? [x + 0.09, y + 0.08, z + u] : [x + u, y + 0.08, z + 0.09]));
+    }
+  };
+  // l'ouverture au-dessus du comptoir : étagères de sacs de grain et de boîtes, dans la pénombre
+  const hw = Math.min(bw - 1.7, Math.max(2.5, counters * 1.15 + 1.1));
+  parts.push(box(hw + 0.14, 1.2, 0.03, TIMBER, [cx, 0.92, z1 + 0.01]));
+  parts.push(box(hw, 1.08, 0.03, 0x3b312a, [cx, 0.9, z1 + 0.02]));
+  for (const y of [0.78, 1.12]) parts.push(box(hw - 0.1, 0.03, 0.05, TIMBER, [cx, y, z1 + 0.05]));
+  for (let k = 0; k < Math.floor((hw - 0.2) / 0.3); k++) {
+    const x = cx - hw / 2 + 0.25 + k * 0.3;
+    parts.push(box(0.2, 0.26, 0.05, k % 2 ? 0xe9dfc8 : 0xd8c08a, [x, 0.93, z1 + 0.06]));
+    if (k % 3 !== 1) parts.push(box(0.17, 0.2, 0.05, k % 2 ? 0x6fa64c : 0xc9694a, [x, 1.24, z1 + 0.06]));
   }
-  // le comptoir, au bout de l'allée
-  parts.push(box(2.3, 0.62, 0.44, C.wood, [0, 0.31, z1 + 0.27]));
-  for (let k = 0; k < 9; k++) parts.push(box(0.012, 0.6, 0.446, 0xb07f4a, [-1.08 + k * 0.27, 0.31, z1 + 0.27]));
-  parts.push(box(2.42, 0.05, 0.54, 0xe0b98a, [0, 0.645, z1 + 0.27]));
-  // balance et carton ouvert posés sur le comptoir
-  parts.push(box(0.36, 0.22, 0.28, 0xc9a26b, [0.7, 0.78, z1 + 0.27]));
-  parts.push(box(0.37, 0.012, 0.1, 0xb48c58, [0.7, 0.9, z1 + 0.2], [0.5, 0, 0]));
-  parts.push(box(0.37, 0.012, 0.1, 0xb48c58, [0.7, 0.9, z1 + 0.34], [-0.5, 0, 0]));
-  parts.push(cyl(0.11, 0.13, 0.04, 12, 0x8e939b, [-0.7, 0.69, z1 + 0.27]), cyl(0.02, 0.02, 0.12, 6, 0x8e939b, [-0.7, 0.76, z1 + 0.27]), box(0.3, 0.02, 0.2, 0xc9ccd1, [-0.7, 0.82, z1 + 0.27]));
-  // auvent à rayures au-dessus du comptoir
-  const n = 9;
-  const awW = 2.7 / n;
-  for (let k = 0; k < n; k++) {
-    const x = -1.35 + (k + 0.5) * awW;
-    const c = k % 2 ? AW_B : AW_A;
-    parts.push(box(awW, 0.03, 0.92, c, [x, y1 - 0.13, z1 + 0.42], [0.42, 0, 0]));
-    parts.push(box(awW, 0.13, 0.02, c, [x, y1 - 0.38, z1 + 0.84]));
+  // de part et d'autre : la porte, puis les fenêtres ou les vitrines
+  const side = (bw - hw) / 2;
+  const n = Math.max(1, Math.floor(side / 1.05));
+  const win = level >= 3 ? [0.86, 0.86] : [0.62, 0.62];
+  for (const s of [-1, 1])
+    for (let i = 0; i < n; i++) {
+      const x = cx + s * (hw / 2 + ((i + 0.5) * side) / n);
+      if (s < 0 && i === 0) {
+        parts.push(box(0.74, 1.42, 0.03, TIMBER, [x, 0.97, z1 + 0.012]), box(0.62, 1.34, 0.03, PAINT, [x, 0.93, z1 + 0.024]));
+        parts.push(box(0.4, 0.46, 0.02, 0x9fc4dc, [x, 1.26, z1 + 0.04]), sph(0.03, 6, 5, 0xd9b45a, [x + 0.22, 0.86, z1 + 0.05]));
+        parts.push(box(0.84, 0.05, 0.3, STONE, [x, 0.28, z1 + 0.14]));
+      } else {
+        farmWindow(parts, windows, x, 1.02, z1 + 0.02, win[0], win[1]);
+        flowerBox(x, 1.02 - win[1] / 2 - 0.09, z1 + 0.02, win[0] + 0.08);
+      }
+    }
+  // le pignon côté parcs
+  for (const z of d > 2.4 ? [cz - 0.7, cz + 0.7] : [cz]) {
+    farmWindow(parts, windows, x1 + 0.012, 1.02, z, win[0] * 0.8, win[1] * 0.8, true);
+    if (level >= 2) flowerBox(x1 + 0.012, 1.02 - (win[1] * 0.8) / 2 - 0.09, z, win[0] * 0.8 + 0.06, true);
   }
-  for (const x of [-1.34, 1.34]) parts.push(box(0.04, 0.5, 0.92, TIMBER, [x, y1 - 0.31, z1 + 0.4]));
-  // fenêtres de part et d'autre (boutique et grand magasin)
-  if (level >= 2) for (const x of level >= 3 ? [-2.3, 2.3] : [-1.95, 1.95]) farmWindow(parts, windows, x, 0.95, z1 + 0.02, 0.62, 0.6);
-  if (level >= 2) farmWindow(parts, windows, hw + 0.012, 0.95, cz, 0.6, 0.55, true);
-  // toit
-  const roof = gableRoof(parts, { cx: 0, cz, y: y1, w: hw * 2, d: z1 - z0, h: level >= 3 ? 0.95 : level === 2 ? 0.8 : 0.62, over: 0.16, side: 0.14, a: 0xb5573b, b: 0xa24b33, n: 7, ridge: 0x8a3c29, rive: TIMBER, gable: level === 1 ? C.wood : WALL });
-  if (level >= 3) weathervane(parts, hw - 0.6, roof.ridgeY, cz, 0.9);
-  // cartons pliés et piles de cartons prêts à emporter, de chaque côté de l'allée
-  for (const [x, z, k] of [
-    [1.42, -0.32, 0],
-    [1.42, -0.32, 1],
-    [-1.42, -0.3, 0],
+  // l'étage, avec ses volets verts
+  if (upper) {
+    parts.push(box(bw + 0.06, 0.07, d + 0.06, STONE, [cx, 1.8, cz]));
+    const m = Math.max(2, Math.floor(bw / 1.5));
+    for (let k = 0; k < m; k++) {
+      const x = x0 + ((k + 0.5) * bw) / m;
+      farmWindow(parts, windows, x, 2.45, z1 + 0.02, 0.62, 0.74);
+      for (const s of [-1, 1]) parts.push(box(0.2, 0.74, 0.025, PAINT, [x + s * 0.43, 2.45, z1 + 0.03]));
+      flowerBox(x, 2.0, z1 + 0.02, 0.72);
+    }
+    farmWindow(parts, windows, x1 + 0.012, 2.45, cz, 0.62, 0.74, true);
+  }
+  // l'auvent rayé, sur toute la longueur du comptoir
+  const awLen = hw + 0.5;
+  const stripes = Math.round(awLen / 0.3);
+  const awW = awLen / stripes;
+  const ya = upper ? 1.74 : y1 - 0.12;
+  const yb = ya - 0.38;
+  for (let k = 0; k < stripes; k++) {
+    const x = cx - awLen / 2 + (k + 0.5) * awW;
+    const c = k % 2 ? 0xf6f2ea : 0x3f8f63;
+    parts.push(box(awW, 0.03, 1.22, c, [x, (ya + yb) / 2, z1 + 0.58], [Math.atan2(0.38, 1.16), 0, 0]));
+    parts.push(box(awW, 0.13, 0.02, c, [x, yb - 0.06, z1 + 1.16]));
+  }
+  for (const s of [-1, 1]) parts.push(box(0.07, yb, 0.07, TIMBER, [cx + (s * awLen) / 2, yb / 2, z1 + 1.12]));
+  // le long comptoir, le trébuchet et les cartons prêts à partir
+  const cl = counters * 1.15 + 0.7;
+  parts.push(box(cl, 0.62, 0.42, C.wood, [cx, 0.37, z1 + 0.72]));
+  for (let k = 0; k < Math.floor(cl / 0.26); k++) parts.push(box(0.012, 0.6, 0.426, 0xb07f4a, [cx - cl / 2 + 0.13 + k * 0.26, 0.37, z1 + 0.72]));
+  parts.push(box(cl + 0.14, 0.05, 0.52, 0xe0b98a, [cx, 0.705, z1 + 0.72]));
+  parts.push(cyl(0.11, 0.13, 0.04, 12, 0x8e939b, [cx - cl / 2 + 0.3, 0.75, z1 + 0.72]), cyl(0.02, 0.02, 0.12, 6, 0x8e939b, [cx - cl / 2 + 0.3, 0.82, z1 + 0.72]), box(0.3, 0.02, 0.2, 0xc9ccd1, [cx - cl / 2 + 0.3, 0.88, z1 + 0.72]));
+  parts.push(box(0.36, 0.22, 0.28, 0xc9a26b, [cx + cl / 2 - 0.3, 0.84, z1 + 0.72]), box(0.37, 0.012, 0.1, 0xb48c58, [cx + cl / 2 - 0.3, 0.96, z1 + 0.65], [0.5, 0, 0]), box(0.37, 0.012, 0.1, 0xb48c58, [cx + cl / 2 - 0.3, 0.96, z1 + 0.79], [-0.5, 0, 0]));
+  // sacs sur leur palette et cartons empilés, de chaque côté
+  const px = x1 - 0.55;
+  parts.push(box(0.8, 0.08, 0.6, 0x9a7a52, [px, 0.1, z1 + 0.5]));
+  for (const [dx, dz, y, c] of [
+    [-0.18, -0.1, 0.24, 0xe9dfc8],
+    [0.2, -0.08, 0.24, 0xd8c08a],
+    [0.02, 0.14, 0.24, 0xe9dfc8],
+    [0, -0.02, 0.44, 0xd8c08a],
+  ] as const)
+    parts.push(ico(0.2, 1, c, [px + dx, y, z1 + 0.5 + dz], [1, 0.62, 0.72]));
+  for (const [dx, y, r] of [
+    [0, 0.2, 0],
+    [0.04, 0.46, 0.3],
+    [-0.02, 0.72, -0.2],
   ] as const) {
-    parts.push(box(0.42, 0.26, 0.34, k ? 0xc9a26b : 0xbf9862, [x, 0.17 + k * 0.27, z], [0, k * 0.3, 0]));
-    parts.push(box(0.43, 0.012, 0.05, 0xe9dcb8, [x, 0.3 + k * 0.27, z], [0, k * 0.3, 0]));
+    parts.push(box(0.42, 0.26, 0.34, 0xc9a26b, [x0 + 0.42 + dx, y, z1 + 1.05], [0, r, 0]));
+    parts.push(box(0.43, 0.012, 0.05, 0xe9dcb8, [x0 + 0.42 + dx, y + 0.13, z1 + 1.05], [0, r, 0]));
   }
+  // le toit
+  const roof = gableRoof(parts, { cx, cz, y: y1, w: bw, d, h: [0.85, 0.95, 1.1, 1.25, 1.4][level - 1], over: 0.2, side: 0.18, a: 0xb5573b, b: 0xa24b33, n: 6 + level, ridge: 0x8a3c29, rive: TIMBER, gable: level === 1 ? C.wood : WALL });
+  if (level >= 2) {
+    parts.push(box(0.36, 0.95, 0.36, 0xb7a08a, [x0 + 0.9, roof.ridgeY - 0.05, cz - 0.45]), box(0.44, 0.06, 0.44, STONE, [x0 + 0.9, roof.ridgeY + 0.44, cz - 0.45]));
+  }
+  // lucarnes, puis la lanterne et l'horloge de la grande maison
+  if (level >= 3) {
+    const [yd, zd] = roof.at(1, roof.len * 0.5, 0);
+    for (const s of level >= 4 ? [-0.32, 0.32] : [-0.28]) {
+      const x = cx + s * bw;
+      parts.push(box(0.8, 0.62, 0.7, WALL, [x, yd + 0.22, zd - 0.12]));
+      farmWindow(parts, windows, x, yd + 0.22, zd + 0.24, 0.44, 0.42);
+      parts.push(prism(0.86, 0.32, 0.98, 0xa24b33, [x, yd + 0.52, zd - 0.12], Math.PI / 2));
+    }
+  }
+  if (level === 5) {
+    parts.push(box(3.6, 1.0, 0.5, WALL, [cx, y1 + 0.42, z1 - 0.02]), box(3.72, 0.06, 0.58, STONE, [cx, y1 + 0.93, z1 - 0.02]));
+    parts.push(prism(0.56, 0.86, 3.9, 0xb5573b, [cx, y1 + 0.96, z1 - 0.02], Math.PI / 2));
+    parts.push(cyl(0.3, 0.3, 0.04, 18, 0xfaf6ee, [cx, y1 + 1.2, z1 + 0.27], [Math.PI / 2, 0, 0]), cyl(0.34, 0.34, 0.03, 18, PAINT, [cx, y1 + 1.2, z1 + 0.25], [Math.PI / 2, 0, 0]));
+    parts.push(box(0.03, 0.2, 0.012, 0x2b2b31, [cx, y1 + 1.28, z1 + 0.3]), box(0.14, 0.03, 0.012, 0x2b2b31, [cx + 0.06, y1 + 1.2, z1 + 0.3]));
+    parts.push(box(0.8, 0.75, 0.8, WALL, [cx, roof.ridgeY + 0.3, cz]), cone(0.72, 0.7, 4, 0x8a3c29, [cx, roof.ridgeY + 1.02, cz], [0, Math.PI / 4, 0]));
+    weathervane(parts, cx, roof.ridgeY + 1.35, cz, 1.1);
+  } else if (level >= 3) weathervane(parts, x1 - 0.8, roof.ridgeY, cz, 0.9);
+  return y1;
 }
 
 // ============================================================== COMPOST ====

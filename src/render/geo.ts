@@ -33,22 +33,100 @@ function finalize(geo: THREE.BufferGeometry, color: number, p: V3, r: V3 = [0, 0
 
 export const finalizeExport = finalize;
 
+// Les primitives partent de modèles unitaires gardés en mémoire : le monde en compte des dizaines de
+// milliers, et les recréer une à une avec three.js coûtait l'essentiel du temps de chargement.
+interface Tpl {
+  pos: Float32Array;
+  nor: Float32Array;
+}
+const templates = new Map<string, Tpl>();
+function template(key: string, make: () => THREE.BufferGeometry) {
+  let t = templates.get(key);
+  if (!t) {
+    const g0 = make();
+    const g = g0.index ? g0.toNonIndexed() : g0;
+    t = { pos: g.attributes.position.array as Float32Array, nor: g.attributes.normal.array as Float32Array };
+    templates.set(key, t);
+    g.dispose();
+    if (g !== g0) g0.dispose();
+  }
+  return t;
+}
+const _nm = new THREE.Matrix3();
+const _tp = new THREE.Vector3();
+const _ts = new THREE.Vector3();
+const _c = new THREE.Color();
+
+/** Copie un modèle unitaire : mise à l'échelle (sx, sy, sz), rotation r, puis position p. */
+function stamp(t: Tpl, color: number, p: V3, r: V3 | undefined, sx: number, sy: number, sz: number) {
+  const src = t.pos;
+  const srn = t.nor;
+  const count = src.length;
+  const pos = new Float32Array(count);
+  const nor = new Float32Array(count);
+  const col = new Float32Array(count);
+  _c.set(color);
+  const cr = _c.r;
+  const cg = _c.g;
+  const cb = _c.b;
+  if (r) _e.set(r[0], r[1], r[2]);
+  else _e.set(0, 0, 0);
+  _q.setFromEuler(_e);
+  _m.compose(_tp.set(p[0], p[1], p[2]), _q, _ts.set(sx, sy, sz));
+  _nm.getNormalMatrix(_m);
+  const e = _m.elements;
+  const n = _nm.elements;
+  for (let i = 0; i < count; i += 3) {
+    const x = src[i];
+    const y = src[i + 1];
+    const z = src[i + 2];
+    pos[i] = e[0] * x + e[4] * y + e[8] * z + e[12];
+    pos[i + 1] = e[1] * x + e[5] * y + e[9] * z + e[13];
+    pos[i + 2] = e[2] * x + e[6] * y + e[10] * z + e[14];
+    const a = srn[i];
+    const b = srn[i + 1];
+    const c = srn[i + 2];
+    const nx = n[0] * a + n[3] * b + n[6] * c;
+    const ny = n[1] * a + n[4] * b + n[7] * c;
+    const nz = n[2] * a + n[5] * b + n[8] * c;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nor[i] = nx / l;
+    nor[i + 1] = ny / l;
+    nor[i + 2] = nz / l;
+    col[i] = cr;
+    col[i + 1] = cg;
+    col[i + 2] = cb;
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  return g;
+}
+
 /** Boîte centrée en p. */
-export const box = (w: number, h: number, d: number, color: number, p: V3, r?: V3) =>
-  finalize(new THREE.BoxGeometry(w, h, d), color, p, r);
+export const box = (w: number, h: number, d: number, color: number, p: V3, r?: V3) => stamp(template('b', () => new THREE.BoxGeometry(1, 1, 1)), color, p, r, w, h, d);
 
 /** Cylindre (ou cône si rt=0) centré en p. */
-export const cyl = (rt: number, rb: number, h: number, seg: number, color: number, p: V3, r?: V3, s?: V3) =>
-  finalize(new THREE.CylinderGeometry(rt, rb, h, seg), color, p, r, s);
+export function cyl(rt: number, rb: number, h: number, seg: number, color: number, p: V3, r?: V3, s?: V3) {
+  const big = Math.max(rt, rb) || 1;
+  const a = Math.round((rt / big) * 500) / 500;
+  const b = Math.round((rb / big) * 500) / 500;
+  const t = template(`c${seg}:${a}:${b}`, () => new THREE.CylinderGeometry(a, b, 1, seg));
+  return stamp(t, color, p, r, big * (s ? s[0] : 1), h * (s ? s[1] : 1), big * (s ? s[2] : 1));
+}
 
-export const sph = (rad: number, ws: number, hs: number, color: number, p: V3, s?: V3, r?: V3) =>
-  finalize(new THREE.SphereGeometry(rad, ws, hs), color, p, r, s);
+export function sph(rad: number, ws: number, hs: number, color: number, p: V3, s?: V3, r?: V3) {
+  return stamp(template(`s${ws}:${hs}`, () => new THREE.SphereGeometry(1, ws, hs)), color, p, r, rad * (s ? s[0] : 1), rad * (s ? s[1] : 1), rad * (s ? s[2] : 1));
+}
 
-export const ico = (rad: number, detail: number, color: number, p: V3, s?: V3, r?: V3) =>
-  finalize(new THREE.IcosahedronGeometry(rad, detail), color, p, r, s);
+export function ico(rad: number, detail: number, color: number, p: V3, s?: V3, r?: V3) {
+  return stamp(template(`i${detail}`, () => new THREE.IcosahedronGeometry(1, detail)), color, p, r, rad * (s ? s[0] : 1), rad * (s ? s[1] : 1), rad * (s ? s[2] : 1));
+}
 
-export const cone = (rad: number, h: number, seg: number, color: number, p: V3, r?: V3) =>
-  finalize(new THREE.ConeGeometry(rad, h, seg), color, p, r);
+export function cone(rad: number, h: number, seg: number, color: number, p: V3, r?: V3) {
+  return stamp(template(`k${seg}`, () => new THREE.ConeGeometry(1, 1, seg)), color, p, r, rad, h, rad);
+}
 
 /** Prisme triangulaire (toit à deux pans) : longueur w le long de x, largeur d, hauteur h, base en p.y. */
 export function prism(w: number, h: number, d: number, color: number, p: V3, ry = 0) {
@@ -69,6 +147,32 @@ export function merge(parts: THREE.BufferGeometry[]) {
   g.computeBoundingSphere();
   g.computeBoundingBox();
   return g;
+}
+
+/**
+ * Fusionne un grand ensemble de pièces par secteurs de `cell` mètres : seuls les secteurs à l'écran
+ * sont dessinés. Les très grandes pièces (routes, sols) restent dans un secteur à part.
+ */
+export function mergeChunks(parts: THREE.BufferGeometry[], cell: number) {
+  const groups = new Map<string, THREE.BufferGeometry[]>();
+  for (const p of parts) {
+    const a = p.attributes.position.array as ArrayLike<number>;
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let z0 = Infinity;
+    let z1 = -Infinity;
+    for (let i = 0; i < a.length; i += 3) {
+      if (a[i] < x0) x0 = a[i];
+      if (a[i] > x1) x1 = a[i];
+      if (a[i + 2] < z0) z0 = a[i + 2];
+      if (a[i + 2] > z1) z1 = a[i + 2];
+    }
+    const key = x1 - x0 > cell || z1 - z0 > cell ? 'big' : `${Math.floor((x0 + x1) / 2 / cell)},${Math.floor((z0 + z1) / 2 / cell)}`;
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = []));
+    g.push(p);
+  }
+  return [...groups.values()].map(merge);
 }
 
 export const MAT = new THREE.MeshLambertMaterial({ vertexColors: true, flatShading: true });

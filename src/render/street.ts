@@ -316,6 +316,15 @@ export interface Street {
   releaseDelivery(id: number): void;
   /** Où en est ce camion (null : sorti de la route ou jamais appelé). */
   delivery(id: number): { x: number; parked: boolean } | null;
+  /** Le camion quitte la chaussée : la circulation reste derrière sa place tant qu'on ne libère pas la voie. */
+  detachDelivery(id: number): void;
+  /** Réserve la voie à cet endroit, le temps d'une manœuvre. */
+  holdLane(id: number, x: number, len: number): void;
+  freeLane(id: number): void;
+  /** La voie est-elle libre entre ces deux abscisses ? */
+  laneClear(x0: number, x1: number): boolean;
+  /** Le camion reprend sa place dans la circulation, cap à l'ouest. */
+  resumeDelivery(id: number, g: THREE.Group, len: number, x: number): void;
   /** Véhicules sur la route (contrôles de développement). */
   vehicles(): Array<{ kind: string; x: number; z: number; len: number; state: string; dir: number; v: number; ovt: number | null; del: number | null }>;
 }
@@ -853,6 +862,39 @@ export function buildStreet(scene: THREE.Scene): Street {
     releaseDelivery(id) {
       const v = vehs.find((o) => o.del?.id === id);
       if (v?.del) v.del.released = true;
+    },
+    detachDelivery(id) {
+      const v = vehs.find((o) => o.del?.id === id);
+      if (!v) return;
+      // il reste à sa place un véhicule sans carrosserie, qui retient la circulation
+      const blank = new THREE.Group();
+      v.g.remove(v.beam);
+      group.remove(v.g);
+      blank.add(v.beam);
+      v.beam.scale.setScalar(0);
+      blank.position.set(v.x, 0.06, v.z);
+      group.add(blank);
+      v.g = blank;
+    },
+    holdLane(id, x, len) {
+      const v = addVehicle('delivery', -1, x, { g: new THREE.Group(), len, vmax: 5.2 });
+      v.del = { id, stopX: x, released: false, done: false };
+      v.state = 'unload';
+      v.v = 0;
+      v.beam.scale.setScalar(0);
+      v.g.position.set(x, 0.06, v.z);
+    },
+    freeLane(id) {
+      const v = vehs.find((o) => o.del?.id === id);
+      if (v) removeVehicle(v);
+    },
+    laneClear: (x0, x1) => laneFree(-1, x0, x1),
+    resumeDelivery(id, g, len, x) {
+      const v = addVehicle('delivery', -1, x, { g, len, vmax: 5.2 });
+      v.del = { id, stopX: x, released: true, done: true };
+      v.v = 1;
+      g.position.set(x, 0.06, v.z);
+      g.rotation.y = Math.PI;
     },
     vehicles: () => vehs.map((v) => ({ kind: v.kind, x: v.x, z: v.z, len: v.len, state: v.state, dir: v.dir, v: v.v, ovt: v.ovt?.passX ?? null, del: v.del ? v.del.stopX : null })),
     delivery(id) {

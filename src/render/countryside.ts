@@ -3,8 +3,9 @@
 // bordée de saules, une route plantée de peupliers et quelques fermes voisines. Aucun bord vide : où
 // que l'on regarde, le paysage continue. Presque tout est instancié et fusionné.
 import * as THREE from 'three';
+import { PET_POS } from '../config/buildings';
 import { GRID_W, GRID_Z0, GRID_Z1, WORLD } from '../config/balance';
-import { C, MAT, box, cone, cyl, merge, mesh, prism, sph } from './geo';
+import { C, MAT, box, cone, cyl, merge, mergeChunks, mesh, prism, sph } from './geo';
 import { FieldKit, type CropKind, type Rect } from './fields';
 import { grassPatchGeometry } from './models';
 import { GROUND_MAT, MEADOW_FLOWERS, MEADOW_GRASS, SHADOW_RADIUS, Soup, WATER_MAT, contactShadows, lump, plant, pondGeometry, reed, speciesGeometry, type Plant, type Species } from './nature';
@@ -509,7 +510,7 @@ export function buildCountryside(scene: THREE.Scene) {
     bm.receiveShadow = true;
     scene.add(bm);
   }
-  if (solid.length) scene.add(mesh(merge(solid), true, true));
+  for (const g of mergeChunks(solid, 30)) scene.add(mesh(g, true, true));
 
   // arbres : seuls les blocs à l'écran sont dessinés, et leur modèle s'allège quand on dézoome
   const shadows: Array<[number, number, number]> = [];
@@ -535,7 +536,8 @@ export function buildCountryside(scene: THREE.Scene) {
     (x > -6.8 && x < -5.2 && z > 28 && z < 38) || // allée
     (x > -6 && x < 12 && z > 30.8 && z < 31.9) || // chemin du personnel
     (x > -15.8 && x < -7.2 && z > 28.9 && z < 33.7) || // potager
-    (x > 1 && x < 11.2 && z > 31.9 && z < 37.4) || // parcelle de l'animalerie
+    (x > 42.2 && x < PET_POS.x + 39 && z > 30.1 && z < 37.4) || // parcelle de l'animalerie (au plus grand)
+    (x > -0.5 && x < 3.6 && z > 30 && z < 37.4) || // chemin du camion
     (x > -15 && x < -11 && z > 13.5 && z < 21); // moulin
   const fieldAt = (x: number, z: number) => z < GRID_Z0 - 7.7 && z > GRID_Z0 - 16.3 && x > -10.3 && x < 86.3;
   const tufts: Plant[] = [];

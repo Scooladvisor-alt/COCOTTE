@@ -6,7 +6,7 @@
 // à enseigne, église et son petit cimetière. Les fenêtres s'allument le soir, les cheminées fument.
 import * as THREE from 'three';
 import { WORLD } from '../config/balance';
-import { C, box, cone, cyl, finalizeExport, ico, merge, mesh, sph, type V3 } from './geo';
+import { C, box, cone, cyl, finalizeExport, ico, merge, mergeChunks, mesh, sph, type V3 } from './geo';
 import { strip } from './people';
 import { LANTERN_GLOW } from './models';
 import { TREE_MAT, speciesGeometry } from './nature';
@@ -706,10 +706,10 @@ export function buildVillage(scene: THREE.Scene): Village {
   }
 
   // ------------------------------------------------------------------ assemblage
-  const solidMesh = mesh(merge(solid).translate(0, 0, DZ), true, true);
-  scene.add(solidMesh);
+  // par secteurs : seuls les pâtés de maisons à l'écran sont dessinés
+  for (const g of mergeChunks(solid, 16)) scene.add(mesh(g.translate(0, 0, DZ), true, true));
   // les arbres du village suivent les saisons comme ceux de la campagne
-  scene.add(mesh(merge(leafy).translate(0, 0, DZ), true, true, TREE_MAT));
+  for (const g of mergeChunks(leafy, 20)) scene.add(mesh(g.translate(0, 0, DZ), true, true, TREE_MAT));
   const glassMat = new THREE.MeshBasicMaterial({ color: 0x9fb4c8 });
   const glassMesh = new THREE.Mesh(merge(glass).translate(0, 0, DZ), glassMat);
   scene.add(glassMesh);

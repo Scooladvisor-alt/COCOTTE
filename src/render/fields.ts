@@ -2,7 +2,7 @@
 // est fait de rangs ; de près, il se couvre de vraies plantes qui ondulent au vent. Les cultures suivent
 // l'année : elles poussent au printemps, mûrissent l'été, sont moissonnées à l'automne.
 import * as THREE from 'three';
-import { MAT, box, cyl, merge, mesh, prism } from './geo';
+import { MAT, box, cyl, merge, mergeChunks, mesh, prism } from './geo';
 import { CROP_CLUMPS, CROP_ROWS, SOIL_MAT, Soup, lump, plant, type CropClass, type Plant } from './nature';
 import { roundBale } from './models';
 
@@ -239,15 +239,19 @@ export class FieldKit {
   /** Construit le tout. Une seule géométrie par classe de culture. */
   flush(scene: THREE.Object3D) {
     if (this.soil.length) {
-      const m = new THREE.Mesh(merge(this.soil), SOIL_MAT);
-      m.receiveShadow = true;
-      scene.add(m);
+      for (const g of mergeChunks(this.soil, 40)) {
+        const m = new THREE.Mesh(g, SOIL_MAT);
+        m.receiveShadow = true;
+        scene.add(m);
+      }
     }
     for (const cls of Object.keys(this.rows) as CropClass[]) {
       if (!this.rows[cls].length) continue;
-      const m = new THREE.Mesh(merge(this.rows[cls]), CROP_ROWS[cls]);
-      m.receiveShadow = true;
-      scene.add(m);
+      for (const g of mergeChunks(this.rows[cls], 40)) {
+        const m = new THREE.Mesh(g, CROP_ROWS[cls]);
+        m.receiveShadow = true;
+        scene.add(m);
+      }
     }
     if (this.fixtures.length) scene.add(mesh(merge(this.fixtures), false, true));
     if (this.bales.length) plant(scene, roundBale(), null, this.bales, { mat: MAT, cast: true, spread: 0.05 });

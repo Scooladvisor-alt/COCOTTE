@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import { EGG_TYPES } from '../config/balance';
 import { BREEDS } from '../config/breeds';
 import { COOP_SCALE, STORAGE_SCALE, petLayout, sizeOf } from '../config/buildings';
+import { GROUND_MAT, TREE_MAT, WATER_MAT, pondGeometry, reed, speciesGeometry } from './nature';
 import { HEN_MAT, HEN_PIVOT, type HenGeo } from './henModel';
 import type { BreedId, BuildingType, EggType } from '../sim/types';
 import { C, CREATURE_MAT, MAT, box, cone, cyl, finalizeExport, ico, merge, mesh, prism, sph } from './geo';
@@ -40,7 +41,7 @@ import {
 // ================================================================ POULES ====
 // Le modèle des volailles (poules, coqs, jeunes, poussins) est dans henModel.ts.
 export { bushGeometry, pineGeometry, treeGeometry } from './nature';
-export { ADULT_STAGE, GOLD_HEN_MAT, LEGEND_HEN_MAT, LEGEND_TIME, HEN_MAT, HEN_PIVOT, HEN_RIM, henGeometry, type HenGeo, type HenKind } from './henModel';
+export { ADULT_STAGE, GOLD_HEN_MAT, LEGEND_HEN_MAT, LEGEND_TIME, HEN_MAT, HEN_PIVOT, HEN_RIM, henGeometry, henGeometryFar, henGeometryMid, type HenGeo, type HenKind } from './henModel';
 
 /**
  * Squelette d'animation d'une poule (sans maillage) : ses matrices sont recopiées
@@ -103,23 +104,24 @@ export class HenBatch {
   wingR: THREE.InstancedMesh;
   legs: THREE.InstancedMesh;
   private n = 0;
-  private static readonly WHITE = new THREE.Color(1, 1, 1);
+  private drawn = 0;
+  private cap: number;
 
-  constructor(g: HenGeo, max: number, mat: THREE.Material = HEN_MAT) {
-    this.body = new THREE.InstancedMesh(g.body, mat, max);
-    this.head = new THREE.InstancedMesh(g.head, mat, max);
-    this.eyes = new THREE.InstancedMesh(g.eyes, HEN_MAT, max);
+  constructor(g: HenGeo, cap = 32, mat: THREE.Material = HEN_MAT) {
+    this.cap = cap;
+    this.body = new THREE.InstancedMesh(g.body, mat, cap);
+    this.head = new THREE.InstancedMesh(g.head, mat, cap);
+    this.eyes = new THREE.InstancedMesh(g.eyes, HEN_MAT, cap);
     this.eyeAt = g.eyeAt;
-    this.wingL = new THREE.InstancedMesh(g.wingL, mat, max);
-    this.wingR = new THREE.InstancedMesh(g.wingR, mat, max);
-    this.legs = new THREE.InstancedMesh(g.leg, mat, max * 2);
+    this.wingL = new THREE.InstancedMesh(g.wingL, mat, cap);
+    this.wingR = new THREE.InstancedMesh(g.wingR, mat, cap);
+    this.legs = new THREE.InstancedMesh(g.leg, mat, cap * 2);
     this.body.castShadow = true;
     for (const m of this.meshes()) {
       m.frustumCulled = false;
       m.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       m.count = 0;
     }
-    for (let i = 0; i < max * 2; i++) this.legs.setColorAt(i, HenBatch.WHITE);
   }
 
   meshes() {
@@ -130,8 +132,29 @@ export class HenBatch {
     this.n = 0;
   }
 
+  /** La réserve s'agrandit à la demande : plus de limite au nombre de volailles dessinées. */
+  private grow() {
+    this.cap *= 2;
+    for (const m of this.meshes()) {
+      const k = m === this.legs ? 2 : 1;
+      const old = m.instanceMatrix;
+      const next = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * k * 16), 16);
+      next.setUsage(THREE.DynamicDrawUsage);
+      next.array.set(old.array as Float32Array);
+      const tint = m.instanceColor;
+      m.dispose();
+      m.instanceMatrix = next;
+      if (tint) {
+        const nc = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * k * 3), 3);
+        nc.setUsage(THREE.DynamicDrawUsage);
+        nc.array.set(tint.array as Float32Array);
+        m.instanceColor = nc;
+      }
+    }
+  }
+
   push(v: HenView, tint: THREE.Color = v.tint) {
-    if (this.n >= this.body.instanceMatrix.count) return;
+    if (this.n >= this.cap) this.grow();
     v.root.updateMatrixWorld(true);
     const i = this.n;
     this.body.setMatrixAt(i, v.bodyPivot.matrixWorld);
@@ -156,16 +179,95 @@ export class HenBatch {
   }
 
   end() {
-    this.body.count = this.n;
-    this.head.count = this.n;
-    this.eyes.count = this.n;
-    this.wingL.count = this.n;
-    this.wingR.count = this.n;
-    this.legs.count = this.n * 2;
+    // lot vide et déjà vide à l'image d'avant : rien à envoyer à la carte graphique
+    if (!this.n && !this.drawn) return;
+    this.drawn = this.n;
     for (const m of this.meshes()) {
-      m.instanceMatrix.needsUpdate = true;
-      if (m.instanceColor) m.instanceColor.needsUpdate = true;
+      const k = m === this.legs ? 2 : 1;
+      m.count = this.n * k;
+      sendInstances(m, this.n * k);
     }
+  }
+}
+
+/** N'envoie à la carte graphique que les instances utilisées, et non toute la réserve. */
+function sendInstances(m: THREE.InstancedMesh, n: number) {
+  const a = m.instanceMatrix;
+  a.clearUpdateRanges();
+  a.addUpdateRange(0, n * 16);
+  a.needsUpdate = true;
+  const c = m.instanceColor;
+  if (c) {
+    c.clearUpdateRanges();
+    c.addUpdateRange(0, n * 3);
+    c.needsUpdate = true;
+  }
+}
+
+/** Oiseaux des vues d'ensemble : une seule pièce par oiseau, placée sans squelette. */
+export class HenFarBatch {
+  mesh: THREE.InstancedMesh;
+  private n = 0;
+  private drawn = 0;
+  private cap = 64;
+
+  constructor(g: THREE.BufferGeometry, mat: THREE.Material = HEN_MAT) {
+    this.mesh = new THREE.InstancedMesh(g, mat, this.cap);
+    this.mesh.frustumCulled = false;
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.count = 0;
+  }
+
+  begin() {
+    this.n = 0;
+  }
+
+  /** (pitch : il penche la tête pour picorer.) */
+  push(x: number, y: number, z: number, heading: number, scale: number, tint: THREE.Color, pitch = 0) {
+    const m = this.mesh;
+    if (this.n >= this.cap) {
+      this.cap *= 2;
+      const mat = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * 16), 16);
+      mat.setUsage(THREE.DynamicDrawUsage);
+      mat.array.set(m.instanceMatrix.array as Float32Array);
+      const col = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * 3), 3);
+      col.setUsage(THREE.DynamicDrawUsage);
+      if (m.instanceColor) col.array.set(m.instanceColor.array as Float32Array);
+      m.dispose();
+      m.instanceMatrix = mat;
+      m.instanceColor = col;
+    }
+    const a = m.instanceMatrix.array as Float32Array;
+    const o = this.n * 16;
+    const c = Math.cos(heading) * scale;
+    const s = Math.sin(heading) * scale;
+    const cp = Math.cos(pitch);
+    const sp = Math.sin(pitch);
+    a[o] = c;
+    a[o + 1] = 0;
+    a[o + 2] = -s;
+    a[o + 3] = 0;
+    a[o + 4] = s * sp;
+    a[o + 5] = scale * cp;
+    a[o + 6] = c * sp;
+    a[o + 7] = 0;
+    a[o + 8] = s * cp;
+    a[o + 9] = -scale * sp;
+    a[o + 10] = c * cp;
+    a[o + 11] = 0;
+    a[o + 12] = x;
+    a[o + 13] = y;
+    a[o + 14] = z;
+    a[o + 15] = 1;
+    m.setColorAt(this.n, tint);
+    this.n++;
+  }
+
+  end() {
+    if (!this.n && !this.drawn) return;
+    this.drawn = this.n;
+    this.mesh.count = this.n;
+    sendInstances(this.mesh, this.n);
   }
 }
 
@@ -1286,7 +1388,7 @@ function shadeTreeModel(): BuildingView {
 }
 
 /** Petit panneau écrit à la main : les enseignes de l'animalerie. */
-function textPanel(text: string, w: number, h: number, bg: number, fg: string) {
+export function textPanel(text: string, w: number, h: number, bg: number, fg: string) {
   const c = document.createElement('canvas');
   const px = 220;
   c.width = Math.round(w * px);
@@ -1310,71 +1412,144 @@ function textPanel(text: string, w: number, h: number, bg: number, fg: string) {
   return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: t }));
 }
 
+/** Clôture de piquets blancs le long d'un côté de parc. */
+function whitePickets(parts: THREE.BufferGeometry[], x0: number, z0: number, x1: number, z1: number) {
+  const WHITE = 0xf4efe3;
+  const len = Math.hypot(x1 - x0, z1 - z0);
+  const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0);
+  const at = (t: number): [number, number] => [x0 + (x1 - x0) * t, z0 + (z1 - z0) * t];
+  const n = Math.round(len / 0.26);
+  for (let k = 0; k <= n; k++) {
+    const [x, z] = at(k / n);
+    const post = k % 5 === 0;
+    parts.push(alongX ? box(post ? 0.07 : 0.045, post ? 0.56 : 0.44, post ? 0.07 : 0.018, WHITE, [x, post ? 0.33 : 0.29, z]) : box(post ? 0.07 : 0.018, post ? 0.56 : 0.44, post ? 0.07 : 0.045, WHITE, [x, post ? 0.33 : 0.29, z]));
+  }
+  const [cx, cz] = at(0.5);
+  for (const y of [0.2, 0.42]) parts.push(alongX ? box(len, 0.035, 0.022, 0xe2dccd, [cx, y, cz]) : box(0.022, 0.035, len, 0xe2dccd, [cx, y, cz]));
+}
+
+/** Petite cabane à volailles, avec sa rampe et son toit de bardeaux. */
+function birdHut(parts: THREE.BufferGeometry[], x: number, z: number, goose = false) {
+  const w = goose ? 1.1 : 0.92;
+  const h = goose ? 0.5 : 0.56;
+  parts.push(box(w, h, 0.7, goose ? 0xd8c7a2 : C.plank, [x, 0.07 + h / 2 + 0.04, z]));
+  for (let k = 1; k < 5; k++) parts.push(box(0.012, h, 0.706, 0xa8835a, [x - w / 2 + (k * w) / 5, 0.07 + h / 2 + 0.04, z]));
+  parts.push(prism(w + 0.16, 0.3, 0.86, goose ? 0x3f6f9e : C.roof, [x, 0.11 + h, z]));
+  parts.push(box(goose ? 0.4 : 0.24, goose ? 0.32 : 0.26, 0.02, 0x3b312a, [x, 0.25, z + 0.36]));
+  parts.push(box(goose ? 0.4 : 0.24, 0.025, 0.4, C.woodDark, [x, 0.14, z + 0.54], [0.42, 0, 0]));
+}
+
 /**
- * L'animalerie : une allée centrale jusqu'au comptoir et, de part et d'autre, un parc grillagé pour
- * les poules et un pour les oies, chacun avec son écriteau : on ne les confond pas.
+ * L'animalerie : la boutique et son dallage à l'ouest, puis de vrais parcs en herbe ; plus elle grandit,
+ * plus ils s'allongent le long du trottoir. Les poules ont leurs cabanes, leur paille, leur coin de bain
+ * de poussière et des pommiers ; les oies, plus loin, ont leur mare et ses roseaux.
  */
 function petShopModel(level: number): BuildingView {
-  const { hens, geese } = petLayout(level);
-  // dallage assorti à la place de l'étal, jusqu'au trottoir et jusqu'à la place
-  const x0 = -4.85;
-  const x1 = 5.3;
-  const z0 = -2.2;
-  const z1 = 2.9;
-  const parts: THREE.BufferGeometry[] = [box(x1 - x0, 0.06, z1 - z0, 0xeadfc6, [(x0 + x1) / 2, 0.03, (z0 + z1) / 2])];
-  for (let x = x0 + 0.8; x < x1 - 0.2; x += 0.8) parts.push(box(0.03, 0.006, z1 - z0 - 0.1, 0xdacdb2, [x, 0.063, (z0 + z1) / 2]));
-  for (let z = z0 + 0.8; z < z1 - 0.2; z += 0.8) parts.push(box(x1 - x0 - 0.1, 0.006, 0.03, 0xdacdb2, [(x0 + x1) / 2, 0.063, z]));
+  const L = petLayout(level);
+  const { w, bw, hens, geese } = L;
   const windows: THREE.Mesh[] = [];
-  petShopHouse(parts, windows, level);
-  const wire: Array<[number, number, number, number]> = [];
-  const pen = (a: { x0: number; x1: number; z0: number; z1: number }, floor: number) => {
-    const w = a.x1 - a.x0;
-    const d = a.z1 - a.z0;
+  const parts: THREE.BufferGeometry[] = [];
+  // le dallage, de la haie du parking jusqu'au trottoir
+  const fx = bw + 0.6;
+  parts.push(box(fx, 0.06, 6.7, 0xeadfc6, [fx / 2, 0.03, 3.35]));
+  for (let x = 0.8; x < fx - 0.2; x += 0.8) parts.push(box(0.03, 0.006, 6.6, 0xdacdb2, [x, 0.063, 3.35]));
+  for (let z = 0.8; z < 6.6; z += 0.8) parts.push(box(fx - 0.1, 0.006, 0.03, 0xdacdb2, [fx / 2, 0.063, z]));
+  const y1 = petShopHouse(parts, windows, level, bw, L.counters);
+  // deux grands bacs de fleurs de chaque côté de la cour
+  for (const x of [0.5, fx - 0.5]) {
+    parts.push(box(0.56, 0.3, 0.56, 0xb7a08a, [x, 0.21, 6.15]), box(0.62, 0.04, 0.62, 0x9d8a74, [x, 0.37, 6.15]));
+    parts.push(ico(0.3, 1, 0x6ea84f, [x, 0.52, 6.15], [1, 0.75, 1]));
+    for (let k = 0; k < 7; k++) parts.push(ico(0.05, 0, [0xe85d75, 0xf5c542, 0xfaf6ee][k % 3], [x + Math.cos(k * 2.4) * 0.22, 0.56 + Math.sin(k * 1.7) * 0.1, 6.15 + Math.sin(k * 2.4) * 0.22]));
+  }
+  // un banc sous la façade et l'ardoise des prix
+  parts.push(box(0.06, 0.6, 0.04, C.woodDark, [fx - 0.42, 0.36, 4.8], [0.14, 0, 0]), box(0.5, 0.5, 0.03, 0x2f3b34, [fx - 0.42, 0.44, 4.84], [0.14, 0, 0]), box(0.56, 0.56, 0.02, C.wood, [fx - 0.42, 0.44, 4.82], [0.14, 0, 0]));
+  const zone = (a: { x0: number; x1: number; z0: number; z1: number }, grass: number) => {
+    const pw = a.x1 - a.x0;
+    const pd = a.z1 - a.z0;
     const cx = (a.x0 + a.x1) / 2;
     const cz = (a.z0 + a.z1) / 2;
-    parts.push(box(w, 0.05, d, floor, [cx, 0.08, cz]));
-    // poteaux, lisse du haut, muret du bas
-    const stepsX = Math.max(2, Math.round(w / 0.9));
-    const stepsZ = Math.max(2, Math.round(d / 0.9));
-    for (let k = 0; k <= stepsX; k++) for (const z of [a.z0, a.z1]) parts.push(box(0.06, 0.72, 0.06, C.woodDark, [a.x0 + (k * w) / stepsX, 0.36, z]));
-    for (let k = 1; k < stepsZ; k++) for (const x of [a.x0, a.x1]) parts.push(box(0.06, 0.72, 0.06, C.woodDark, [x, 0.36, a.z0 + (k * d) / stepsZ]));
-    for (const z of [a.z0, a.z1]) {
-      parts.push(box(w + 0.06, 0.04, 0.05, C.wood, [cx, 0.72, z]));
-      parts.push(box(w + 0.06, 0.1, 0.05, C.wood, [cx, 0.11, z]));
+    parts.push(box(pw, 0.07, pd, grass, [cx, 0.035, cz]));
+    // l'herbe n'est jamais d'un seul ton : plaques plus vertes et quelques fleurs
+    const n = Math.round(pw * pd * 0.32);
+    for (let k = 0; k < n; k++) {
+      const h1 = (Math.sin(k * 12.9898 + cx) * 43758.5453) % 1;
+      const h2 = (Math.sin(k * 78.233 + cz) * 12543.123) % 1;
+      const x = a.x0 + 0.4 + Math.abs(h1) * (pw - 0.8);
+      const z = a.z0 + 0.4 + Math.abs(h2) * (pd - 0.8);
+      parts.push(box(0.4 + Math.abs(h2) * 0.5, 0.004, 0.3 + Math.abs(h1) * 0.4, k % 2 ? 0x82b45b : 0xa3cc77, [x, 0.072, z], [0, k, 0]));
+      if (k % 3 === 0) parts.push(box(0.035, 0.05, 0.035, [0xf5c542, 0xfaf6ee, 0xe85d75][k % 9 === 0 ? 2 : k % 2], [x + 0.1, 0.095, z - 0.08]));
     }
-    for (const x of [a.x0, a.x1]) {
-      parts.push(box(0.05, 0.04, d + 0.06, C.wood, [x, 0.72, cz]));
-      parts.push(box(0.05, 0.1, d + 0.06, C.wood, [x, 0.11, cz]));
-    }
-    wire.push([a.x0, a.z0, a.x0, a.z1], [a.x0, a.z1, a.x1, a.z1], [a.x1, a.z1, a.x1, a.z0], [a.x1, a.z0, a.x0, a.z0]);
+    whitePickets(parts, a.x0, a.z1, a.x1, a.z1);
+    whitePickets(parts, a.x0, a.z0, a.x1, a.z0);
+    whitePickets(parts, a.x0, a.z0, a.x0, a.z1);
+    whitePickets(parts, a.x1, a.z0, a.x1, a.z1);
   };
-  pen(hens, 0xd9c27f);
-  pen(geese, 0xa9c07a);
-  // côté poules : abri à poules, perchoir, mangeoire et abreuvoir, botte de paille
-  const hx = hens.x0 + 0.42;
-  const hz = hens.z0 + 0.42;
-  parts.push(box(0.56, 0.42, 0.5, C.plank, [hx, 0.3, hz]), prism(0.66, 0.2, 0.6, C.roof, [hx, 0.51, hz], Math.PI / 2), box(0.2, 0.22, 0.02, 0x3b312a, [hx, 0.22, hz + 0.26]));
-  parts.push(box(0.62, 0.05, 0.14, 0x8e939b, [hens.x1 - 0.5, 0.14, hens.z0 + 0.25]), box(0.54, 0.02, 0.08, C.grain, [hens.x1 - 0.5, 0.17, hens.z0 + 0.25]));
-  parts.push(cyl(0.12, 0.14, 0.14, 10, 0xc9ccd1, [hens.x0 + 0.26, 0.17, hens.z1 - 0.28]), cyl(0.1, 0.1, 0.01, 10, 0x7cc7ee, [hens.x0 + 0.26, 0.245, hens.z1 - 0.28]));
-  parts.push(box(0.46, 0.22, 0.28, C.straw, [hens.x1 - 0.36, 0.2, hens.z1 - 0.24]), box(0.47, 0.02, 0.29, 0xd8b85a, [hens.x1 - 0.36, 0.22, hens.z1 - 0.24]));
-  // côté oies : un grand bac d'eau et de l'herbe à brouter
-  const gx = geese.x1 - 0.62;
-  const gz = geese.z0 + 0.52;
-  parts.push(cyl(0.48, 0.52, 0.16, 16, 0x8e939b, [gx, 0.17, gz]), cyl(0.43, 0.43, 0.012, 16, 0x7cc7ee, [gx, 0.252, gz]));
-  parts.push(box(0.66, 0.06, 0.16, C.woodDark, [geese.x0 + 0.5, 0.14, geese.z0 + 0.26]), box(0.58, 0.02, 0.1, 0x8cc46b, [geese.x0 + 0.5, 0.18, geese.z0 + 0.26]));
+  zone(hens, 0x94c36b);
+  zone(geese, 0x8cbd66);
+  // côté poules : cabanes en rang le long du fond, mangeoires, paille, bain de poussière
+  const hw = hens.x1 - hens.x0;
+  const huts = Math.max(1, Math.round(hw / 5));
+  for (let k = 0; k < huts; k++) {
+    const x = hens.x0 + ((k + 0.5) * hw) / huts;
+    birdHut(parts, x, hens.z0 + 0.46);
+    parts.push(box(0.8, 0.04, 0.16, 0x8e939b, [x + 1.1, 0.13, hens.z0 + 0.32]), box(0.72, 0.02, 0.09, C.grain, [x + 1.1, 0.155, hens.z0 + 0.32]));
+    for (const dx of [-0.32, 0.32]) parts.push(box(0.04, 0.09, 0.2, 0x6d7076, [x + 1.1 + dx, 0.09, hens.z0 + 0.32]));
+  }
+  // abreuvoir, botte de paille et son tas, coin de poussière
+  parts.push(cyl(0.16, 0.18, 0.16, 12, 0xc9ccd1, [hens.x0 + 0.42, 0.15, hens.z1 - 0.45]), cyl(0.13, 0.13, 0.01, 12, 0x7cc7ee, [hens.x0 + 0.42, 0.232, hens.z1 - 0.45]));
+  parts.push(box(0.56, 0.26, 0.34, C.straw, [hens.x1 - 0.5, 0.2, hens.z1 - 0.34]), box(0.57, 0.02, 0.35, 0xd8b85a, [hens.x1 - 0.5, 0.25, hens.z1 - 0.34]));
+  parts.push(ico(0.36, 1, 0xdcc272, [hens.x1 - 1.2, 0.11, hens.z1 - 0.46], [1.1, 0.36, 0.9]));
+  parts.push(ico(0.5, 1, 0xcbb38a, [hens.x0 + 1.5, 0.05, hens.z1 - 0.72], [1.25, 0.12, 0.85]));
+  // côté oies : leur grande cabane et de l'herbe à brouter ; la mare est à part
+  const gw = geese.x1 - geese.x0;
+  birdHut(parts, geese.x0 + Math.min(0.7, gw * 0.32), geese.z0 + 0.5, true);
+  const rx = Math.min(2.4, gw * 0.34);
+  const rz = Math.min(1.75, 0.8 + gw * 0.12);
+  const gx = geese.x1 - rx * 1.32;
+  const gz = geese.z1 - rz * 1.32 - 0.1;
+  for (let k = 0; k < 16; k++) {
+    const a = k * 2.399;
+    if (Math.sin(a) > -0.3 && Math.cos(a) < 0.2) continue;
+    reed(gx + Math.cos(a) * rx * 1.02, gz + Math.sin(a) * rz * 1.02, 0.34 + (k % 3) * 0.08, parts, 0.03 * ((k % 3) - 1), k % 2 === 0);
+  }
   const g = groupOf(parts, ...windows);
-  g.add(wirePanels(wire, 0.14, 0.7));
-  // enseignes : le nom de la boutique, et un écriteau par parc
-  const sign = textPanel('ANIMALERIE', level >= 3 ? 3.2 : level === 2 ? 2.8 : 2.3, level >= 3 ? 0.46 : 0.4, 0x2f6f4e, '#fbf6e8');
-  sign.position.set(0, (level >= 3 ? 2.05 : level === 2 ? 1.7 : 1.4) + 0.2, -0.5);
-  g.add(sign);
+  const pond = pondGeometry(gx, gz, rx, rz, level, 0x8cbd66);
+  for (const [geo, mat] of [
+    [pond.bank, GROUND_MAT],
+    [pond.water, WATER_MAT],
+  ] as const) {
+    const m = new THREE.Mesh(geo, mat);
+    m.position.y = 0.018;
+    m.receiveShadow = true;
+    g.add(m);
+  }
+  // quelques pommiers le long du fond, pour l'ombre
+  const trees: THREE.BufferGeometry[] = [];
+  const nt = Math.floor(hw / 7);
+  for (let k = 0; k < nt; k++) trees.push(speciesGeometry('apple').clone().scale(0.62, 0.62, 0.62).rotateY(k * 1.3).translate(hens.x0 + ((k + 1) * hw) / (nt + 1) - 0.2, 0.05, hens.z0 + 1.15));
+  if (trees.length) {
+    const m = new THREE.Mesh(trees.length > 1 ? merge(trees) : trees[0], TREE_MAT);
+    m.castShadow = true;
+    g.add(m);
+  }
+  // l'enseigne de la boutique, en grand, sur le bas du toit
+  const sw = Math.min(bw * 0.8, level >= 5 ? 3.2 : 5.2);
+  const sh = level >= 3 ? 0.62 : 0.5;
+  const sign = textPanel(level === 5 ? 'MAISON DES VOLAILLES' : 'ANIMALERIE', sw, sh, 0x2f6f4e, '#fbf6e8');
+  const sy = y1 + sh / 2 + 0.04;
+  const sz = level === 5 ? 3.26 : 3.22;
+  sign.position.set(0.3 + bw / 2, sy, sz);
+  g.add(sign, mesh(merge([box(sw + 0.14, sh + 0.12, 0.05, C.woodDark, [0.3 + bw / 2, sy, sz - 0.04]), box(0.06, sy, 0.06, C.woodDark, [0.3 + bw / 2 - sw / 2 + 0.2, sy / 2, sz - 0.06]), box(0.06, sy, 0.06, C.woodDark, [0.3 + bw / 2 + sw / 2 - 0.2, sy / 2, sz - 0.06])])));
+  // l'écriteau de chaque parc, sur la clôture côté trottoir
   const label = (text: string, a: { x0: number; x1: number; z1: number }, bg: number) => {
-    const m = textPanel(text, 0.86, 0.3, bg, '#fbf6e8');
-    m.position.set((a.x0 + a.x1) / 2, 0.92, a.z1 + 0.04);
-    g.add(m, mesh(merge([box(0.05, 0.24, 0.04, C.woodDark, [(a.x0 + a.x1) / 2 - 0.3, 0.74, a.z1 + 0.02]), box(0.05, 0.24, 0.04, C.woodDark, [(a.x0 + a.x1) / 2 + 0.3, 0.74, a.z1 + 0.02])])));
+    const x = a.x0 + Math.min(1, (a.x1 - a.x0) / 2);
+    const m = textPanel(text, 1.1, 0.36, bg, '#fbf6e8');
+    m.position.set(x, 0.74, a.z1 + 0.05);
+    g.add(m, mesh(merge([box(0.05, 0.56, 0.04, C.woodDark, [x - 0.4, 0.4, a.z1 + 0.02]), box(0.05, 0.56, 0.04, C.woodDark, [x + 0.4, 0.4, a.z1 + 0.02])])));
   };
   label('POULES', hens, 0xb5573b);
   label('OIES', geese, 0x3f6f9e);
+  void w;
   return { group: g, eggSlots: [], eggMeshes: [], key: `petshop${level}` };
 }
 
@@ -1433,29 +1608,19 @@ export function buildingModel(type: BuildingType, level: number): BuildingView {
  */
 export function flowerGeometry() {
   const parts: THREE.BufferGeometry[] = [];
-  // pâquerette : pétales blancs en étoile, cœur jaune
+  // pâquerette : une corolle blanche à plat, un cœur jaune
   parts.push(cyl(0.006, 0.008, 0.16, 3, 0x5f9c45, [0, 0.08, 0]));
-  for (let i = 0; i < 7; i++) {
-    const a = (i / 7) * Math.PI * 2;
-    parts.push(box(0.045, 0.006, 0.016, 0xfbfaf6, [Math.cos(a) * 0.026, 0.162, Math.sin(a) * 0.026], [0, -a, 0.2]));
-  }
-  parts.push(ico(0.014, 0, 0xf4c43a, [0, 0.168, 0]));
+  parts.push(cyl(0.047, 0.047, 0.006, 7, 0xfbfaf6, [0, 0.162, 0]));
+  parts.push(cyl(0.016, 0.016, 0.008, 5, 0xf4c43a, [0, 0.168, 0]));
   // bouton d'or : petite coupe jaune brillant
   parts.push(cyl(0.005, 0.007, 0.12, 3, 0x5f9c45, [0.07, 0.06, 0.03], [0, 0, -0.15]));
-  parts.push(cone(0.022, 0.03, 6, 0xf2cf2b, [0.087, 0.13, 0.03], [Math.PI, 0, 0]));
-  parts.push(ico(0.008, 0, 0xe8a91f, [0.087, 0.13, 0.03]));
-  // trèfle : tête rose-mauve et feuilles en trois folioles
+  parts.push(cone(0.024, 0.03, 5, 0xf2cf2b, [0.087, 0.13, 0.03], [Math.PI, 0, 0]));
+  // trèfle : tête rose-mauve et une feuille
   parts.push(cyl(0.005, 0.007, 0.09, 3, 0x5f9c45, [-0.05, 0.045, 0.05], [0.1, 0, 0.12]));
-  parts.push(ico(0.022, 1, 0xc9709c, [-0.056, 0.098, 0.055], [1, 1.15, 1]));
-  for (let i = 0; i < 3; i++) {
-    const a = (i / 3) * Math.PI * 2 + 0.4;
-    parts.push(cyl(0.018, 0.018, 0.004, 6, 0x4f8f3a, [-0.03 + Math.cos(a) * 0.02, 0.035, 0.08 + Math.sin(a) * 0.02]));
-  }
+  parts.push(ico(0.024, 0, 0xc9709c, [-0.056, 0.098, 0.055], [1, 1.15, 1]));
+  parts.push(cyl(0.03, 0.03, 0.004, 5, 0x4f8f3a, [-0.03, 0.035, 0.08]));
   // feuilles de la pâquerette au ras du sol
-  for (let i = 0; i < 4; i++) {
-    const a = (i / 4) * Math.PI * 2 + 0.7;
-    parts.push(box(0.05, 0.004, 0.018, 0x568f3c, [Math.cos(a) * 0.03, 0.016, Math.sin(a) * 0.03], [0, -a, 0]));
-  }
+  for (let i = 0; i < 2; i++) parts.push(box(0.07, 0.004, 0.02, 0x568f3c, [0, 0.016, 0], [0, (i * Math.PI) / 2 + 0.7, 0]));
   return merge(parts);
 }
 

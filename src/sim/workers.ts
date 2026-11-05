@@ -1,19 +1,19 @@
 // Le personnel : des salariés visibles qui se déplacent dans la ferme et font réellement
 // le travail (ramassage, remplissage, nettoyage, soins, arrosage, vente au comptoir).
-import { BIRD_ORDERS, FRESHNESS, TIME, GRAIN_SACKS, GRID_H, GRID_W, PREDATORS, WORLD, clamp, gradeOf, sackPrice } from '../config/balance';
+import { BIRD_ORDERS, PETSHOP, WORKER_SKILLS, FRESHNESS, TIME, GRAIN_SACKS, GRID_H, GRID_W, PREDATORS, WORLD, clamp, gradeOf, sackPrice } from '../config/balance';
 import { BUILDINGS, STAND_POS, sizeOf, standLayout, HALL_DOOR } from '../config/buildings';
 import { ROLES, STAFF, WORKER_NAMES } from '../config/staff';
 import { buildingCenter, canStand, cellIndex, coopDoor, cellX, cellZ, crossesFence, currentDay, facadeHeading, frontOf, toWorld, currentHour, emit, inGrid, isWalkable, nearestWalkable, newId, notify, pick, planPath, rand, randRange, rt, isShelter } from './core';
 import { PREDATOR_INFO, damagePredator, distanceToFarm, predatorAimY } from './predators';
-import { LOADER_SPOTS, TRUCK_LANE, pickupTailX } from './deliveries';
-import { henMovable } from './hens';
+import { RAMP_FOOT, TRUCK_X } from './deliveries';
+import { henMovable, henValue } from './hens';
 import { addXp, buyLevel, fmtMoney, spend } from './economy';
 import { addToStorage, removeWorldEgg } from './eggs';
 import { cleaningCost } from './buildings';
 import { grainCapacity, grainPerDay, takeGrain, takeWater, waterCapacity } from './stocks';
-import { buyGrain, fillTank } from './actions';
+import { buyGrain, buyHen, checkBuyHen, extraRoosters, fillTank, maleWords, sellHen } from './actions';
 import { getBuilding, lvl, storage, storageFree } from './queries';
-import type { ActionResult, Building, GameState, Predator, Worker, WorkerJob, WorkerJobKind, WorkerRole } from './types';
+import type { ActionResult, Building, GameState, Predator, Worker, WorkerJob, WorkerJobKind, WorkerRole, WorkerSkill } from './types';
 
 // Trajets extérieurs : maison → allée → chemin le long de la clôture → portail (ou arrière de l'étal)
 const HOUSE = HALL_DOOR;
@@ -71,7 +71,7 @@ export function sellerAtStand(s: GameState) {
   return s.workers.some((w) => w.role === 'seller' && w.onSite && w.job?.kind === 'stand');
 }
 export function dailyWages(s: GameState) {
-  return s.workers.reduce((a, w) => a + ROLES[w.role].wage, 0);
+  return s.workers.reduce((a, w) => a + ROLES[w.role].wage, 0) + (s.petShop.seller ? PETSHOP.sellerWage : 0);
 }
 export function basketCount(w: Worker) {
   return w.basket.reduce((a, l) => a + l.count, 0);
@@ -119,8 +119,7 @@ export const JOB_LABELS: Record<WorkerJobKind, string> = {
   closeCoop: 'Ferme la trappe du poulailler',
   openCoop: 'Ouvre la trappe du poulailler',
   hunt: 'Traque le prédateur, fusil en main',
-  loadTruck: 'Charge le camion du revendeur',
-  loadBack: 'Rentre du camion',
+  loadTruck: 'Pousse les volailles vers le camion',
 };
 
 /** Le commis et le jardinier sont armés ; le vendeur et le soigneur restent à leur poste. */
@@ -474,24 +473,111 @@ function pickupOnTheWay(s: GameState, w: Worker) {
   }
 }
 
-/** Va prêter main-forte au camion du revendeur, par le portail. */
+/** Va pousser les volailles vers la rampe du camion, entré dans l'enclos. */
 function goLoadTruck(s: GameState, w: Worker) {
   const L = s.birdLoad;
   if (!L || L.leave !== undefined || s.clock.t < L.eta - BIRD_ORDERS.prep) return false;
-  const others = s.workers.filter((o) => o.job?.kind === 'loadTruck');
-  if (others.length >= BIRD_ORDERS.helpers) return false;
-  const used = new Set(others.map((o) => o.job!.tx));
-  const spot = LOADER_SPOTS.find(([x]) => !used.has(x)) ?? LOADER_SPOTS[0];
-  const inside = humanPath(s, w.x, w.z, 14.5, 29.5) ?? [14.5, 29.5];
-  w.path = [...inside, 14.5, 30.4, 14.5, WORLD.WALK_Z - 0.6, spot[0], WORLD.WALK_Z - 0.6, spot[0], spot[1]];
-  w.job = { kind: 'loadTruck', targetId: L.id, tx: spot[0], tz: spot[1], phase: 'walk', t: 1e9 };
+  if (s.workers.filter((o) => o.job?.kind === 'loadTruck').length >= BIRD_ORDERS.helpers) return false;
+  const tx = TRUCK_X + 3;
+  const tz = RAMP_FOOT;
+  w.path = humanPath(s, w.x, w.z, tx, tz) ?? [tx, tz];
+  w.job = { kind: 'loadTruck', targetId: L.id, tx, tz, phase: 'walk', t: 1e9 };
   return true;
 }
 
-/** Le chargement est fini (ou la journée) : il rentre par le portail, sans enjamber le grillage. */
-function backFromTruck(w: Worker) {
-  w.path = [w.x, WORLD.WALK_Z - 0.6, 14.5, WORLD.WALK_Z - 0.6, 14.5, 30.4, 14.5, 29.5];
-  w.job = { kind: 'loadBack', targetId: -1, tx: 14.5, tz: 29.5, phase: 'walk', t: 0 };
+/** Il marche derrière le groupe, bras écartés : les volailles avancent devant lui vers la rampe. */
+function herd(s: GameState, w: Worker, dt: number) {
+  let cx = 0;
+  let cz = 0;
+  let n = 0;
+  for (const h of s.hens) {
+    if (!h.ship) continue;
+    cx += h.x;
+    cz += h.z;
+    n++;
+  }
+  const fz = RAMP_FOOT;
+  if (n) {
+    cx /= n;
+    cz /= n;
+    let nx = cx - TRUCK_X;
+    let nz = cz - fz;
+    const d = Math.hypot(nx, nz);
+    // le groupe est déjà devant la rampe : il ferme le passage du côté de l'enclos
+    if (d < 0.6) {
+      nx = 1;
+      nz = 0;
+    } else {
+      nx /= d;
+      nz /= d;
+    }
+    // chacun son côté du groupe
+    const side = s.workers.filter((o) => o.job?.kind === 'loadTruck').indexOf(w) ? 1.3 : -1.3;
+    const back = Math.max(d + 1.5, 2.8);
+    // (il reste dans l'enclos : jamais de l'autre côté de la clôture)
+    const tx = Math.max(0.3, TRUCK_X + nx * back - nz * side);
+    const tz = Math.min(29.6, fz + nz * back + nx * side);
+    const dx = tx - w.x;
+    const dz = tz - w.z;
+    const l = Math.hypot(dx, dz);
+    if (l > 0.15) {
+      const step = Math.min(l, STAFF.walkSpeed * 0.75 * dt);
+      const sx = (dx / l) * step;
+      const sz = (dz / l) * step;
+      // il longe ce qui le gêne (le camion, une clôture) plutôt que de rester planté
+      if (canStand(s, w.x + sx, w.z + sz, 0.1)) {
+        w.x += sx;
+        w.z += sz;
+      } else if (canStand(s, w.x + sx, w.z, 0.1)) w.x += sx;
+      else if (canStand(s, w.x, w.z + sz, 0.1)) w.z += sz;
+    }
+  }
+  face(w, TRUCK_X, fz);
+}
+
+/**
+ * Chaque heure, les droits achetés pour un commis présent : il vend les coqs et les jars en trop (en
+ * gardant le meilleur de chaque), et remplace les volailles malades quand c'est possible.
+ */
+export function workerSkillsHourly(s: GameState) {
+  const on = (skill: WorkerSkill) => s.workers.find((w) => w.role === 'farmhand' && w.onSite && w.skills?.includes(skill));
+  const r = on('roosters');
+  if (r) {
+    const extra = extraRoosters(s);
+    if (extra.length) {
+      let total = 0;
+      for (const h of extra) {
+        total += henValue(h);
+        sellHen(s, h.id);
+      }
+      notify(s, `${r.name} a vendu ${maleWords(extra)} en trop : +${fmtMoney(total)}.`, 'good', '🐓');
+    }
+  }
+  const c = on('sick');
+  if (c) {
+    const sick = s.hens.filter((h) => h.sick && !h.young && !h.rooster && !h.golden && !h.legendary && !h.ship && h.act !== 'caught');
+    let sold = 0;
+    let bought = 0;
+    let total = 0;
+    for (const h of sick) {
+      total += henValue(h);
+      sellHen(s, h.id);
+      sold++;
+      if (checkBuyHen(s, h.breed).ok && buyHen(s, h.breed).ok) bought++;
+    }
+    if (sold) notify(s, `${c.name} a vendu ${sold} volaille${sold > 1 ? 's' : ''} malade${sold > 1 ? 's' : ''} (+${fmtMoney(total)})${bought ? ` et en a racheté ${bought}` : ' mais n’a pas pu en racheter'}.`, bought ? 'good' : 'info', '🩺');
+  }
+}
+
+/** Achète une option pour ce commis. */
+export function buyWorkerSkill(s: GameState, id: number, skill: WorkerSkill): ActionResult {
+  const w = s.workers.find((x) => x.id === id);
+  if (!w || w.role !== 'farmhand') return { ok: false, reason: 'Réservé aux commis de ferme' };
+  if (w.skills?.includes(skill)) return { ok: false, reason: 'Il sait déjà le faire' };
+  const def = WORKER_SKILLS[skill];
+  if (!spend(s, def.price, 'salaires', `${w.name} : ${def.name.toLowerCase()}`)) return { ok: false, reason: 'Fonds insuffisants' };
+  (w.skills ??= []).push(skill);
+  return { ok: true };
 }
 
 function chooseFarmhandJob(s: GameState, w: Worker) {
@@ -808,7 +894,6 @@ function complete(s: GameState, w: Worker, j: WorkerJob) {
     case 'waitCoop':
     case 'hunt':
     case 'loadTruck':
-    case 'loadBack':
       return;
   }
 }
@@ -984,21 +1069,17 @@ export function updateWorkers(s: GameState, dt: number) {
         w.path = [];
       }
     }
-    // au camion : il va à sa place, charge tant qu'il y a de quoi, puis rentre par le portail
-    if (w.job?.kind === 'loadBack') {
-      if (follow(s, w, dt)) w.job = null;
-      continue;
-    }
+    // au camion : il rejoint le groupe de volailles et le pousse vers la rampe
     if (w.job?.kind === 'loadTruck') {
       const L = s.birdLoad;
       if (!L || L.id !== w.job.targetId || L.leave !== undefined || !working) {
-        backFromTruck(w);
+        w.job = null;
+        w.path = [];
         continue;
       }
-      if (w.job.phase === 'walk' && follow(s, w, dt)) {
-        w.job.phase = 'work';
-        face(w, pickupTailX, TRUCK_LANE);
-      }
+      if (w.job.phase === 'walk') {
+        if (follow(s, w, dt)) w.job.phase = 'work';
+      } else herd(s, w, dt);
       continue;
     }
     // le commis ne rentre jamais avant d'avoir enfermé les poules : il part en dernier

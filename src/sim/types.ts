@@ -43,7 +43,7 @@ export interface Hen {
   id: number;
   name: string;
   breed: BreedId;
-  /** Vendue à un revendeur : elle rejoint le portail, d'où elle partira dans le camion. */
+  /** Vendue à un revendeur : elle rejoint le camion, entré dans l'enclos. */
   ship?: boolean;
   /** Âge en jours de jeu depuis l'arrivée à la ferme. */
   age: number;
@@ -147,9 +147,8 @@ export type WorkerJobKind =
   | 'openCoop'
   /** Salarié armé : traque un prédateur et lui tire dessus. */
   | 'hunt'
-  /** Commis : aide à charger le camion d'un revendeur, puis rentre par le portail. */
-  | 'loadTruck'
-  | 'loadBack';
+  /** Commis : pousse les volailles vers la rampe du camion du revendeur. */
+  | 'loadTruck';
 
 export interface WorkerJob {
   kind: WorkerJobKind;
@@ -170,9 +169,13 @@ export interface BasketLot {
   genes?: string;
 }
 
+/** Options payantes d'un commis (voir WORKER_SKILLS). */
+export type WorkerSkill = 'roosters' | 'sick';
+
 export interface Worker {
   id: number;
   role: WorkerRole;
+  skills?: WorkerSkill[];
   name: string;
   look: number;
   x: number;
@@ -456,7 +459,7 @@ export interface BirdLoad {
   orderId: number;
   /** Arrivée du camion à sa place, au bord de la route. */
   eta: number;
-  /** Les volailles ont pris le chemin du portail. */
+  /** Les volailles ont pris le chemin du camion. */
   called: boolean;
   henIds: number[];
   loaded: number;
@@ -653,7 +656,19 @@ export interface GameState {
   worldEggs: WorldEgg[];
   lots: EggLot[];
   /** L'animalerie : volailles en vitrine, prix fixés par le joueur, surplus envoyé d'office. */
-  petShop: { birds: Hen[]; prices: Partial<Record<BreedId, number>>; auto?: boolean; soldDay?: number; soldToday?: number };
+  petShop: {
+    birds: Hen[];
+    prices: Partial<Record<BreedId, number>>;
+    /** Vendeur embauché (salaire quotidien) ; il remet des volailles en vitrine si restock est coché. */
+    seller?: boolean;
+    restock?: boolean;
+    /** Poules qu'il laisse toujours à la ferme. */
+    keep?: number;
+    /** Le joueur a été prévenu que l'emplacement est disponible. */
+    announced?: boolean;
+    soldDay?: number;
+    soldToday?: number;
+  };
   petCustomers: Customer[];
   birdOrders: BirdOrder[];
   birdLoad: BirdLoad | null;

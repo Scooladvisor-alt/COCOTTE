@@ -1124,6 +1124,126 @@ export function henGeometry(breed: BreedId, kind: HenKind = 'hen', stage = ADULT
   return g;
 }
 
+// ------------------------------------------------------ Niveaux de détail ----
+/**
+ * Allège un modèle en regroupant les sommets proches (grille de `cell` mètres). Le plumage garde ses
+ * couleurs, moyennées ; les faces opposées d'une plume ne sont pas confondues.
+ */
+function decimate(src: THREE.BufferGeometry, cell: number, keepSides = true) {
+  const pos = src.attributes.position as THREE.BufferAttribute;
+  const nor = src.attributes.normal as THREE.BufferAttribute;
+  const col = src.attributes.color as THREE.BufferAttribute;
+  const map = new Map<number, number>();
+  const px: number[] = [];
+  const nx: number[] = [];
+  const cx: number[] = [];
+  const cnt: number[] = [];
+  const remap = new Int32Array(pos.count);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+    const a = nor.getX(i);
+    const b = nor.getY(i);
+    const c = nor.getZ(i);
+    const oct = keepSides ? (a > 0 ? 1 : 0) + (b > 0 ? 2 : 0) + (c > 0 ? 4 : 0) : 0;
+    const key = Math.floor(x / cell + 512) + Math.floor(y / cell + 512) * 1024 + Math.floor(z / cell + 512) * 1048576 + oct * 1073741824;
+    let k = map.get(key);
+    if (k === undefined) {
+      k = cnt.length;
+      map.set(key, k);
+      cnt.push(0);
+      px.push(0, 0, 0);
+      nx.push(0, 0, 0);
+      cx.push(0, 0, 0);
+    }
+    px[k * 3] += x;
+    px[k * 3 + 1] += y;
+    px[k * 3 + 2] += z;
+    nx[k * 3] += a;
+    nx[k * 3 + 1] += b;
+    nx[k * 3 + 2] += c;
+    cx[k * 3] += col.getX(i);
+    cx[k * 3 + 1] += col.getY(i);
+    cx[k * 3 + 2] += col.getZ(i);
+    cnt[k]++;
+    remap[i] = k;
+  }
+  const n = cnt.length;
+  const P = new Float32Array(n * 3);
+  const N = new Float32Array(n * 3);
+  const C = new Float32Array(n * 3);
+  for (let k = 0; k < n; k++) {
+    const w = cnt[k];
+    P[k * 3] = px[k * 3] / w;
+    P[k * 3 + 1] = px[k * 3 + 1] / w;
+    P[k * 3 + 2] = px[k * 3 + 2] / w;
+    const l = Math.hypot(nx[k * 3], nx[k * 3 + 1], nx[k * 3 + 2]) || 1;
+    N[k * 3] = nx[k * 3] / l;
+    N[k * 3 + 1] = nx[k * 3 + 1] / l;
+    N[k * 3 + 2] = nx[k * 3 + 2] / l;
+    C[k * 3] = cx[k * 3] / w;
+    C[k * 3 + 1] = cx[k * 3 + 1] / w;
+    C[k * 3 + 2] = cx[k * 3 + 2] / w;
+  }
+  const idx: number[] = [];
+  const ind = src.index;
+  const m = ind ? ind.count : pos.count;
+  for (let i = 0; i < m; i += 3) {
+    const a = remap[ind ? ind.getX(i) : i];
+    const b = remap[ind ? ind.getX(i + 1) : i + 1];
+    const c = remap[ind ? ind.getX(i + 2) : i + 2];
+    if (a !== b && b !== c && a !== c) idx.push(a, b, c);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(N, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(C, 3));
+  g.setIndex(idx);
+  g.computeBoundingSphere();
+  return g;
+}
+
+/** Taille de la grille de simplification : de quoi garder la silhouette à la distance de jeu. */
+const MID_CELL = 0.042;
+const FAR_CELL = 0.09;
+const midCache = new Map<string, HenGeo>();
+const farCache = new Map<string, THREE.BufferGeometry>();
+
+/** Le modèle de tous les jours : mêmes pièces articulées, une fraction des triangles. */
+export function henGeometryMid(breed: BreedId, kind: HenKind = 'hen', stage = ADULT_STAGE, skin = 0): HenGeo {
+  const ck = `${breed}:${kind}:${stage}:${skin}`;
+  let g = midCache.get(ck);
+  if (!g) {
+    const f = henGeometry(breed, kind, stage, skin);
+    g = { body: decimate(f.body, MID_CELL), head: decimate(f.head, MID_CELL), wingL: decimate(f.wingL, MID_CELL), wingR: decimate(f.wingR, MID_CELL), leg: decimate(f.leg, MID_CELL), eyes: f.eyes, eyeAt: f.eyeAt };
+    midCache.set(ck, g);
+  }
+  return g;
+}
+
+/** Le modèle des vues d'ensemble : l'oiseau d'un seul tenant, sans articulations (une seule pièce à dessiner). */
+export function henGeometryFar(breed: BreedId, kind: HenKind = 'hen', stage = ADULT_STAGE, skin = 0) {
+  const ck = `${breed}:${kind}:${stage}:${skin}`;
+  let g = farCache.get(ck);
+  if (!g) {
+    const f = henGeometry(breed, kind, stage, skin);
+    const at = (geo: THREE.BufferGeometry, p: readonly [number, number, number]) => geo.clone().translate(p[0], p[1], p[2]);
+    const whole = merge([
+      at(f.body, [0, HEN_PIVOT.body, 0]),
+      at(f.head, HEN_PIVOT.neck),
+      at(f.wingL, HEN_PIVOT.wing),
+      at(f.wingR, [-HEN_PIVOT.wing[0], HEN_PIVOT.wing[1], HEN_PIVOT.wing[2]]),
+      at(f.leg, HEN_PIVOT.hip),
+      at(f.leg, [-HEN_PIVOT.hip[0], HEN_PIVOT.hip[1], HEN_PIVOT.hip[2]]),
+    ]);
+    g = decimate(whole, FAR_CELL, false);
+    whole.dispose();
+    farCache.set(ck, g);
+  }
+  return g;
+}
+
 // ---------------------------------------------------------------- Oies ----
 /** Yeux de l'oie (repère du cou) : haut sur la tête, au bout du long cou. */
 const GOOSE_EYE: [number, number] = [0.282, 0.062];

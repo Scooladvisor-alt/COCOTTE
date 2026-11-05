@@ -2,11 +2,11 @@
 // et assainissement complet des données lues (valeurs manquantes, corrompues ou obsolètes).
 import { DELIVERY, EGG_ORDER, EGG_TYPES, GRAIN_BINS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, HOUR, SAVE_VERSION, TIME, WATER, WATER_TANKS, WORLD, clamp } from '../config/balance';
 import { BREEDS, isGoose } from '../config/breeds';
-import { BUILDINGS } from '../config/buildings';
+import { BUILDINGS, PET_POS } from '../config/buildings';
 import { MISSIONS } from '../config/missions';
 import { coopDoor, invalidateLayout, isShelterType } from '../sim/core';
 import { createNewGame, makeBuilding } from '../sim/state';
-import type { BreedId, Building, Delivery, BuildingType, EggType, GameState, Grade, Hen, HenAct, Worker, WorkerRole } from '../sim/types';
+import type { BreedId, Building, Delivery, BuildingType, EggType, GameState, Grade, Hen, HenAct, Worker, WorkerRole, WorkerSkill } from '../sim/types';
 import { ROLES } from '../config/staff';
 import { createWorker } from '../sim/workers';
 import { rehouseGeese, settleIncubators } from '../sim/actions';
@@ -230,6 +230,11 @@ export function sanitize(input: unknown): GameState | null {
     const def = BUILDINGS[type];
     const nb: Building = makeBuilding(int(b.id, s.nextId++), type, int(b.x, 0, -5, GRID_W + 5), int(b.z, 0, GRID_Z0 - 5, GRID_Z1 + 10));
     nb.level = int(b.level, 1, 1, def.levels.length);
+    // l'animalerie a sa place fixe : elle y revient quoi qu'en dise la sauvegarde
+    if (type === 'petshop') {
+      nb.x = PET_POS.x;
+      nb.z = PET_POS.z;
+    }
     const cap = def.levels[nb.level - 1].capacity;
     nb.stock = num(b.stock, nb.stock, 0, cap);
     nb.cleanliness = num(b.cleanliness, 100, 0, 100);
@@ -345,7 +350,12 @@ export function sanitize(input: unknown): GameState | null {
   }
   const petPrices = obj(pet.prices);
   for (const b of Object.keys(BREEDS) as BreedId[]) if (typeof petPrices[b] === 'number') s.petShop.prices[b] = int(petPrices[b], BREEDS[b].price, 10, BREEDS[b].price * 4);
-  if (bool(pet.auto, false)) s.petShop.auto = true;
+  if (bool(pet.seller, false)) {
+    s.petShop.seller = true;
+    if (bool(pet.restock, false)) s.petShop.restock = true;
+  }
+  if (typeof pet.keep === 'number') s.petShop.keep = int(pet.keep, 30, 0, 100000);
+  if (bool(pet.announced, false)) s.petShop.announced = true;
   if (typeof pet.soldDay === 'number') {
     s.petShop.soldDay = int(pet.soldDay, 0, 0);
     s.petShop.soldToday = int(pet.soldToday, 0, 0);
@@ -488,6 +498,8 @@ export function sanitize(input: unknown): GameState | null {
     nw.name = str(w.name, nw.name, 20);
     nw.look = int(w.look, nw.look, 0, 100000);
     nw.hiredDay = int(w.hiredDay, 1);
+    const skills = arr(w.skills).filter((k): k is WorkerSkill => k === 'roosters' || k === 'sick');
+    if (skills.length) nw.skills = skills;
     const basket = arr(w.basket)
       .map((rl) => {
         const l = obj(rl);

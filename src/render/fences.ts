@@ -60,6 +60,8 @@ export class FenceLayer {
     // poteaux : le plus robuste des grillages qui se rejoignent à ce sommet
     const posts = new Map<string, number>();
     for (const { code, v } of edges) {
+      // (le grand portail du camion est dessiné à part, avec le camion)
+      if (v === 5) continue;
       const [x0, z0, x1, z1] = edgeEnds(code);
       if (v === 3) gates.push(code);
       else if (v === 2) panels.strong.push(code);

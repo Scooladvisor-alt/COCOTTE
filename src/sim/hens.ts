@@ -1,5 +1,6 @@
 // Les poules : besoins, santé, bien-être, ponte et comportement (machine à états).
-import {
+import { RAMP_FOOT } from './deliveries';
+import { BIRD_ORDERS, TRUCK_BAY,
   BREEDING,
   COMPOST,
   DAYTIME_SECONDS,
@@ -269,12 +270,16 @@ interface VitalsCache {
   caretaker: boolean;
   /** Une poule légendaire vit à la ferme : son aura apaise le troupeau. */
   phoenix: boolean;
+  /** Densité du troupeau, et l'instant et l'effectif pour lesquels elle a été comptée. */
+  density: number;
+  densityT: number;
+  densityN: number;
 }
 const vitals = new WeakMap<GameState, VitalsCache>();
 
 function vitalsCache(s: GameState) {
   let v = vitals.get(s);
-  if (!v) vitals.set(s, (v = { acc: 0, parcelGrass: new Map(), soieCoops: new Set(), drinkerHealth: 0, caretaker: false, phoenix: false }));
+  if (!v) vitals.set(s, (v = { acc: 0, density: 0, densityT: -1, densityN: -1, parcelGrass: new Map(), soieCoops: new Set(), drinkerHealth: 0, caretaker: false, phoenix: false }));
   return v;
 }
 
@@ -301,7 +306,13 @@ export function wellbeingTarget(s: GameState, h: Hen, v = vitalsCache(s)) {
   const key = parcelKeyOfCell(Math.floor(h.x), Math.floor(h.z));
   const grass = v.parcelGrass.get(key) ?? 0.5;
   // les poussins comptent peu dans la densité du troupeau
-  const density = s.hens.reduce((a, o) => a + (o.young ? 0.25 : 1), 0) / Math.max(1, landCapacity(s));
+  // (compté une seule fois par instant, et non pour chaque poule)
+  if (v.densityT !== s.clock.t || v.densityN !== s.hens.length) {
+    v.densityT = s.clock.t;
+    v.densityN = s.hens.length;
+    v.density = s.hens.reduce((a, o) => a + (o.young ? 0.25 : 1), 0) / Math.max(1, landCapacity(s));
+  }
+  const density = v.density;
   let t = WELLBEING.base;
   t += comfort * WELLBEING.comfortWeight;
   t += ((clean - 50) / 50) * WELLBEING.cleanWeight;
@@ -574,7 +585,13 @@ export interface HenRt {
   rangeZ: number;
   rangeUntil: number;
 }
-const henRts = new WeakMap<Hen, HenRt>();
+/** État de travail de chaque poule, rangé sur elle : ni sauvegardé, ni recopié, et lu très souvent. */
+const RT = Symbol('rt');
+type WithRt = Hen & { [RT]?: HenRt };
+const henRts = {
+  get: (h: Hen) => (h as WithRt)[RT],
+  set: (h: Hen, r: HenRt) => Object.defineProperty(h, RT, { value: r, enumerable: false, writable: true }),
+};
 export function rtHen(h: Hen): HenRt {
   let r = henRts.get(h);
   if (!r) {
@@ -984,9 +1001,39 @@ const RANGE_R = 3.5;
 
 /** Poules (éveillées) dans un rayon donné. */
 function henCount(s: GameState, x: number, z: number, rad: number, self: Hen) {
+  // (la grille de voisinage du pas en cours : on ne compare qu'aux poules des cases d'à côté)
+  const g = sepGrid;
+  const cx = g.cx(x);
+  const cz = g.cz(z);
+  const R = Math.ceil(rad);
   let n = 0;
-  for (const o of s.hens) if (o !== self && o.act !== 'sleep' && (o.x - x) ** 2 + (o.z - z) ** 2 < rad * rad) n++;
+  for (let j = -R; j <= R; j++)
+    for (let i = -R; i <= R; i++)
+      for (let k = g.first(cx + i, cz + j); k >= 0; k = g.next[k]) {
+        const o = s.hens[k];
+        if (o && o !== self && (o.x - x) ** 2 + (o.z - z) ** 2 < rad * rad) n++;
+      }
   return n;
+}
+
+/** Parcelles de l'enclos où se trouve ce point (gardé en mémoire tant que le terrain ne change pas). */
+const areaParcels = new WeakMap<object, { version: number; byArea: Map<number, string[]> }>();
+function parcelsOfArea(s: GameState, x: number, z: number) {
+  const r = rt(s);
+  const cx = Math.floor(x);
+  const cz = Math.floor(z);
+  const area = inGrid(cx, cz) ? r.area[cellIndex(cx, cz)] : -1;
+  let c = areaParcels.get(r);
+  if (!c || c.version !== r.version) areaParcels.set(r, (c = { version: r.version, byArea: new Map() }));
+  let list = c.byArea.get(area);
+  if (!list) {
+    list = s.parcels.filter((k) => {
+      const [px, pz] = parcelCenter(...parcelCoords(k));
+      return sameArea(s, x, z, px, pz);
+    });
+    c.byArea.set(area, list);
+  }
+  return list;
 }
 
 /**
@@ -999,10 +1046,7 @@ function chooseRange(s: GameState, h: Hen) {
   let best: [number, number] | null = null;
   let bs = -Infinity;
   // les parcelles de son enclos (toutes, si leur centre est bâti ou si l'enclos est partagé)
-  const mine = s.parcels.filter((k) => {
-    const [cx, cz] = parcelCenter(...parcelCoords(k));
-    return sameArea(s, h.x, h.z, cx, cz);
-  });
+  const mine = parcelsOfArea(s, h.x, h.z);
   const pool = mine.length ? mine : s.parcels;
   const evening = currentHour(s) >= TIME.NIGHT_START - 4;
   const coop = getBuilding(s, h.coopId);
@@ -1674,8 +1718,18 @@ function startFlee(s: GameState, h: Hen, px: number, pz: number, hawk = false) {
   setAct(h, 'flap', 0.6);
 }
 
-/** En route vers le portail, sans s'arrêter en chemin ; bloquée trop longtemps, elle se faufile. */
+const WORLD_GATHER_Z = 29.55;
+
+/**
+ * Vendue : elle se dirige vers la rampe du camion, sans s'arrêter en chemin, et presse le pas quand
+ * un commis arrive derrière elle. Bloquée trop longtemps, elle se faufile.
+ */
 function shipTick(s: GameState, h: Hen, r: HenRt, dt: number) {
+  const L = s.birdLoad;
+  if (!L) {
+    delete h.ship;
+    return;
+  }
   if (h.act === 'sleep') {
     const coop = getBuilding(s, h.coopId);
     if (coop) {
@@ -1684,18 +1738,27 @@ function shipTick(s: GameState, h: Hen, r: HenRt, dt: number) {
       h.z = d.z;
     }
   }
-  const tx = GATE.x + 0.5 + h.ox * 0.7;
-  const tz = GATE.z + 0.2 - Math.abs(h.oz) * 0.9;
+  // elles attendent devant la rampe, entre le hayon et le portail ; celles qui sont de l'autre côté du
+  // camion le contournent par l'est
+  const a = h.id * 2.399;
+  const spread = (h.id * 0.618) % 1;
+  let tx = BIRD_ORDERS.laneX + 1.4 + Math.cos(a) * spread * 1.4;
+  let tz = Math.min(WORLD_GATHER_Z, RAMP_FOOT + 0.35 + Math.abs(Math.sin(a)) * spread * 1.1);
+  if (h.z < RAMP_FOOT - 0.5 && h.x < TRUCK_BAY.x1 + 2.3) {
+    tx = TRUCK_BAY.x1 + 2.4;
+    tz = RAMP_FOOT;
+  }
   h.targetId = -1;
   h.actT = 5;
-  if (Math.hypot(tx - h.x, tz - h.z) < 0.25) {
+  if (Math.hypot(tx - h.x, tz - h.z) < 0.3) {
     h.act = 'idle';
     r.spd = 0;
     nudge(s, h, r, dt);
     return;
   }
   h.act = 'walk';
-  steer(s, h, r, tx, tz, speedOf(h, 'go') * 1.2, dt, r.stuckT > 1.2);
+  const pushed = s.workers.some((w) => w.job?.kind === 'loadTruck' && Math.hypot(w.x - h.x, w.z - h.z) < 2.6);
+  steer(s, h, r, tx, tz, speedOf(h, 'go') * (pushed ? 1.7 : 1.2), dt, r.stuckT > 1.2);
   // (une fois sortie de l'impasse, elle reprend le chemin normal)
   if (r.stuckT > 3) r.stuckT = 0;
 }

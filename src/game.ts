@@ -32,6 +32,8 @@ export type Selection =
   | { kind: 'worker'; id: number }
   | { kind: 'building'; id: number }
   | { kind: 'parcel'; key: string }
+  | { kind: 'petbird'; id: number }
+  | { kind: 'petplot' }
   | null;
 export type Panel = null | 'shop' | 'market' | 'finance' | 'missions' | 'settings' | 'hens' | 'team' | 'ranking';
 
@@ -220,7 +222,7 @@ export class Game {
     const s = this.showcase;
     advance(s, dt);
     drainEvents(s);
-    R.selectedHen = R.selectedBuilding = R.selectedWorker = R.selectedRobot = -1;
+    R.selectedHen = R.selectedPetBird = R.selectedBuilding = R.selectedWorker = R.selectedRobot = -1;
     R.selectedDog = false;
     R.hoverParcel = '';
     this.landingT += dt;
@@ -317,6 +319,7 @@ export class Game {
     this.wall = performance.now();
     for (const e of drainEvents(this.state)) this.onEvent(e);
     this.renderer.selectedHen = this.selection?.kind === 'hen' ? this.selection.id : -1;
+    this.renderer.selectedPetBird = this.selection?.kind === 'petbird' ? this.selection.id : -1;
     this.renderer.selectedBuilding = this.selection?.kind === 'building' ? this.selection.id : -1;
     this.renderer.selectedWorker = this.selection?.kind === 'worker' ? this.selection.id : -1;
     this.renderer.selectedRobot = this.selection?.kind === 'robot' ? this.selection.id : -1;
@@ -1030,6 +1033,13 @@ export class Game {
       case 'building':
         this.clickBuilding(p.id);
         break;
+      case 'petbird':
+        this.select({ kind: 'petbird', id: p.id });
+        sound.play('cluck');
+        break;
+      case 'petplot':
+        this.select({ kind: 'petplot' });
+        break;
       case 'parcel':
         this.select({ kind: 'parcel', key: p.key });
         break;
@@ -1083,7 +1093,7 @@ export class Game {
         el.style.cursor =
           h?.kind === 'predator'
             ? 'crosshair'
-            : h && (h.kind === 'hen' || h.kind === 'worker' || h.kind === 'robot' || h.kind === 'dog' || h.kind === 'egg' || h.kind === 'building' || (h.kind === 'parcel' && !this.state.parcels.includes(h.key)))
+            : h && (h.kind === 'hen' || h.kind === 'worker' || h.kind === 'robot' || h.kind === 'dog' || h.kind === 'egg' || h.kind === 'building' || h.kind === 'petbird' || h.kind === 'petplot' || (h.kind === 'parcel' && !this.state.parcels.includes(h.key)))
               ? 'pointer'
               : 'grab';
       }

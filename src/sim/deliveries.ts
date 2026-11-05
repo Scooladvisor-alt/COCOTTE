@@ -3,8 +3,8 @@
 // sautent du hayon une à une, trottinent sur le trottoir jusqu'au portail et entrent dans la
 // ferme à la file. Tout l'horaire se lit sur le temps simulé : la simulation fait apparaître
 // chaque poule au portail à l'instant où le rendu la montre arriver (render/delivery.ts).
-import { BIRD_ORDERS, DELIVERY, WORLD } from '../config/balance';
-import { GATE } from './core';
+import { BIRD_ORDERS, DELIVERY, TRUCK_BAY, WORLD } from '../config/balance';
+import { GATE, cellIndex, rt } from './core';
 import type { Delivery, GameState } from './types';
 
 /** Voie côté ferme (on roule à droite : vers l'ouest). */
@@ -34,27 +34,37 @@ export function pathLength(p: Array<[number, number]>) {
 }
 
 // ------------------------------------------------------- Le camion du revendeur ----
-/** Le hayon du grand camion, garé devant l'animalerie (son avant regarde l'ouest). */
-export const pickupTailX = BIRD_ORDERS.stopX + BIRD_ORDERS.tail;
-/** Trajet d'une volaille vendue : portail, place, trottoir, puis la rampe du hayon. */
+/** Axe du chemin de terre, de la route jusque dans l'enclos. */
+export const TRUCK_X = BIRD_ORDERS.laneX;
+/** Arrière du camion garé dans l'enclos, et pied de sa rampe (côté portail). */
+export const TRUCK_REAR = BIRD_ORDERS.rearZ;
+export const RAMP_FOOT = TRUCK_REAR + 1.1;
+/** Un bâtiment (d'une ancienne partie) gêne-t-il l'entrée du camion ? */
+export function truckBlockedBy(s: GameState) {
+  const r = rt(s);
+  for (let z = TRUCK_BAY.z0; z <= TRUCK_BAY.z1; z++)
+    for (let x = TRUCK_BAY.x0; x <= TRUCK_BAY.x1; x++) {
+      const id = r.occupant[cellIndex(x, z)];
+      if (id >= 0) return id;
+    }
+  return -1;
+}
+/** Trajet d'une volaille : jusqu'au pied de la rampe, puis elle monte et disparaît dans le camion. */
 export function boardPath(x: number, z: number): Array<[number, number]> {
-  // elle quitte le trottoir juste à côté du hayon : les voitures qui attendent derrière ne la croisent pas
-  const side = pickupTailX + 0.4;
   return [
     [x, z],
-    [GATE.x + 0.5, GATE.z + 0.3],
-    [GATE.x + 0.5, WORLD.WALK_Z],
-    [side, WORLD.WALK_Z],
-    [side, TRUCK_LANE - 0.15],
-    [pickupTailX - 0.15, TRUCK_LANE],
+    [TRUCK_X, RAMP_FOOT],
+    [TRUCK_X, TRUCK_REAR],
+    [TRUCK_X, TRUCK_REAR - 0.5],
   ];
 }
 export const boardTime = (x: number, z: number) => pathLength(boardPath(x, z)) / DELIVERY.henSpeed;
-/** Places des commis qui aident au chargement, au bord de la route, à côté de la rampe. */
-export const LOADER_SPOTS: Array<[number, number]> = [
-  [pickupTailX + 1.05, WORLD.ROAD_Z - WORLD.ROAD_HALF + 0.12],
-  [pickupTailX + 1.85, WORLD.ROAD_Z - WORLD.ROAD_HALF + 0.12],
-];
+/** Hauteur de la volaille sur la rampe, à la fraction k de son trajet (0 au sol, 1 dans le camion). */
+export function rampProgress(x: number, z: number, k: number) {
+  const before = Math.hypot(x - TRUCK_X, z - RAMP_FOOT);
+  const walked = k * pathLength(boardPath(x, z));
+  return Math.max(0, Math.min(1, (walked - before) / (RAMP_FOOT - TRUCK_REAR)));
+}
 
 /** Point du trajet à la fraction k (0 → 1) et direction de marche. */
 export function alongPath(p: Array<[number, number]>, k: number): { x: number; z: number; dx: number; dz: number } {

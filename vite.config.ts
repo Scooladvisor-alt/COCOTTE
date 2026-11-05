@@ -21,6 +21,10 @@ export default defineConfig({
   plugins: [preact({ prefreshEnabled: false }), fullReload()],
   base: './',
   server: { port: 5173 },
-  build: { chunkSizeWarningLimit: 900 },
+  build: {
+    chunkSizeWarningLimit: 900,
+    // three.js à part : il ne change pas d'une version du jeu à l'autre et reste dans le cache du navigateur
+    rollupOptions: { output: { manualChunks: { three: ['three'] } } },
+  },
   test: { environment: 'node', include: ['tests/**/*.test.ts'] },
 } as never);

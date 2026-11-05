@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { FRESHNESS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, NEEDS, TIME, WORLD, clamp, smoothstep } from '../config/balance';
 import { COOP_SCALE, STAND_POS, sizeOf, standLayout, HALL_DOOR, HALL_FRONT } from '../config/buildings';
-import { nurseryPlan } from '../sim/nursery';
+import { nurseryPlan, incubatorSeat } from '../sim/nursery';
 import { nurseryGateOpen } from '../sim/hens';
 import { feedPose, type FeedPose } from '../sim/feeding';
 import { vaultOf } from '../sim/vault';
@@ -13,7 +13,7 @@ import { simAlpha } from '../sim/simulation';
 import type { BreedId, Building, BuildingType, GameState, Hen, Predator } from '../sim/types';
 import { BLACK_SKIN, BREED_ORDER, BREEDS, GOLD_SKIN, LEGEND_SKIN } from '../config/breeds';
 import { ROLES, femName } from '../config/staff';
-import { C, GLOW, GRASS_MAT, GRASS_WIND, MAT, SNOW_UNIFORM, box, cyl, merge, mesh } from './geo';
+import { C, GLOW, GRASS_MAT, GRASS_WIND, SNOW_UNIFORM, box, cyl, merge, mesh } from './geo';
 import { Particles, Shots } from './fx';
 import { createPredatorView, preyModel, type PredatorView } from './predatorModels';
 import { Highlight, haloTexture } from './highlight';
@@ -35,6 +35,7 @@ import { sound } from '../audio/sound';
 import { buildCountryside } from './countryside';
 import { townHall, type TownHall } from './farmBuildings';
 import { buildDecor, inDecorZone, type Decor } from './decor';
+import { SHADOW_RADIUS, contactShadows, plant, setNatureSeason, setVegetationZoom, speciesGeometry, type Plant, type Species } from './nature';
 import { LabelLayer } from './labels';
 import {
   EGG_MAT,
@@ -43,7 +44,6 @@ import {
   EGG_ROT_MAT,
   EGG_STALE_MAT,
   bench,
-  bushGeometry,
   buildingModel,
   createHenView,
   HenBatch,
@@ -62,9 +62,7 @@ import {
   forSaleSign,
   hayBale,
   mailbox,
-  pineGeometry,
   tractor,
-  treeGeometry,
   grassPatchGeometry,
   type BuildingView,
   type HenView,
@@ -129,10 +127,9 @@ const SEASON_LOOK = [
   { tint: new THREE.Color(0xc9d3c6), amt: 0.22, flowers: 0, tufts: 0.7 },
 ];
 // sol de la campagne : un pré (et non plus un fond crème), pour que le paysage n’ait pas de bord
-const GROUND_BASE = new THREE.Color(0xcfe09c);
+const GROUND_BASE = new THREE.Color(0x93bf5f);
 /** Neige au sol : blanc à peine bleuté. */
 const SNOW = new THREE.Color(0xf7f9fc);
-const VERGE_BASE = new THREE.Color(0xd9e6a8);
 const seasonTint = new THREE.Color();
 const tmpC = new THREE.Color();
 const tmpO = new THREE.Object3D();
@@ -267,7 +264,6 @@ export class FarmRenderer {
   private weather: Snowfall;
   private leaves: FallingLeaves;
   private groundMat = new THREE.MeshLambertMaterial({ color: 0xf0e7d5 });
-  private vergeTint = new THREE.Color(0xd9e6a8);
   private buildings = new Map<number, BState>();
   private eggs = new Map<number, THREE.Mesh>();
   private people = new Map<number, PersonView & { px: number; pz: number; phase: number }>();
@@ -394,14 +390,8 @@ export class FarmRenderer {
     ground.receiveShadow = true;
     this.scene.add(ground);
 
-    // bande verte autour des parcelles (comme les espaces verts de la référence)
-    // (teinte portée par le matériau : elle suit les saisons)
-    const verge = mesh(box(GRID_W + 6, 0.04, GRID_H + 4, 0xffffff, [GRID_W / 2, 0.02, GRID_Z0 + GRID_H / 2 - 0.5]), false, true, new THREE.MeshLambertMaterial({ vertexColors: true, color: this.vergeTint }));
-    this.scene.add(verge);
-
-    // la place de l'étal, le trottoir, la route et sa circulation (voir street.ts) ; bande d'herbe
-    // entre la clôture et le trottoir, de part et d'autre de la place
-    this.scene.add(mesh(box(GRID_W + 36, 0.04, WORLD.WALK_Z - 0.6 - (GRID_Z1 + 1.5), 0xffffff, [GRID_W / 2 - 8, 0.02, (WORLD.WALK_Z - 0.6 + GRID_Z1 + 1.5) / 2]), false, true, verge.material as THREE.Material));
+    // la place de l'étal, le trottoir, la route et sa circulation (voir street.ts)
+    // (autour des parcelles, c'est le sol d'un seul tenant de la campagne : voir countryside.ts)
     this.street = buildStreet(this.scene);
     this.truck = buildDeliveryTruck(this.street);
     this.wildlife = buildWildlife(this.scene, (text) => this.onWildlife?.(text));
@@ -421,8 +411,10 @@ export class FarmRenderer {
     const mb = mesh(mailbox());
     mb.position.set(-4.9, 0, walkN - 0.3);
     this.scene.add(mb);
+    // un banc face à la mare
     const b = mesh(bench());
-    b.position.set(-12, 0, 30.5);
+    b.position.set(-15.5, 0, 7.6);
+    b.rotation.y = Math.PI / 2;
     this.scene.add(b);
     const tr = mesh(tractor());
     tr.position.set(-1.3, 0, 16.6);
@@ -453,41 +445,31 @@ export class FarmRenderer {
       treeSpots.push([GRID_W + 3 + hash(k++) * 2.5, z + hash(k++), k]);
       if (z < 17) treeSpots.push([-3.2 - hash(k++) * 3, z + hash(k++), k]);
     }
-    const treeGeos = [treeGeometry(0), treeGeometry(1), treeGeometry(2), pineGeometry()];
-    const counts = [0, 0, 0, 0];
-    const assign = treeSpots.filter(([x, z]) => !inDecorZone(x, z)).map((t, i) => {
-      const v = Math.floor(hash(i * 7.3) * 4) % 4;
-      counts[v]++;
-      return [t, v] as const;
-    });
-    treeGeos.forEach((g, vi) => {
-      const im = new THREE.InstancedMesh(g, MAT, counts[vi]);
-      im.castShadow = true;
-      im.receiveShadow = true;
-      let n = 0;
-      for (const [[x, z], v] of assign) {
-        if (v !== vi) continue;
-        tmpO.position.set(x, 0, z);
-        tmpO.rotation.set(0, hash(x * 3.1 + z) * 6, 0);
-        tmpO.scale.setScalar(0.85 + hash(x + z * 1.7) * 0.4);
-        tmpO.updateMatrix();
-        im.setMatrixAt(n++, tmpO.matrix);
-      }
-      this.scene.add(im);
-    });
-    const bushes = new THREE.InstancedMesh(bushGeometry(), MAT, 26);
-    bushes.castShadow = true;
+    const ringSpecies: Species[] = ['oak', 'lime', 'birch', 'pine'];
+    const ring: Plant[][] = [[], [], [], []];
+    const contact: Array<[number, number, number]> = [];
+    treeSpots
+      .filter(([x, z]) => !inDecorZone(x, z))
+      .forEach(([x, z], i) => {
+        const v = Math.floor(hash(i * 7.3) * 4) % 4;
+        const sc = 0.92 + hash(x + z * 1.7) * 0.42;
+        ring[v].push([x, z, hash(x * 3.1 + z) * 6, sc]);
+        contact.push([x, z, SHADOW_RADIUS[ringSpecies[v]] * sc]);
+      });
+    ring.forEach((items, v) => plant(this.scene, speciesGeometry(ringSpecies[v]), speciesGeometry(ringSpecies[v], true), items, { cast: true, spread: 0.11 }));
+    const hedges: Plant[] = [];
     for (let i = 0; i < 26; i++) {
       const side = i % 3;
       const x = side === 0 ? -1.6 - hash(i) : side === 1 ? GRID_W + 1.3 + hash(i) : hash(i * 2) * (GRID_W + 10) - 8;
       const z = side === 2 ? (i % 2 ? GRID_Z0 - 1.6 : WORLD.ROAD_Z + WORLD.ROAD_HALF + 2.6) - hash(i) * 0.5 : GRID_Z0 + hash(i * 3) * GRID_H;
-      tmpO.position.set(x, 0, z);
-      tmpO.rotation.set(0, hash(i * 5) * 6, 0);
-      tmpO.scale.setScalar(0.8 + hash(i * 9) * 0.6);
-      tmpO.updateMatrix();
-      bushes.setMatrixAt(i, tmpO.matrix);
+      // pas dans la cour de la mairie ni sur le chemin qui longe la clôture
+      if (x < 0 && z > 16 && z < 33) continue;
+      const sc = 0.8 + hash(i * 9) * 0.6;
+      hedges.push([x, z, hash(i * 5) * 6, sc]);
+      contact.push([x, z, SHADOW_RADIUS.bush * sc]);
     }
-    this.scene.add(bushes);
+    plant(this.scene, speciesGeometry('bush'), speciesGeometry('bush', true), hedges, { cast: true, spread: 0.12 });
+    this.scene.add(contactShadows(contact));
 
     // terrain : grille de sommets (coins des cases), hauteur selon le terrain possédé
     const VW = GRID_W + 1;
@@ -683,6 +665,12 @@ export class FarmRenderer {
     }
     if (best >= 0) return { kind: 'hen', id: best };
     const bHits = ray.intersectObjects(this.bG.children, true);
+    // une couveuse est un petit meuble dans sa poussinière : elle passe devant le grillage et le sol
+    for (const h of bHits) {
+      let o: THREE.Object3D | null = h.object;
+      while (o && o.userData.buildingId === undefined) o = o.parent;
+      if (o && this.buildings.get(o.userData.buildingId)?.type === 'incubator') return { kind: 'building', id: o.userData.buildingId };
+    }
     for (const h of bHits) {
       let o: THREE.Object3D | null = h.object;
       while (o && o.userData.buildingId === undefined) o = o.parent;
@@ -745,34 +733,18 @@ export class FarmRenderer {
         }
         for (let k = 0; k < 7; k++) wildBushes.push([ox + (hash(c * 41 + r * 3 + k) - 0.5) * (P - 2), oz + (hash(c * 43 + r * 19 + k) - 0.5) * (P - 2)]);
       }
-    const geos = [treeGeometry(0), treeGeometry(1), treeGeometry(2), pineGeometry()];
+    const wildSpecies: Species[] = ['oak', 'lime', 'birch', 'pine'];
+    const wildContact: Array<[number, number, number]> = [];
     wildTrees.forEach((list, v) => {
-      if (!list.length) return;
-      const im = new THREE.InstancedMesh(geos[v], MAT, list.length);
-      im.castShadow = true;
-      im.receiveShadow = true;
-      list.forEach(([x, z, sc], k) => {
-        tmpO.position.set(x, 0, z);
-        tmpO.rotation.set(0, hash(x * 3 + z) * 6, 0);
-        tmpO.scale.setScalar(sc);
-        tmpO.updateMatrix();
-        im.setMatrixAt(k, tmpO.matrix);
-      });
-      im.computeBoundingSphere();
-      this.wildGroup.add(im);
+      plant(this.wildGroup, speciesGeometry(wildSpecies[v]), null, list.map(([x, z, sc]) => [x, z, hash(x * 3 + z) * 6, sc * 1.1] as Plant), { cast: true, spread: 0.11, chunk: 1000 });
+      for (const [x, z, sc] of list) wildContact.push([x, z, SHADOW_RADIUS[wildSpecies[v]] * sc * 1.1]);
     });
     if (wildBushes.length) {
-      const im = new THREE.InstancedMesh(bushGeometry(), MAT, wildBushes.length);
-      wildBushes.forEach(([x, z], k) => {
-        tmpO.position.set(x, 0, z);
-        tmpO.rotation.set(0, hash(x + z) * 6, 0);
-        tmpO.scale.setScalar(0.7 + hash(x * 2 + z) * 0.6);
-        tmpO.updateMatrix();
-        im.setMatrixAt(k, tmpO.matrix);
-      });
-      im.computeBoundingSphere();
-      this.wildGroup.add(im);
+      const list = wildBushes.map(([x, z]) => [x, z, hash(x + z) * 6, 0.7 + hash(x * 2 + z) * 0.6] as Plant);
+      plant(this.wildGroup, speciesGeometry('bush'), null, list, { spread: 0.12, chunk: 1000 });
+      for (const [x, z, , sc] of list) wildContact.push([x, z, SHADOW_RADIUS.bush * sc]);
     }
+    if (wildContact.length) this.wildGroup.add(contactShadows(wildContact));
 
     // panneaux « À vendre »
     this.signGroup.clear();
@@ -804,7 +776,7 @@ export class FarmRenderer {
     const snow = snowCover(s) * 0.7;
     SNOW_UNIFORM.value = snow; // toits, poteaux, cimes des arbres
     this.groundMat.color.copy(GROUND_BASE).lerp(seasonTint, amt * 0.35).lerp(SNOW, snow * 0.8);
-    this.vergeTint.copy(VERGE_BASE).lerp(seasonTint, amt).lerp(SNOW, snow * 0.9);
+    setNatureSeason(sb.a, sb.b, sb.k, seasonTint, amt, snow);
     const N = GRID_W * GRID_H;
     const blocked = rt(s).blocked;
     // devant les trappes, l'herbe est foulée : pas de brins au travers des rampes
@@ -814,13 +786,15 @@ export class FarmRenderer {
     for (const b of s.buildings) {
       if (isShelter(b)) for (const [cx, cz] of coopDoorCells(b)) if (inGrid(cx, cz)) doorway.add(cellIndex(cx, cz));
       if (b.type !== 'nursery') continue;
-      const { house } = nurseryPlan(b.level);
+      const { house, seats } = nurseryPlan(b.level);
       const fp = sizeOf(b.type, b.level, b.rot);
       for (let z = b.z; z < b.z + fp.d; z++)
         for (let x = b.x; x < b.x + fp.w; x++) {
           const [lx, lz] = toLocal(b, x + 0.5, z + 0.5);
           const roofed = lx > house.x0 - 0.35 && lx < house.x1 + 0.35 && lz > house.z0 - 0.35 && lz < house.z1 + 0.35;
-          if (!roofed && inGrid(x, z)) parkLawn.add(cellIndex(x, z));
+          // ni sur le dallage des couveuses
+          const paved = seats.some((q) => Math.abs(lx - q.x) < ((q.rot % 2 ? 1.14 : 2.14) * q.k) / 2 + 0.35 && Math.abs(lz - q.z) < ((q.rot % 2 ? 2.14 : 1.14) * q.k) / 2 + 0.35);
+          if (!roofed && !paved && inGrid(x, z)) parkLawn.add(cellIndex(x, z));
         }
     }
     for (const ch of this.grassChunks.values()) ch.nl = ch.nw = 0;
@@ -963,6 +937,13 @@ export class FarmRenderer {
         const k = v.bounce;
         v.group.scale.set(1 + Math.sin(k * Math.PI) * 0.08, 1 - Math.sin(k * Math.PI * 2) * 0.12 * k, 1 + Math.sin(k * Math.PI) * 0.08);
       } else v.group.scale.set(1, 1, 1);
+      // la couveuse est à l'échelle de son emplacement, et suit sa poussinière quand on la déplace
+      const seated = b.type === 'incubator' ? incubatorSeat(s, b) : null;
+      if (seated) {
+        v.group.scale.multiplyScalar(seated.seat.k);
+        const hostView = this.buildings.get(seated.host.id);
+        if (hostView) v.group.visible = hostView.group.visible;
+      }
       const L = lvl(b);
       if (v.fill) {
         const ratio = clamp(b.stock / Math.max(1, L.capacity), 0, 1);
@@ -2199,6 +2180,7 @@ export class FarmRenderer {
     this.hall?.tick(((s.clock.t % TIME.DAY) / TIME.DAY) * 24, this.time);
     this.time += dt;
     GRASS_WIND.value = this.time;
+    setVegetationZoom(this.zoom);
     const dense = this.zoom >= 1.1;
     if (dense !== this.grassDense) {
       this.grassDense = dense;
@@ -2288,7 +2270,8 @@ export class FarmRenderer {
     this.highlight.update(this.time);
     let halo: { x: number; z: number; w: number; d: number } | null = null;
     if (sb) {
-      const d = sb.type === 'stand' ? standLayout(sb.level) : sizeOf(sb.type, sb.level, sb.rot);
+      // (une couveuse n'a pas d'emprise au sol : le halo reprend la taille du meuble)
+      const d = sb.type === 'stand' ? standLayout(sb.level) : sb.type === 'incubator' ? { w: 1.2, d: 1.2 } : sizeOf(sb.type, sb.level, sb.rot);
       const c = this.center(sb);
       halo = { x: c.x, z: c.z, w: d.w + 1.1, d: d.d + 1.1 };
     } else if (sw) halo = { x: sw.root.position.x, z: sw.root.position.z, w: 1.7, d: 1.7 };

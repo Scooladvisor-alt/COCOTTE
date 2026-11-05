@@ -16,12 +16,13 @@ import {
   coopBarn,
   coopCabin,
   coopModern,
-  coopFarm,
+  coopModernLarge,
   gooseHouse,
   farmShop,
   nurseryHouse,
   coopAviary,
   coopNormand,
+  dustbathBasin,
   dustbathShelter,
   dustbathSleepers,
   eggCrate,
@@ -37,6 +38,7 @@ import {
 
 // ================================================================ POULES ====
 // Le modèle des volailles (poules, coqs, jeunes, poussins) est dans henModel.ts.
+export { bushGeometry, pineGeometry, treeGeometry } from './nature';
 export { ADULT_STAGE, GOLD_HEN_MAT, LEGEND_HEN_MAT, LEGEND_TIME, HEN_MAT, HEN_PIVOT, HEN_RIM, henGeometry, type HenGeo, type HenKind } from './henModel';
 
 /**
@@ -307,7 +309,7 @@ function coopModel(level: number): BuildingView {
   else if (level === 2) coopBarn(parts, windows);
   else if (level === 3) coopNormand(parts, windows);
   else if (level === 4) coopModern(parts, windows);
-  else if (level === 5) coopFarm(parts, windows);
+  else if (level === 5) coopModernLarge(parts, windows);
   else coopAviary(parts, windows);
   g.add(mesh(merge(parts)));
   for (const w of windows) g.add(w);
@@ -904,9 +906,10 @@ function storageModel(level: number): BuildingView {
 
 function dustbathModel(level: number): BuildingView {
   const parts: THREE.BufferGeometry[] = [];
-  const slots = level === 1 ? 3 : 5;
+  const slots = level === 1 ? 3 : level === 2 ? 5 : 8;
   if (level === 1) dustbathSleepers(parts, slots);
-  else dustbathShelter(parts, slots);
+  else if (level === 2) dustbathShelter(parts, slots);
+  else dustbathBasin(parts, slots);
   return { group: groupOf(parts), eggSlots: [], eggMeshes: [], key: `dustbath${level}` };
 }
 
@@ -1027,8 +1030,12 @@ function standModel(level: number): BuildingView {
 const INC_GLASS = new THREE.MeshLambertMaterial({ color: 0xe4f3fb, transparent: true, opacity: 0.28, depthWrite: false });
 export const INC_LAMP = new THREE.MeshBasicMaterial({ color: 0xffb25a });
 
+/**
+ * Couveuse : petit établi sur lequel elle chauffe. Elle se pose sur un emplacement de la poussinière :
+ * le modèle est donc centré sur son origine (façade vers +z), sans dalle ni emprise au sol.
+ */
 function incubatorModel(level: number): BuildingView {
-  const parts: THREE.BufferGeometry[] = [slab(2, 1, 0xe2d3b5)];
+  const parts: THREE.BufferGeometry[] = [];
   const extra: THREE.Object3D[] = [];
   // établi en bois avec étagère basse
   const top = 0.42;
@@ -1081,6 +1088,9 @@ function incubatorModel(level: number): BuildingView {
       for (let c = 0; c < cols; c++)
         slots.push(new THREE.Vector3(1 - (W - 0.22) / 2 + ((W - 0.22) * c) / (cols - 1), y0 + 0.016, 0.5 - (D - 0.2) / 2 + ((D - 0.2) * r) / (rows - 1)));
   }
+  for (const p of parts) p.translate(-1, 0, -0.5);
+  for (const m of extra) m.position.add(new THREE.Vector3(-1, 0, -0.5));
+  for (const v of slots) v.add(new THREE.Vector3(-1, 0, -0.5));
   return { group: groupOf(parts, ...extra), eggSlots: slots, eggMeshes: [], key: `incubator${level}` };
 }
 
@@ -1308,28 +1318,6 @@ export function buildingModel(type: BuildingType, level: number): BuildingView {
 }
 
 // ================================================================= DÉCOR ====
-export function treeGeometry(variant: number) {
-  const parts: THREE.BufferGeometry[] = [];
-  const s = 0.85 + (variant % 3) * 0.18;
-  parts.push(cyl(0.06 * s, 0.09 * s, 0.9 * s, 6, C.trunk, [0, 0.45 * s, 0]));
-  const leaf = variant % 2 ? C.leaf : 0xa8d68a;
-  parts.push(ico(0.55 * s, 1, leaf, [0, 1.2 * s, 0]));
-  if (variant % 3 === 0) parts.push(ico(0.36 * s, 1, C.leafDark, [0.28 * s, 0.98 * s, 0.12 * s]));
-  return merge(parts);
-}
-
-export function pineGeometry() {
-  return merge([
-    cyl(0.07, 0.09, 0.5, 6, C.trunk, [0, 0.25, 0]),
-    cone(0.5, 0.9, 7, 0x7fb874, [0, 0.85, 0]),
-    cone(0.38, 0.7, 7, 0x8cc47f, [0, 1.3, 0]),
-  ]);
-}
-
-export function bushGeometry() {
-  return merge([ico(0.32, 1, C.leafDark, [0, 0.22, 0], [1.2, 0.8, 1]), ico(0.22, 1, C.leaf, [0.2, 0.2, 0.1])]);
-}
-
 /**
  * Bouquet de fleurs des champs : une pâquerette, un bouton d'or et un trèfle en fleur, avec leurs
  * feuilles. (Les variantes viennent de la rotation et de l'échelle de chaque instance.)
@@ -1524,20 +1512,59 @@ export function bench() {
 }
 
 export function hayBale() {
-  return merge([box(0.9, 0.45, 0.55, C.straw, [0, 0.225, 0]), box(0.92, 0.04, 0.57, 0xd8b85a, [0, 0.3, 0]), box(0.92, 0.04, 0.57, 0xd8b85a, [0, 0.15, 0])]);
+  const parts = [box(0.9, 0.45, 0.55, C.straw, [0, 0.225, 0])];
+  // brins de paille, ficelles, et un peu d'ombre dans le bas
+  for (let i = 0; i < 4; i++) parts.push(box(0.92, 0.012, 0.57, i % 2 ? 0xdcbc62 : 0xf2d98a, [0, 0.07 + i * 0.1, 0]));
+  for (const x of [-0.26, 0.26]) parts.push(box(0.03, 0.47, 0.57, 0xb99a4a, [x, 0.225, 0]));
+  for (let i = 0; i < 6; i++) parts.push(box(0.1, 0.012, 0.012, 0xf7e7a4, [-0.34 + i * 0.13, 0.456, -0.2 + ((i * 37) % 9) * 0.05], [0, i * 0.9, 0]));
+  return merge(parts);
+}
+
+/** Balle ronde de foin, couchée dans le pré. */
+export function roundBale() {
+  const parts = [cyl(0.42, 0.42, 0.72, 12, 0xdcc272, [0, 0.42, 0], [0, 0, Math.PI / 2])];
+  for (const x of [-0.361, 0.361]) {
+    parts.push(cyl(0.3, 0.3, 0.012, 12, 0xcfae5a, [x, 0.42, 0], [0, 0, Math.PI / 2]));
+    parts.push(cyl(0.15, 0.15, 0.016, 10, 0xe6cd80, [x, 0.42, 0], [0, 0, Math.PI / 2]));
+  }
+  return merge(parts);
 }
 
 export function tractor() {
-  return merge([
-    box(1.2, 0.5, 0.8, C.red, [0, 0.55, 0]),
-    box(0.6, 0.6, 0.75, C.red, [-0.35, 1.05, 0]),
-    box(0.55, 0.45, 0.7, C.glass, [-0.35, 1.08, 0]),
-    cyl(0.38, 0.38, 0.22, 10, C.black, [-0.4, 0.38, 0.46], [Math.PI / 2, 0, 0]),
-    cyl(0.38, 0.38, 0.22, 10, C.black, [-0.4, 0.38, -0.46], [Math.PI / 2, 0, 0]),
-    cyl(0.24, 0.24, 0.18, 10, C.black, [0.45, 0.24, 0.42], [Math.PI / 2, 0, 0]),
-    cyl(0.24, 0.24, 0.18, 10, C.black, [0.45, 0.24, -0.42], [Math.PI / 2, 0, 0]),
-    cyl(0.04, 0.04, 0.5, 6, C.greyDark, [0.3, 1.0, 0.2]),
-  ]);
+  const RED = C.red;
+  const RED_D = 0xb93324;
+  const GREY = 0x3d4249;
+  const wheel = (x: number, z: number, r: number, w: number) => [
+    cyl(r, r, w, 14, 0x2b2b31, [x, r, z], [Math.PI / 2, 0, 0]),
+    cyl(r * 0.6, r * 0.6, w + 0.012, 10, 0xe9c84a, [x, r, z], [Math.PI / 2, 0, 0]),
+    cyl(r * 0.22, r * 0.22, w + 0.03, 8, GREY, [x, r, z], [Math.PI / 2, 0, 0]),
+  ];
+  const parts = [
+    // châssis, capot et calandre
+    box(1.42, 0.12, 0.42, GREY, [0.02, 0.36, 0]),
+    box(0.92, 0.42, 0.56, RED, [0.2, 0.62, 0]),
+    box(0.94, 0.04, 0.58, RED_D, [0.2, 0.5, 0]),
+    box(0.03, 0.34, 0.46, 0x2b2b31, [0.67, 0.62, 0]),
+    box(0.74, 0.02, 0.1, 0xe9e4d8, [0.2, 0.84, 0]),
+    // cabine vitrée
+    box(0.72, 0.1, 0.76, RED, [-0.36, 0.78, 0]),
+    box(0.62, 0.52, 0.68, C.glass, [-0.36, 1.1, 0]),
+    box(0.74, 0.07, 0.8, RED, [-0.36, 1.4, 0]),
+    box(0.66, 0.03, 0.72, 0xe9e4d8, [-0.36, 1.45, 0]),
+    // ailes des grandes roues
+    box(0.8, 0.05, 0.24, RED_D, [-0.4, 0.8, 0.5]),
+    box(0.8, 0.05, 0.24, RED_D, [-0.4, 0.8, -0.5]),
+    // échappement et phares
+    cyl(0.03, 0.04, 0.62, 6, GREY, [0.36, 1.1, 0.2]),
+    cyl(0.04, 0.03, 0.05, 6, 0x24242a, [0.36, 1.42, 0.2]),
+    box(0.03, 0.08, 0.1, 0xfff4d0, [0.675, 0.72, 0.18]),
+    box(0.03, 0.08, 0.1, 0xfff4d0, [0.675, 0.72, -0.18]),
+    ...wheel(-0.4, 0.46, 0.38, 0.22),
+    ...wheel(-0.4, -0.46, 0.38, 0.22),
+    ...wheel(0.45, 0.4, 0.24, 0.16),
+    ...wheel(0.45, -0.4, 0.24, 0.16),
+  ];
+  return merge(parts);
 }
 
 // ================================================================ CLIENTS ====

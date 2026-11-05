@@ -9,7 +9,7 @@ import { createNewGame, makeBuilding } from '../sim/state';
 import type { BreedId, Building, Delivery, BuildingType, EggType, GameState, Grade, Hen, HenAct, Worker, WorkerRole } from '../sim/types';
 import { ROLES } from '../config/staff';
 import { createWorker } from '../sim/workers';
-import { rehouseGeese } from '../sim/actions';
+import { rehouseGeese, settleIncubators } from '../sim/actions';
 import { autoEnclose } from '../sim/fences';
 import { refitCoops, refitStorage } from '../sim/buildings';
 import { decodeGenes } from '../sim/genetics';
@@ -242,6 +242,7 @@ export function sanitize(input: unknown): GameState | null {
     nb.invested = int(b.invested, 0, 0, 1e10);
     nb.builtAt = num(b.builtAt, 0);
     nb.eggIds = [];
+    if (type === 'incubator' && typeof b.hostId === 'number') nb.hostId = b.hostId;
     if (type === 'incubator' || type === 'gooseincubator') {
       nb.auto = bool(b.auto, true);
       nb.hatch = arr(b.hatch)
@@ -611,6 +612,8 @@ export function sanitize(input: unknown): GameState | null {
   if (fromVersion < 9) refitStorage(s);
   s.version = SAVE_VERSION;
   invalidateLayout(s);
+  // les couveuses à leur place, dans la poussinière (y compris celles d'une ancienne partie)
+  settleIncubators(s);
   // les oies d'une ancienne partie quittent le poulailler s'il existe un abri à oies
   rehouseGeese(s);
   return s;

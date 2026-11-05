@@ -132,7 +132,7 @@ const STEPS: Step[] = [
   {
     done: (s) => s.stats.hensBought > 0,
     title: 'Bienvenue à la ferme !',
-    text: `Votre terrain clôturé est prêt. Cocotte, ses trois poussins et un coq vous attendent, avec une couveuse : les œufs fécondés par le coq y partent tout seuls et éclosent en ${BREEDING.incubationDays} jours. Achetez une autre poule dans la boutique pour lancer la production.`,
+    text: `Votre terrain clôturé est prêt. Cocotte, ses trois poussins et un coq vous attendent, avec une poussinière et sa couveuse : les œufs fécondés par le coq y partent tout seuls et éclosent en ${BREEDING.incubationDays} jours. Achetez une autre poule dans la boutique pour lancer la production.`,
     target: (p) => (p === 'shop' ? 'buy-rousse' : 'shop'),
   },
   {

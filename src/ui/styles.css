@@ -7882,3 +7882,38 @@ body {
   color: #fff;
   font-weight: 900;
 }
+
+/* Poussinière : ses couveuses, et le chemin retour depuis la fiche d'une couveuse */
+.inc-row.seat {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 4px 2px;
+  border-radius: 8px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.inc-row.seat:hover {
+  background: rgba(47, 107, 255, 0.07);
+}
+.seat-host {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 6px 9px;
+  background: rgba(47, 107, 255, 0.07);
+  border: 0;
+  border-radius: 9px;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-align: left;
+}
+.seat-host:hover {
+  background: rgba(47, 107, 255, 0.13);
+}

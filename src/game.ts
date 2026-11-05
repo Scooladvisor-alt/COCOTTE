@@ -398,6 +398,8 @@ export class Game {
       visited.settings.musicVolume = this.state.settings.musicVolume;
       visited.clock.speed = 1;
       visited.tutorial.done = true;
+      // (une ancienne partie vient d'être remise à jour : ses messages ne regardent pas le visiteur)
+      drainEvents(visited);
       if (!this.visiting) {
         this.save();
         this.home = this.state;

@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { GRID_W, GRID_Z1, WORLD } from '../config/balance';
 import { C, box, cyl, ico, merge, mesh } from './geo';
 import { bench, createPerson, tractor, type PersonView } from './models';
+import { TREE_MAT, hedgeRun, speciesGeometry } from './nature';
 
 const RZ = WORLD.ROAD_Z;
 const RH = WORLD.ROAD_HALF;
@@ -57,7 +58,7 @@ function panel(tex: THREE.Texture, w: number, h: number, x: number, y: number, z
 const FONT = "'Nunito', system-ui, sans-serif";
 
 // ------------------------------------------------------------ Décor fixe ----
-function streetGeometry() {
+function streetGeometry(leafy: THREE.BufferGeometry[]) {
   const g: THREE.BufferGeometry[] = [];
   const rw = WORLD.ROAD_MAX_X - WORLD.ROAD_MIN_X + 20;
   const rx = (WORLD.ROAD_MAX_X + WORLD.ROAD_MIN_X) / 2;
@@ -90,10 +91,10 @@ function streetGeometry() {
     const [x, z] = [12.7, 32.6];
     g.push(cyl(0.62, 0.66, 0.28, 14, 0xd2c6ae, [x, 0.14, z]));
     g.push(cyl(0.54, 0.54, 0.02, 14, 0x7a5a3a, [x, 0.285, z]));
-    g.push(cyl(0.08, 0.11, 1.5, 7, C.trunk, [x, 0.95, z]));
-    g.push(ico(0.85, 1, 0x8cc46e, [x, 2.0, z], [1, 0.85, 1]));
-    g.push(ico(0.55, 1, 0x9ccf7e, [x + 0.45, 2.35, z + 0.2]));
-    g.push(ico(0.5, 1, 0x84bf6c, [x - 0.4, 2.3, z - 0.25]));
+    const tree = speciesGeometry('lime').clone();
+    tree.scale(1.32, 1.32, 1.32);
+    tree.translate(x, 0.28, z);
+    leafy.push(tree);
   }
   // jardinières (demi-tonneaux fleuris)
   const planter = (x: number, z: number, seed: number) => {
@@ -124,13 +125,13 @@ function streetGeometry() {
     g.push(b);
   }
   // haie basse entre la place et le parking
-  g.push(box(0.36, 0.34, pd - 1.0, 0x7fb35a, [PLACE.x1 + 0.2, 0.17, pcz - 0.5]));
+  leafy.push(hedgeRun(PLACE.x1 + 0.2, PLACE.z0 + 0.1, PLACE.x1 + 0.2, PLACE.z1 - 1.1));
   // parking : enrobé, places tracées, butées
   const kw = PARK.x1 - PARK.x0;
   g.push(box(kw, 0.055, pd, 0xb9b5ab, [(PARK.x0 + PARK.x1) / 2, 0.0275, pcz]));
   for (let i = 0; i <= 3; i++) g.push(box(0.07, 0.008, 2.6, 0xf4f1ea, [PARK.x0 + i * BAY_W, 0.059, BAY_Z]));
   for (const bx of BAYS) g.push(box(1.0, 0.09, 0.16, 0xd8d1c3, [bx, 0.07, GRID_Z1 + 0.75]));
-  g.push(box(0.36, 0.34, pd - 1.0, 0x7fb35a, [PARK.x1 + 0.2, 0.17, pcz - 0.5]));
+  leafy.push(hedgeRun(PARK.x1 + 0.2, PLACE.z0 + 0.1, PARK.x1 + 0.2, PLACE.z1 - 1.1));
   // abribus
   {
     const bz = SZ + 0.32;
@@ -335,7 +336,9 @@ function walkerRate(h: number) {
 }
 
 export function buildStreet(scene: THREE.Scene): Street {
-  scene.add(mesh(merge(streetGeometry()), true, true));
+  const leafy: THREE.BufferGeometry[] = [];
+  scene.add(mesh(merge(streetGeometry(leafy)), true, true));
+  scene.add(mesh(merge(leafy), true, true, TREE_MAT));
   // bancs au bord du trottoir, de part et d'autre de la place (les clients passent entre eux)
   for (const [x, z] of [
     [16.1, WZ - 1.2],

@@ -7,8 +7,8 @@ import { BUILDINGS, COOP_SCALE, STAND_POS, sizeOf, standLayout } from '../src/co
 import { BACKUP_KEY, SAVE_KEY, deserialize, loadGame, saveGame, serialize, type Storage } from '../src/save/save';
 import * as A from '../src/sim/actions';
 import { canPlace } from '../src/sim/buildings';
-import { accessCells, coopDoor, coopDoorCells, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable, toLocal } from '../src/sim/core';
-import { nurseryCount, nurseryPlan, nurseryWithRoom, readyToLeave } from '../src/sim/nursery';
+import { accessCells, buildingCenter, coopDoor, coopDoorCells, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable, rt, toLocal, toWorld } from '../src/sim/core';
+import { freeSeats, hostedIncubators, nurseryCount, nurseryPlan, nurseryWithRoom, readyToLeave } from '../src/sim/nursery';
 import { onlineIsNewer } from '../src/online/farms';
 import { canAfford, farmLevel, spend } from '../src/sim/economy';
 import { addToStorage, ageEggs, collectNest, layEgg, takeFromStorage } from '../src/sim/eggs';
@@ -1456,9 +1456,15 @@ describe('Reproduction : coqs, couveuse, poussins', () => {
     s.clock.lastClosedDay = 2;
     return s;
   };
+  /** La couveuse s'installe dans une poussinière : on en pose une d'abord s'il le faut. */
   const placeIncubator = (s: GameState) => {
-    for (let z = 20; z < 30; z++) for (let x = 10; x < 20; x++) if (A.build(s, 'incubator', x, z).ok) return buildingsOf(s, 'incubator')[0];
-    throw new Error('aucune place pour la couveuse');
+    if (!buildingsOf(s, 'nursery').length) {
+      let done = false;
+      for (let z = 10; z < 30 && !done; z++) for (let x = 0; x < 20 && !done; x++) done = canPlace(s, 'nursery', x, z).ok && A.build(s, 'nursery', x, z).ok;
+      if (!done) throw new Error('aucune place pour la poussinière');
+    }
+    if (!A.installIncubator(s).ok) throw new Error('aucune place pour la couveuse');
+    return buildingsOf(s, 'incubator')[0];
   };
 
   it('un coq coûte 1,5 fois la poule, ne pond pas et féconde les œufs', () => {
@@ -1670,7 +1676,7 @@ describe('Onglet en arrière-plan', () => {
 });
 
 describe('Nouvelle partie du joueur', () => {
-  it('commence avec Cocotte, trois poussins, un coq et une couveuse offerte', () => {
+  it('commence avec Cocotte, trois poussins, un coq, et une poussinière équipée de sa couveuse offertes', () => {
     const s = newFarm(5);
     expect(s.hens.filter((h) => !h.rooster && !h.young).map((h) => h.name)).toEqual(['Cocotte']);
     expect(s.hens.filter((h) => h.young)).toHaveLength(3);
@@ -1678,7 +1684,186 @@ describe('Nouvelle partie du joueur', () => {
     const inc = buildingsOf(s, 'incubator');
     expect(inc).toHaveLength(1);
     expect(inc[0].invested).toBe(0);
+    const nursery = buildingsOf(s, 'nursery');
+    expect(nursery).toHaveLength(1);
+    expect(nursery[0].invested).toBe(0);
+    expect(inc[0].hostId).toBe(nursery[0].id);
+    // les poussins de Cocotte restent avec elle : la poussinière attend les prochains
+    expect(s.hens.filter((h) => h.nursery)).toHaveLength(0);
     expect(fertility(s)).toBeGreaterThan(0.8);
+  });
+});
+
+describe('Couveuses installées dans la poussinière', () => {
+  const farm = (seed: number) => {
+    const s = createNewGame(seed);
+    s.money = 10_000_000;
+    s.xp = 99999;
+    s.settings.predators = false;
+    return s;
+  };
+  const nurseryAt = (s: GameState) => {
+    for (let z = 10; z < 30; z++) for (let x = 0; x < 20; x++) if (canPlace(s, 'nursery', x, z).ok && A.build(s, 'nursery', x, z).ok) return buildingsOf(s, 'nursery').at(-1)!;
+    throw new Error('aucune place pour la poussinière');
+  };
+
+  it('sans poussinière, pas de couveuse : on ne peut la poser nulle part ailleurs', () => {
+    const s = farm(1301);
+    expect(A.checkBuild(s, 'incubator').ok).toBe(false);
+    expect(A.build(s, 'incubator', 12, 14).ok).toBe(false);
+    expect(buildingsOf(s, 'incubator')).toHaveLength(0);
+    expect(BUILDINGS.incubator.movable).toBe(false);
+  });
+
+  it('un emplacement au niveau 1, deux au niveau 2, chacun acheté à part', () => {
+    const s = farm(1302);
+    const n = nurseryAt(s);
+    const before = s.money;
+    expect(A.installIncubator(s).ok).toBe(true);
+    expect(before - s.money).toBe(BUILDINGS.incubator.levels[0].cost);
+    expect(A.installIncubator(s).ok).toBe(false);
+    expect(A.checkBuild(s, 'incubator').reason).toMatch(/emplacement/);
+    expect(A.upgrade(s, n.id).ok).toBe(true);
+    expect(A.installIncubator(s, n.id).ok).toBe(true);
+    expect(A.installIncubator(s, n.id).ok).toBe(false);
+    expect(hostedIncubators(s, n)).toHaveLength(2);
+    // une autre poussinière offre de nouvelles places
+    nurseryAt(s);
+    expect(A.installIncubator(s).ok).toBe(true);
+    expect(buildingsOf(s, 'incubator')).toHaveLength(3);
+  });
+
+  it('une couveuse n’occupe aucune case : elle ne gêne ni la pose ni les poules', () => {
+    const s = farm(1303);
+    nurseryAt(s);
+    const walk = () => rt(s).walk.reduce((a: number, v: number) => a + v, 0);
+    rt(s);
+    const free = walk();
+    A.installIncubator(s);
+    invalidateLayout(s);
+    expect(walk()).toBe(free);
+    expect(sizeOf('incubator', 3)).toEqual({ w: 0, d: 0 });
+  });
+
+  it('les poussins naissent directement dans la poussinière de leur couveuse', () => {
+    const s = farm(1304);
+    const n = nurseryAt(s);
+    A.installIncubator(s);
+    const inc = hostedIncubators(s, n)[0];
+    inc.hatch = [0, 1, 2].map(() => ({ breed: 'rousse' as const, t: s.clock.t - BREEDING.incubationDays * TIME.DAY, ok: true }));
+    const before = s.hens.length;
+    step(s, TIME.STEP);
+    const born = s.hens.slice(before);
+    expect(born).toHaveLength(3);
+    for (const h of born) {
+      expect(h.nursery).toBe(true);
+      expect(h.coopId).toBe(n.id);
+    }
+  });
+
+  it('elle suit sa poussinière quand on la déplace, la pivote ou l’agrandit', () => {
+    const s = farm(1305);
+    const n = nurseryAt(s);
+    A.installIncubator(s);
+    const inc = hostedIncubators(s, n)[0];
+    const seatAt = () => toWorld(n, nurseryPlan(n.level).seats[0].x, nurseryPlan(n.level).seats[0].z);
+    expect([inc.x, inc.z]).toEqual(seatAt());
+    expect(A.rotate(s, n.id).ok).toBe(true);
+    expect([inc.x, inc.z]).toEqual(seatAt());
+    expect(inc.rot).toBe(((n.rot ?? 0) + nurseryPlan(n.level).seats[0].rot) % 4);
+    expect(A.move(s, n.id, n.x + 1, n.z + 1).ok).toBe(true);
+    expect([inc.x, inc.z]).toEqual(seatAt());
+    // remise dans le sens de départ (elle prend plus de place en s'agrandissant) puis agrandie
+    for (let k = 0; k < 3; k++) expect(A.rotate(s, n.id).ok).toBe(true);
+    expect(n.rot ?? 0).toBe(0);
+    expect(A.upgrade(s, n.id).ok).toBe(true);
+    expect([inc.x, inc.z]).toEqual(seatAt());
+    // elle ne se déplace pas toute seule
+    expect(A.move(s, inc.id, 12, 14).ok).toBe(false);
+  });
+
+  it('améliorer ou démonter une couveuse reste possible, sans perdre ses œufs', () => {
+    const s = farm(1306);
+    const n = nurseryAt(s);
+    A.installIncubator(s);
+    const inc = hostedIncubators(s, n)[0];
+    expect(A.upgrade(s, inc.id).ok).toBe(true);
+    expect(inc.level).toBe(2);
+    inc.auto = false;
+    inc.hatch = [{ breed: 'rousse', t: s.clock.t, ok: true }];
+    expect(A.demolish(s, inc.id).ok).toBe(true);
+    expect(fertileStock(s)).toBe(1);
+    expect(freeSeats(s, n)).toBe(1);
+  });
+
+  it('ancienne partie : la couveuse posée au sol rejoint sa poussinière, en gardant ses œufs', () => {
+    const s = farm(1307);
+    nurseryAt(s);
+    const raw = JSON.parse(serialize(s));
+    raw.buildings.push({ id: 900, type: 'incubator', level: 2, x: 12, z: 14, stock: 0, cleanliness: 100, closed: false, eggIds: [], invested: 26000, builtAt: 0, hatch: [{ breed: 'rousse', t: s.clock.t, ok: true }] });
+    const back = deserialize(JSON.stringify(raw))!;
+    const inc = buildingsOf(back, 'incubator');
+    expect(inc).toHaveLength(1);
+    expect(inc[0].hostId).toBe(buildingsOf(back, 'nursery')[0].id);
+    expect(inc[0].hatch).toHaveLength(1);
+    expect(inc[0].level).toBe(2);
+    // la relecture ne change plus rien ensuite
+    const again = deserialize(serialize(back))!;
+    expect(buildingsOf(again, 'incubator')[0].hostId).toBe(inc[0].hostId);
+  });
+
+  it('ancienne partie sans poussinière : elle est offerte, et les couveuses de trop remboursées', () => {
+    const s = farm(1308);
+    const raw = JSON.parse(serialize(s));
+    for (const id of [901, 902]) raw.buildings.push({ id, type: 'incubator', level: 1, x: 12, z: 14, stock: 0, cleanliness: 100, closed: false, eggIds: [], invested: 9000, builtAt: 0, hatch: id === 902 ? [{ breed: 'rousse', t: s.clock.t, ok: true }] : [] });
+    const money = s.money;
+    const back = deserialize(JSON.stringify(raw))!;
+    expect(buildingsOf(back, 'nursery')).toHaveLength(1);
+    expect(buildingsOf(back, 'incubator')).toHaveLength(1);
+    expect(back.money).toBe(money + 9000);
+    // l'œuf n'est pas perdu : il couve dans celle qui reste
+    expect(buildingsOf(back, 'incubator')[0].hatch).toHaveLength(1);
+  });
+});
+
+describe('Bain de poussière et poulaillers', () => {
+  it('le grand bain de sable est un niveau de plus, sans toit, une case plus grand', () => {
+    const levels = BUILDINGS.dustbath.levels;
+    expect(levels).toHaveLength(3);
+    expect(sizeOf('dustbath', 2)).toEqual({ w: 2, d: 2 });
+    expect(sizeOf('dustbath', 3)).toEqual({ w: 3, d: 3 });
+    expect(levels[2].wellbeing!).toBeGreaterThan(levels[1].wellbeing!);
+    expect(levels[2].slots!).toBeGreaterThan(levels[1].slots!);
+    expect(NATURE.dustSick[3]).toBeLessThan(NATURE.dustSick[2]);
+  });
+
+  it('on l’améliore jusqu’au grand bain, et ses places tiennent dans le bassin', () => {
+    const s = createNewGame(1401);
+    s.money = 10_000_000;
+    s.xp = 99999;
+    s.settings.predators = false;
+    let ok = false;
+    for (let z = 10; z < 28 && !ok; z++) for (let x = 0; x < 18 && !ok; x++) if (canPlace(s, 'dustbath', x, z).ok) ok = A.build(s, 'dustbath', x, z).ok;
+    expect(ok).toBe(true);
+    const b = buildingsOf(s, 'dustbath')[0];
+    expect(A.upgrade(s, b.id).ok).toBe(true);
+    expect(A.upgrade(s, b.id).ok).toBe(true);
+    expect(b.level).toBe(3);
+    // huit places, toutes dans le bassin (la margelle commence à 1,05 du centre)
+    const c = buildingCenter(b);
+    const spots = slotSpots(s, b);
+    expect(spots).toHaveLength(8);
+    for (const [x, z] of spots) {
+      expect(Math.abs(x - c.x)).toBeLessThan(1.05);
+      expect(Math.abs(z - c.z)).toBeLessThan(1.05);
+    }
+  });
+
+  it('les poulaillers modernes forment une même famille, du niveau 4 au niveau 6', () => {
+    const names = BUILDINGS.coop.levels.map((l) => l.name);
+    expect(names[3]).toMatch(/moderne/);
+    expect(names[4]).toMatch(/moderne/);
+    expect(names[4]).not.toMatch(/ferme/);
   });
 });
 
@@ -1739,7 +1924,8 @@ describe('Génétique et sélection', () => {
     for (let i = 0; i < 30 && !egg.fertile; i++) egg = layEgg(s, hen, null);
     expect(egg.genes).toMatch(/^[45][45][45]$/);
     // de l'œuf au poussin
-    for (let z = 20; z < 30 && !buildingsOf(s, 'incubator').length; z++) for (let x = 10; x < 20; x++) if (A.build(s, 'incubator', x, z).ok) break;
+    for (let z = 10; z < 30 && !buildingsOf(s, 'nursery').length; z++) for (let x = 0; x < 20; x++) if (canPlace(s, 'nursery', x, z).ok && A.build(s, 'nursery', x, z).ok) break;
+    expect(A.installIncubator(s).ok).toBe(true);
     const inc = buildingsOf(s, 'incubator')[0];
     inc.auto = false;
     addToStorage(s, 'roux', 'A', 100, 1, 'rousse', egg.genes);
@@ -2893,7 +3079,7 @@ describe('Commis, jardinier et coucher des poules', () => {
     // une large plaque pelée dans un coin de la ferme, le reste bien vert
     for (let i = 0; i < s.grass.length; i++) s.grass[i] = 0.95;
     const patch: number[] = [];
-    for (let z = 24; z < 28; z++)
+    for (let z = 12; z < 16; z++)
       for (let x = 2; x < 6; x++) {
         if (!isWalkable(s, x + 0.5, z + 0.5)) continue;
         const i = (z - GRID_Z0) * GRID_W + x;
@@ -3071,6 +3257,8 @@ describe('Poussinière', () => {
     s.money = 1e7;
     s.xp = 99999;
     s.settings.predators = false;
+    // on repart de zéro, sans la poussinière offerte au départ
+    for (const n of buildingsOf(s, 'nursery')) A.demolish(s, n.id);
     let ok = false;
     for (let z = -10; z < 28 && !ok; z++) for (let x = 0; x < 30 && !ok; x++) if (canPlace(s, 'nursery', x, z, -1, 1, rot).ok) ok = A.build(s, 'nursery', x, z, rot).ok;
     expect(ok).toBe(true);
@@ -3078,7 +3266,7 @@ describe('Poussinière', () => {
   };
   /** Un œuf fécondé mûr dans une couveuse : il éclot au pas suivant. */
   const hatch = (s: GameState, n: number) => {
-    const inc = buildingsOf(s, 'incubator')[0] ?? (A.build(s, 'incubator', 2, 26), buildingsOf(s, 'incubator')[0]);
+    const inc = buildingsOf(s, 'incubator')[0] ?? (A.installIncubator(s), buildingsOf(s, 'incubator')[0]);
     inc.hatch = Array.from({ length: n }, () => ({ breed: 'rousse' as const, t: s.clock.t - BREEDING.incubationDays * TIME.DAY, ok: true }));
     inc.level = 3;
     step(s, TIME.STEP);
@@ -3261,14 +3449,19 @@ describe('Poussinière', () => {
     expect(back.hens.filter((h) => h.nursery).length).toBe(count);
   });
 
-  it('sans poussinière, rien ne change : les poussins grandissent avec les poules', () => {
-    const s = newFarm(978);
-    morning(s);
-    s.money = 1e7;
+  it('démontée, ses poussins rejoignent les poules et ses couveuses repartent, sans perdre un œuf', () => {
+    const { s, b } = nurseryFarm(978);
     hatch(s, 2);
-    const young = s.hens.filter((h) => h.young);
-    expect(young.length).toBeGreaterThanOrEqual(2);
+    expect(raised(s).length).toBeGreaterThanOrEqual(2);
+    const inc = buildingsOf(s, 'incubator')[0];
+    inc.auto = false;
+    inc.hatch = [{ breed: 'rousse', t: s.clock.t, ok: true }];
+    const money = s.money;
+    expect(A.demolish(s, b.id).ok).toBe(true);
     expect(raised(s).length).toBe(0);
+    expect(buildingsOf(s, 'incubator')).toHaveLength(0);
+    expect(s.money).toBeGreaterThan(money);
+    expect(fertileStock(s)).toBe(1);
   });
 
   it('enterNursery place le poussin à l’intérieur, invisible, avant qu’il ne sorte', () => {
@@ -3451,7 +3644,7 @@ describe('Les oies se reproduisent : couveuse à oies, jars, oisons', () => {
   it('à l’éclosion, l’oison sort et vit avec les oies, jamais à la poussinière', () => {
     const s = farm(805);
     const house = buildingsOf(s, 'goosehouse')[0];
-    const nursery = buildAnywhere(s, 'nursery');
+    const nursery = buildingsOf(s, 'nursery')[0] ?? buildAnywhere(s, 'nursery');
     const inc = buildAnywhere(s, 'gooseincubator');
     expect(nurseryWithRoom(s)?.id).toBe(nursery.id);
     inc.hatch = [
@@ -3476,7 +3669,7 @@ describe('Les oies se reproduisent : couveuse à oies, jars, oisons', () => {
 
   it('les œufs de poule continuent d’aller à la poussinière', () => {
     const s = farm(806);
-    const nursery = buildAnywhere(s, 'nursery');
+    const nursery = buildingsOf(s, 'nursery')[0] ?? buildAnywhere(s, 'nursery');
     const inc = buildingsOf(s, 'incubator')[0] ?? buildAnywhere(s, 'incubator');
     const had = nurseryCount(s, nursery);
     inc.hatch = [{ breed: 'rousse', t: s.clock.t - BREEDING.incubationDays * TIME.DAY, ok: true }];

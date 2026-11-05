@@ -272,7 +272,7 @@ function HensTab() {
       {!buildingsOf(s, 'incubator').length && (
         <div class="notice">
           <span>
-            Sans <b>couveuse</b>, les œufs fécondés sont simplement vendus comme les autres.
+            Sans <b>couveuse</b> (elle s’installe dans une poussinière), les œufs fécondés sont simplement vendus comme les autres.
           </span>
           <button
             class="btn soft small"
@@ -465,9 +465,11 @@ function keyStat(type: BuildingType): Array<[string, ComponentChildren]> {
       return [
         ['Capacité', `${L.capacity} œufs`],
         ['Éclosion', `${BREEDING.incubationDays} jours`],
+        ['Se pose', 'dans la poussinière'],
       ];
     case 'nursery':
       return [
+        ['Couveuses', '1 emplacement (2 au niveau 2)'],
         ['Capacité', `${L.capacity} poussins`],
         ['Croissance', `+${Math.round(((L.growth ?? 1) - 1) * 100)} %`],
       ];
@@ -495,14 +497,17 @@ function BuildTab() {
               pic={buildingThumb(type, 1)}
               title={def.name}
               desc={def.description}
-              stats={[...keyStat(type), ['Emprise', `${def.w} × ${def.d} cases`], ['Entretien', `${fmtMoney(L.upkeep)} / jour`]]}
+              stats={[...keyStat(type), ...(def.w ? ([['Emprise', `${def.w} × ${def.d} cases`]] as Array<[string, string]>) : []), ['Entretien', `${fmtMoney(L.upkeep)} / jour`]]}
               price={L.cost}
               count={Number.isFinite(A.maxCount(s, type)) ? `${countOfType(s, type)} / ${A.maxCount(s, type)}` : countOfType(s, type) ? `${countOfType(s, type)} construit${countOfType(s, type) > 1 ? 's' : ''}` : undefined}
-              cta="Construire"
+              cta={type === 'incubator' ? 'Installer' : 'Construire'}
               ok={chk.ok}
               why={chk.ok ? undefined : chk.reason}
               locked={locked}
-              onBuy={() => game.startPlacing(type)}
+              onBuy={() => {
+                if (type !== 'incubator') return game.startPlacing(type);
+                if (game.act(() => A.installIncubator(s), 'build')) game.toast('Couveuse installée dans la poussinière : les poussins y naîtront directement.', 'good', '🐣');
+              }}
             />
           );
         })}

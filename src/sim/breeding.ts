@@ -1,16 +1,16 @@
-// Reproduction : les coqs fécondent une partie des œufs ; mis en couveuse, ces œufs éclosent
-// au bout de 15 jours ; les poussins grandissent à la poussinière (ou avec les poules s'il n'y a
-// pas de place) et pondent à 30 jours. Les oies ont leur circuit à elles : le jars féconde leurs
+// Reproduction : les coqs fécondent une partie des œufs ; mis en couveuse (dans la poussinière, sur
+// un de ses emplacements), ces œufs éclosent au bout de 15 jours ; les poussins naissent sur place,
+// y grandissent (ou avec les poules s'il n'y a plus de place) et pondent à 30 jours. Les oies ont leur circuit à elles : le jars féconde leurs
 // œufs, la couveuse à oies les fait éclore et les oisons en sortent pour suivre aussitôt le
 // troupeau, sans passer par la poussinière.
 import { BREEDING, TIME } from '../config/balance';
 import { BREEDS, isGoose } from '../config/breeds';
 import { sizeOf } from '../config/buildings';
-import { buildingCenter, currentHour, emit, notify, rand, randRange, toWorld } from './core';
+import { buildingCenter, currentHour, emit, frontOf, notify, rand, randRange, toWorld } from './core';
 import { createHen, enterNursery } from './hens';
-import { nurseryWithRoom } from './nursery';
+import { nurseryCount, nurseryWithRoom } from './nursery';
 import { GENE_INFO, decodeGenes, encodeGenes, genesOf, inherit } from './genetics';
-import { buildingsOf, coopCapacity, homeForYoung, landCapacity, lvl } from './queries';
+import { buildingsOf, coopCapacity, getBuilding, homeForYoung, landCapacity, lvl } from './queries';
 import type { ActionResult, BreedId, Building, GameState, Hen } from './types';
 
 export const isRooster = (h: Hen) => !!h.rooster && !h.young;
@@ -161,7 +161,7 @@ export function incubatable(s: GameState) {
 /** Bouton du stockage : tous les œufs fécondés partent dans les couveuses (les moins pleines d'abord). */
 export function incubateAll(s: GameState): ActionResult & { count?: number } {
   const incs = s.buildings.filter(isIncubator).sort((a, b) => (a.hatch?.length ?? 0) / lvl(a).capacity - (b.hatch?.length ?? 0) / lvl(b).capacity);
-  if (!incs.length) return { ok: false, reason: 'Construisez d’abord une couveuse (Boutique → Bâtiments)' };
+  if (!incs.length) return { ok: false, reason: 'Il faut d’abord une poussinière et une couveuse (Boutique → Bâtiments)' };
   if (fertileStock(s) <= 0) return { ok: false, reason: 'Aucun œuf fécondé au stockage' };
   let total = 0;
   let reason = '';
@@ -206,15 +206,16 @@ function hatchOut(s: GameState, b: Building) {
   let goslings = 0;
   const promising: string[] = [];
   const { w, d } = sizeOf(b.type, b.level);
+  const host = b.hostId === undefined ? undefined : getBuilding(s, b.hostId);
   for (const e of due) {
     if (!e.ok) continue;
-    // l'oison sort de sa couveuse et rejoint les oies ; le poussin va à la poussinière s'il y a
-    // de la place, sinon dans la basse-cour avec les poules
+    // l'oison sort de sa couveuse et rejoint les oies ; le poussin naît dans la poussinière de sa
+    // couveuse : s'il n'y a plus de place, il va dans une autre, sinon avec les poules
     const gosling = isGoose(e.breed);
-    const room = gosling ? null : nurseryWithRoom(s);
+    const room = gosling ? null : host && lvl(host).capacity > nurseryCount(s, host) ? host : nurseryWithRoom(s);
     const coop = room ?? homeForYoung(s, e.breed);
     if (!coop) continue;
-    const at = toWorld(b, w / 2 + randRange(s, -0.7, 0.7), d + 0.35 + randRange(s, 0, 0.5));
+    const at = host ? frontOf(host, 0.6 + rand(s) * 0.4, randRange(s, -0.5, 0.5)) : toWorld(b, w / 2 + randRange(s, -0.7, 0.7), d + 0.35 + randRange(s, 0, 0.5));
     const h = createHen(s, e.breed, coop, false, { young: BREEDING.growthDays, rooster: rand(s) < BREEDING.roosterShare, at, genes: decodeGenes(e.genes) });
     s.hens.push(h);
     if (room) {
@@ -235,7 +236,7 @@ function hatchOut(s: GameState, b: Building) {
     const rest = lost ? ` · ${lost} œuf${lost > 1 ? 's' : ''} n’${lost > 1 ? 'ont' : 'a'} pas éclos` : '';
     if (goslings) notify(s, `${goslings} oison${goslings > 1 ? 's sortent' : ' sort'} de la couveuse et ${goslings > 1 ? 'rejoignent' : 'rejoint'} les oies${chicks ? '' : rest}. Adulte${goslings > 1 ? 's' : ''} dans ${BREEDING.growthDays} jours !`, 'good', '🪿');
     const breeds = [...new Set(due.filter((e) => e.ok && !isGoose(e.breed)).map((e) => BREEDS[e.breed].name))].join(', ');
-    const where = raised === chicks ? ' Direction la poussinière !' : raised ? ` ${raised} vont à la poussinière (pleine), les autres grandissent avec les poules.` : buildingsOf(s, 'nursery').length ? ' Poussinière pleine : ils grandissent avec les poules.' : '';
+    const where = raised === chicks ? ' Ils grandissent à la poussinière.' : raised ? ` ${raised} restent à la poussinière (pleine), les autres grandissent avec les poules.` : buildingsOf(s, 'nursery').length ? ' Poussinière pleine : ils grandissent avec les poules.' : '';
     if (chicks) notify(s, `${chicks} poussin${chicks > 1 ? 's sont nés' : ' est né'} (${breeds})${rest}. Pondeuses dans ${BREEDING.growthDays} jours !${where}`, 'good', '🐣');
     if (promising.length) notify(s, `Poussin${promising.length > 1 ? 's' : ''} prometteur${promising.length > 1 ? 's' : ''} : ${promising.join(', ')}. Gardez-le${promising.length > 1 ? 's' : ''} pour la reproduction !`, 'good', '🌟');
   } else notify(s, `Aucun des ${due.length} œuf${due.length > 1 ? 's' : ''} de la couveuse n’a éclos. Des œufs plus frais éclosent mieux.`, 'warn', '🥚');

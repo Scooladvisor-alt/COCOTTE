@@ -355,6 +355,8 @@ export interface Building {
   doorDay?: number;
   /** Œufs présents dans un pondoir (ids de WorldEgg). */
   eggIds: number[];
+  /** Couveuse : la poussinière où elle est installée (x, z et rot suivent alors son emplacement). */
+  hostId?: number;
   /** Couveuse : œufs fécondés en incubation. */
   hatch?: IncubatingEgg[];
   /** Couveuse : remplissage automatique avec les œufs fécondés du stockage (vrai par défaut). */

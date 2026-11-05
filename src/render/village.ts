@@ -9,6 +9,7 @@ import { WORLD } from '../config/balance';
 import { C, box, cone, cyl, finalizeExport, ico, merge, mesh, sph, type V3 } from './geo';
 import { strip } from './people';
 import { LANTERN_GLOW } from './models';
+import { TREE_MAT, speciesGeometry } from './nature';
 
 /**
  * Le village est dessiné pour une route en z = 33,4 ; on le décale avec elle (elle s'est éloignée
@@ -51,6 +52,7 @@ export function buildVillage(scene: THREE.Scene): Village {
   const warm: THREE.BufferGeometry[] = [];
   const chimneys: Array<[number, number, number]> = [];
   const lamps: Array<[number, number, number]> = [];
+  const leafy: THREE.BufferGeometry[] = [];
   const signs: Array<{ text: string; bg: string; fg: string; w: number; h: number; p: V3; ry: number }> = [];
 
   /**
@@ -176,22 +178,17 @@ export function buildVillage(scene: THREE.Scene): Village {
     solid.push(box(0.04, 0.08, 0.6, 0xf3efe6, P(0.76, 0.34, 0), [0, ry, 0]));
   };
 
-  /** Arbre feuillu (fruitier : quelques fruits colorés). */
-  const tree = (x: number, z: number, r: number, i: number, fruit?: number) => {
-    solid.push(cyl(0.06 * r + 0.03, 0.09 * r + 0.03, 0.9 * r, 6, C.trunk, [x, 0.45 * r, z]));
-    const leaf = pick([C.leaf, 0xa8d68a, 0x8cc46f, 0x7fb35a], hash(i));
-    solid.push(ico(0.62 * r, 1, leaf, [x, 1.15 * r, z]));
-    solid.push(ico(0.42 * r, 1, shade(leaf, 0.92), [x + 0.3 * r, 1.45 * r, z - 0.15 * r]));
-    if (fruit !== undefined) for (let k = 0; k < 7; k++) {
-      const a = k * 2.4 + i;
-      solid.push(sph(0.06, 5, 4, fruit, [x + Math.cos(a) * 0.5 * r, 1.0 * r + (k % 3) * 0.15, z + Math.sin(a) * 0.5 * r]));
-    }
+  /** Arbre feuillu ou fruitier (le pommier porte déjà ses fruits). */
+  const tree = (x: number, z: number, r: number, i: number, fruit = false) => {
+    const t = speciesGeometry(fruit ? 'apple' : i % 3 === 0 ? 'oak' : 'lime').clone();
+    t.rotateY(hash(i) * 6.28);
+    t.scale(r, r, r);
+    t.translate(x, 0, z);
+    leafy.push(t);
   };
 
   /** Jardin derrière la maison (côté +n du mur f) : pelouse et deux ou trois choses de la vie de tous les jours. */
   const garden = (W: Wall, wlen: number, depth: number, i: number) => {
-    const lawn = pick([0xcfe0a2, 0xc6dc96, 0xd6e4ad, 0xbfd78e], hash(i));
-    W.bx(wlen + 0.9, 0.025, depth, lawn, 0, 0.02, depth / 2);
     // clôture du fond (planches, grillage ou haie)
     const kind = Math.floor(hash(i + 1) * 3);
     if (kind === 0) for (let k = 0; k <= 10; k++) W.bx(0.06, 0.42, 0.05, 0xc8a46f, -wlen / 2 - 0.4 + (k * (wlen + 0.8)) / 10, 0.21, depth);
@@ -237,7 +234,7 @@ export function buildVillage(scene: THREE.Scene): Village {
         // tas de bûches contre la clôture, sous un petit toit
         for (let r = 0; r < 3; r++) for (let q = 0; q < 5 - r; q++) solid.push(cyl(0.07, 0.07, 0.5, 7, q % 2 ? 0xb07a45 : 0x9b6b3d, W.at(u - 0.3 + q * 0.15 + r * 0.075, 0.08 + r * 0.13, depth - 0.3), f2rot(W)));
         W.bx(0.9, 0.04, 0.6, 0x6b5a48, u, 0.55, depth - 0.3, solid, 0.15);
-      } else if (fk === 5) tree(W.at(u, 0, n)[0], W.at(u, 0, n)[2], 0.9, i, pick([0xd9534f, 0xf0a33a, 0xc7d64a], hash(i + 11)));
+      } else if (fk === 5) tree(W.at(u, 0, n)[0], W.at(u, 0, n)[2], 0.9, i, true);
       else {
         // balançoire
         for (const s of [-1, 1]) {
@@ -386,8 +383,8 @@ export function buildVillage(scene: THREE.Scene): Village {
     if (!o.noGarden) garden(back, w, 1.4, i);
   };
 
-  // ------------------------------------------------------------------ sol et rues
-  solid.push(box(84, 0.03, 26.6, 0xdfe8bb, [21, 0.015, 49.7]));
+  // ------------------------------------------------------------------ rues
+  // (le sol est celui, d'un seul tenant, de la campagne : il suit les saisons)
   // grand-rue goudronnée, bordures et trottoirs
   solid.push(box(84, 0.05, 1.5, 0x9f9b93, [21, 0.035, 46]));
   for (const s of [-1, 1]) {
@@ -436,9 +433,13 @@ export function buildVillage(scene: THREE.Scene): Village {
     ]) {
       solid.push(cyl(0.12, 0.16, 1.6, 7, 0xb9b08f, [px, 0.8, pz]));
       for (let q = 0; q < 5; q++) solid.push(box(0.1, 0.16, 0.02, 0x8f8a6a, [px + Math.cos(q * 1.3) * 0.13, 0.4 + q * 0.25, pz + Math.sin(q * 1.3) * 0.13], [0, -q * 1.3, 0]));
-      solid.push(ico(0.95, 1, 0x86bf62, [px, 2.1, pz]));
-      solid.push(ico(0.65, 1, 0x7aae58, [px + 0.4, 2.45, pz - 0.2]));
-      solid.push(ico(0.6, 1, 0x93c96e, [px - 0.45, 2.3, pz + 0.25]));
+      {
+        const t = speciesGeometry('lime').clone();
+        t.rotateY(px);
+        t.scale(1.34, 1.34, 1.34);
+        t.translate(px, 0.1, pz);
+        leafy.push(t);
+      }
       solid.push(cyl(0.45, 0.45, 0.06, 14, 0xb9ab93, [px, 0.06, pz]));
     }
     for (const bx of [18.2, 21.8]) {
@@ -707,6 +708,8 @@ export function buildVillage(scene: THREE.Scene): Village {
   // ------------------------------------------------------------------ assemblage
   const solidMesh = mesh(merge(solid).translate(0, 0, DZ), true, true);
   scene.add(solidMesh);
+  // les arbres du village suivent les saisons comme ceux de la campagne
+  scene.add(mesh(merge(leafy).translate(0, 0, DZ), true, true, TREE_MAT));
   const glassMat = new THREE.MeshBasicMaterial({ color: 0x9fb4c8 });
   const glassMesh = new THREE.Mesh(merge(glass).translate(0, 0, DZ), glassMat);
   scene.add(glassMesh);

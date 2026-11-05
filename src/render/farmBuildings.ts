@@ -443,6 +443,12 @@ export function coopNormand(parts: Parts, windows: THREE.Mesh[]) {
 }
 
 /** Niveau 4 — bâtiment d'élevage moderne : panneaux isolés, bac acier, solaire, ventilation. */
+/** Palette commune aux poulaillers modernes (niveaux 4, 5 et 6) : ils forment une même famille. */
+const MODERN_PANEL = 0xeef1f4;
+const MODERN_SEAM = 0xd3d9e0;
+const MODERN_FRAME = 0x5b6170;
+const MODERN_BAND = 0x3d4a63;
+
 export function coopModern(parts: Parts, windows: THREE.Mesh[]) {
   const x0 = 0.1;
   const x1 = 2.9;
@@ -451,14 +457,14 @@ export function coopModern(parts: Parts, windows: THREE.Mesh[]) {
   const y0 = 0.1;
   const y1 = 1.28;
   const cz = (zb + zf) / 2;
-  const PANEL = 0xeef1f4;
-  const SEAM = 0xd3d9e0;
-  const FRAME = 0x5b6170;
+  const PANEL = MODERN_PANEL;
+  const SEAM = MODERN_SEAM;
+  const FRAME = MODERN_FRAME;
   parts.push(box(x1 - x0 + 0.06, y0, zf - zb + 0.06, 0x8e939b, [1.5, y0 / 2, cz]));
   parts.push(box(x1 - x0, y1 - y0, zf - zb, PANEL, [1.5, (y0 + y1) / 2, cz]));
   for (let x = x0 + 0.35; x < x1 - 0.1; x += 0.35) parts.push(box(0.022, y1 - y0, 0.016, SEAM, [x, (y0 + y1) / 2, zf + 0.008]));
   for (let z = zb + 0.32; z < zf - 0.1; z += 0.32) parts.push(box(0.016, y1 - y0, 0.022, SEAM, [x1 + 0.008, (y0 + y1) / 2, z]));
-  parts.push(box(x1 - x0 + 0.02, 0.1, zf - zb + 0.02, 0x3d4a63, [1.5, y1 - 0.05, cz]));
+  parts.push(box(x1 - x0 + 0.02, 0.1, zf - zb + 0.02, MODERN_BAND, [1.5, y1 - 0.05, cz]));
   for (const [x, z] of [
     [x0, zf],
     [x1, zf],
@@ -532,79 +538,92 @@ function farmWindow(parts: Parts, windows: THREE.Mesh[], x: number, y: number, z
 }
 
 /**
- * Niveau 5 — grand poulailler de ferme (dessiné sur 4 × 2,5) : longue grange sur soubassement de
- * pierre, bardage de planches rouge sombre aux angles blancs, grand toit de tuiles avec lanterneau
- * d'aération et girouette, fenêtres à carreaux, porte coulissante sur le côté, trappe et rampe au
- * centre de la façade, lampe, enseigne et bottes de paille.
+ * Niveau 5 — grand poulailler moderne (dessiné sur 4 × 2,5) : la suite directe du niveau 4, en plus
+ * grand. Mêmes panneaux isolés, même bandeau bleu nuit et même toit en bac acier, avec des panneaux
+ * solaires en plus, une faîtière ventilée, deux cheminées d'extraction et une petite trémie de grain,
+ * annonce du silo du niveau 6. Trappe et rampe de béton au centre de la façade.
  */
-export function coopFarm(parts: Parts, windows: THREE.Mesh[]) {
+export function coopModernLarge(parts: Parts, windows: THREE.Mesh[]) {
   const x0 = 0.12;
   const x1 = 3.88;
   const zb = 0.18;
   const zf = 2.18;
-  const yb = 0.34;
-  const y1 = 1.42;
+  const y0 = 0.12;
+  const y1 = 1.36;
   const cx = 2;
   const cz = (zb + zf) / 2;
-  const RED = 0x9c3f2c;
-  const RED2 = 0x873524;
-  // soubassement de pierre (moellons en relief sur la façade et le côté)
-  parts.push(box(x1 - x0 + 0.06, yb, zf - zb + 0.06, STONE, [cx, yb / 2, cz]));
-  for (let i = 0; i < 26; i++) {
-    const x = x0 + 0.1 + rnd(i) * (x1 - x0 - 0.2);
-    parts.push(box(0.14 + rnd(i + 40) * 0.1, 0.07 + rnd(i + 80) * 0.04, 0.02, rnd(i + 9) < 0.5 ? STONE_DARK : 0xcabfad, [x, 0.06 + rnd(i + 3) * (yb - 0.12), zf + 0.035]));
-  }
-  for (let i = 0; i < 14; i++) {
-    const z = zb + 0.1 + rnd(i + 200) * (zf - zb - 0.2);
-    parts.push(box(0.02, 0.07 + rnd(i + 230) * 0.04, 0.14 + rnd(i + 260) * 0.1, rnd(i + 290) < 0.5 ? STONE_DARK : 0xcabfad, [x1 + 0.035, 0.06 + rnd(i + 300) * (yb - 0.12), z]));
-  }
-  // murs de planches
-  parts.push(box(x1 - x0, y1 - yb, zf - zb, RED2, [cx, (yb + y1) / 2, cz]));
-  boardsZ(parts, x0, x1, yb, y1, zf, RED, RED2, 0.15);
-  boardsX(parts, zb, zf, yb, y1, x1, RED, RED2, 0.15);
+  // longrine de béton, panneaux isolés et leurs joints, bandeaux du haut et du bas
+  parts.push(box(x1 - x0 + 0.08, y0, zf - zb + 0.08, 0x8e939b, [cx, y0 / 2, cz]));
+  parts.push(box(x1 - x0, y1 - y0, zf - zb, MODERN_PANEL, [cx, (y0 + y1) / 2, cz]));
+  for (let x = x0 + 0.32; x < x1 - 0.1; x += 0.32) parts.push(box(0.02, y1 - y0, 0.016, MODERN_SEAM, [x, (y0 + y1) / 2, zf + 0.008]));
+  for (let z = zb + 0.32; z < zf - 0.1; z += 0.32) parts.push(box(0.016, y1 - y0, 0.02, MODERN_SEAM, [x1 + 0.008, (y0 + y1) / 2, z]));
+  parts.push(box(x1 - x0 + 0.02, 0.1, zf - zb + 0.02, MODERN_BAND, [cx, y1 - 0.05, cz]));
+  parts.push(box(x1 - x0 + 0.02, 0.05, 0.04, MODERN_BAND, [cx, y0 + 0.05, zf + 0.02]));
+  parts.push(box(0.04, 0.05, zf - zb + 0.02, MODERN_BAND, [x1 + 0.02, y0 + 0.05, cz]));
   for (const [x, z] of [
     [x0, zf],
     [x1, zf],
     [x1, zb],
   ])
-    parts.push(box(0.07, y1 - yb + 0.02, 0.07, TRIM, [x, (yb + y1) / 2, z]));
-  parts.push(box(x1 - x0 + 0.02, 0.06, 0.05, TRIM, [cx, yb + 0.02, zf + 0.03]));
-  // grand toit de tuiles, lanterneau d'aération sur le faîtage, girouette
-  const roof = gableRoof(parts, { cx, cz, y: y1, w: x1 - x0, d: zf - zb, h: 0.78, over: 0.16, side: 0.14, a: 0xb5573b, b: 0xa24b33, n: 8, ridge: 0x8a3c29, rive: TIMBER, gable: RED });
-  const ry = roof.ridgeY;
-  parts.push(box(0.62, 0.36, 0.46, RED, [cx, ry + 0.16, cz]));
-  for (const s2 of [-1, 1]) for (let k = 0; k < 4; k++) parts.push(box(0.5, 0.025, 0.04, TRIM, [cx, ry + 0.06 + k * 0.08, cz + s2 * 0.235], [s2 * 0.5, 0, 0]));
-  parts.push(prism(0.78, 0.26, 0.64, 0xa24b33, [cx, ry + 0.34, cz]));
-  weathervane(parts, cx, ry + 0.6, cz, 1.1);
-  // fenêtres à carreaux sur la façade et le côté
-  for (const x of [0.62, 1.32, 2.68, 3.38]) farmWindow(parts, windows, x, 0.98, zf + 0.012, 0.36, 0.34);
-  for (const z of [0.7, 1.66]) farmWindow(parts, windows, x1 + 0.012, 0.98, z, 0.34, 0.32, true);
-  // porte coulissante sur le côté (rail, croix de Saint-André)
-  const dz = 1.18;
-  parts.push(box(0.04, 0.82, 0.72, 0xb04a33, [x1 + 0.03, yb + 0.41, dz]));
-  parts.push(box(0.05, 0.05, 0.74, TRIM, [x1 + 0.055, yb + 0.41, dz]));
-  for (const a of [0.85, -0.85]) parts.push(box(0.05, 0.05, 1.0, TRIM, [x1 + 0.055, yb + 0.41, dz], [a, 0, 0]));
-  for (const y of [yb + 0.02, yb + 0.8]) parts.push(box(0.05, 0.05, 0.76, TRIM, [x1 + 0.055, y, dz]));
-  parts.push(box(0.04, 0.04, 1.2, IRON, [x1 + 0.065, yb + 0.86, dz - 0.18]));
-  // trappe et rampe au centre, lampe, enseigne
-  // devant le bardage (2,2 cm) : la trappe ne se confond pas avec les planches
-  henDoor(parts, cx, 0.12, 0.62, 0.44, zf + 0.035, TRIM);
-  ramp(parts, cx, 0.12, zf + 0.04, 2.62, 0.4, C.wood, C.woodDark);
-  parts.push(box(0.09, 0.14, 0.09, IRON, [cx + 0.42, 0.86, zf + 0.06]));
-  windows.push(glassPane(0.06, 0.08, [cx + 0.42, 0.85, zf + 0.11], 0, 0.06));
-  eggSign(parts, cx, 1.3, zf + 0.04, 0xe7d5b0);
-  // gouttière, descente, bottes de paille contre le pignon
-  const [ey, ez] = roof.at(1, roof.len, 0);
-  parts.push(box(x1 - x0 + 0.3, 0.06, 0.08, 0x9aa0a6, [cx, ey - 0.045, ez - 0.02]));
-  parts.push(cyl(0.025, 0.025, ey - 0.05, 8, 0x9aa0a6, [x1 + 0.08, ey / 2, zf + 0.08]));
-  for (const [x, y] of [
-    [0.42, 0.13],
-    [0.82, 0.13],
-    [0.62, 0.38],
+    parts.push(box(0.05, y1 - y0, 0.05, 0xc9ced4, [x, (y0 + y1) / 2, z]));
+  // bandeaux vitrés sur la façade (coupés par la trappe) et le côté
+  for (const [a, b] of [
+    [0.34, 1.62],
+    [2.38, 3.66],
   ]) {
-    parts.push(box(0.36, 0.24, 0.24, C.straw, [x, y, zf + 0.2]));
-    for (const dx of [-0.08, 0.08]) parts.push(box(0.012, 0.25, 0.25, 0xc9a640, [x + dx, y, zf + 0.2]));
+    windows.push(glassPane(b - a, 0.2, [(a + b) / 2, 1.06, zf + 0.012]));
+    for (const y of [0.94, 1.18]) parts.push(box(b - a + 0.06, 0.04, 0.04, MODERN_FRAME, [(a + b) / 2, y, zf + 0.02]));
+    for (let k = 0; k <= 4; k++) parts.push(box(0.03, 0.24, 0.035, MODERN_FRAME, [a + (k * (b - a)) / 4, 1.06, zf + 0.025]));
   }
+  windows.push(glassPane(1.56, 0.2, [x1 + 0.012, 1.06, cz], Math.PI / 2));
+  for (const y of [0.94, 1.18]) parts.push(box(0.04, 0.04, 1.64, MODERN_FRAME, [x1 + 0.02, y, cz]));
+  for (let k = 0; k <= 4; k++) parts.push(box(0.035, 0.24, 0.03, MODERN_FRAME, [x1 + 0.025, 1.06, cz - 0.78 + (k * 1.56) / 4]));
+  // ventilateurs d'extraction sur le côté
+  for (const z of [0.62, 1.2, 1.78]) {
+    parts.push(cyl(0.2, 0.2, 0.07, 16, MODERN_FRAME, [x1 + 0.035, 0.52, z], [0, 0, Math.PI / 2]));
+    parts.push(cyl(0.165, 0.165, 0.02, 16, 0x2a2f3a, [x1 + 0.07, 0.52, z], [0, 0, Math.PI / 2]));
+    for (const a of [0, Math.PI / 4, Math.PI / 2, -Math.PI / 4]) parts.push(box(0.012, 0.33, 0.018, 0xb7c0c7, [x1 + 0.082, 0.52, z], [a, 0, 0]));
+    parts.push(cyl(0.045, 0.045, 0.03, 10, 0xb7c0c7, [x1 + 0.088, 0.52, z], [0, 0, Math.PI / 2]));
+  }
+  // toit en bac acier, panneaux solaires, faîtière ventilée, cheminées d'extraction
+  const roof = gableRoof(parts, { cx, cz, y: y1, w: x1 - x0, d: zf - zb, h: 0.56, over: 0.14, side: 0.1, a: 0x939da7, b: 0x838d97, style: 'ribs', ridge: 0x6b7580, rive: 0x6b7580, gable: MODERN_PANEL });
+  const r: V3 = [roof.slope, 0, 0];
+  for (const px of [0.72, 1.57, 2.43, 3.28]) {
+    const [y, z] = roof.at(1, roof.len * 0.48, 0.1);
+    parts.push(box(0.76, 0.03, 0.7, 0xc9ced4, [px, y - 0.012, z], r));
+    parts.push(box(0.7, 0.03, 0.64, 0x22407a, [px, y, z], r));
+    const [gy, gz] = roof.at(1, roof.len * 0.48, 0.117);
+    for (const dx of [-0.175, 0, 0.175]) parts.push(box(0.012, 0.01, 0.64, 0x4a6fb5, [px + dx, gy, gz], r));
+    for (const ds of [-0.16, 0, 0.16]) {
+      const [ly, lz] = roof.at(1, roof.len * 0.48 + ds, 0.117);
+      parts.push(box(0.7, 0.01, 0.012, 0x4a6fb5, [px, ly, lz], r));
+    }
+  }
+  parts.push(box(x1 - x0 - 0.3, 0.07, 0.2, 0x6b7580, [cx, roof.ridgeY + 0.02, cz]));
+  for (let i = 0; i < 10; i++) parts.push(box(0.12, 0.05, 0.21, 0x3d4550, [0.5 + i * 0.334, roof.ridgeY + 0.02, cz]));
+  for (const px of [1.15, 2.85]) {
+    parts.push(cyl(0.11, 0.11, 0.34, 14, 0xb7c0c7, [px, roof.ridgeY + 0.14, cz]));
+    parts.push(cyl(0.17, 0.17, 0.035, 14, 0x8e939b, [px, roof.ridgeY + 0.33, cz]));
+    parts.push(cone(0.18, 0.09, 14, 0x8e939b, [px, roof.ridgeY + 0.39, cz]));
+  }
+  // gouttière et descente
+  const [ey, ez] = roof.at(1, roof.len, 0);
+  parts.push(box(x1 - x0 + 0.22, 0.06, 0.08, 0xc9ccd1, [cx, ey - 0.045, ez - 0.02]));
+  parts.push(cyl(0.025, 0.025, ey - 0.1, 8, 0xc9ccd1, [x1 + 0.06, (ey + 0.05) / 2, zf + 0.06]));
+  parts.push(box(0.05, 0.04, ez - zf - 0.04, 0xc9ccd1, [x1 + 0.06, ey - 0.06, (ez + zf) / 2 + 0.02]));
+  // trappe, écran de contrôle, rampe de béton rainurée (mêmes que le niveau 4)
+  henDoor(parts, cx, 0.12, 0.62, 0.44, zf + 0.012, MODERN_FRAME);
+  parts.push(box(0.22, 0.17, 0.02, 0x2a2f3a, [cx + 0.5, 0.62, zf + 0.012]));
+  windows.push(glassPane(0.17, 0.12, [cx + 0.5, 0.62, zf + 0.025], 0, 0.012));
+  ramp(parts, cx, 0.12, zf + 0.01, 2.62, 0.5, 0xc4c7cb, 0xaeb2b7);
+  // petite trémie à grain sur pieds et sa vis, contre le pignon arrière
+  const hx = 0.6;
+  const hz = zb - 0.02;
+  for (const dx of [-0.13, 0.13]) parts.push(box(0.04, 0.42, 0.04, 0x8e939b, [hx + dx, 0.21, hz - 0.02]));
+  parts.push(cone(0.2, 0.2, 14, 0xd9dee2, [hx, 0.5, hz - 0.02], [Math.PI, 0, 0]));
+  parts.push(cyl(0.21, 0.21, 0.6, 16, 0xeef1f3, [hx, 0.9, hz - 0.02]));
+  parts.push(cyl(0.213, 0.213, 0.02, 16, MODERN_BAND, [hx, 0.9, hz - 0.02]));
+  parts.push(cone(0.23, 0.2, 16, 0xc9ced3, [hx, 1.3, hz - 0.02]));
 }
 
 /**
@@ -622,15 +641,15 @@ export function coopAviary(parts: Parts, windows: THREE.Mesh[]) {
   const y1 = 1.32;
   const cx = (x0 + x1) / 2;
   const cz = (zb + zf) / 2;
-  const PANEL = 0xdfe6df;
-  const SEAM = 0xc6cfc7;
-  const FRAME = 0x55606b;
+  const PANEL = MODERN_PANEL;
+  const SEAM = MODERN_SEAM;
+  const FRAME = MODERN_FRAME;
   parts.push(box(x1 - x0 + 0.08, y0, zf - zb + 0.08, 0x9aa0a6, [cx, y0 / 2, cz]));
   parts.push(box(x1 - x0, y1 - y0, zf - zb, PANEL, [cx, (y0 + y1) / 2, cz]));
   for (let x = x0 + 0.3; x < x1 - 0.1; x += 0.3) parts.push(box(0.02, y1 - y0, 0.014, SEAM, [x, (y0 + y1) / 2, zf + 0.007]));
   for (let z = zb + 0.3; z < zf - 0.1; z += 0.3) parts.push(box(0.014, y1 - y0, 0.02, SEAM, [x1 + 0.007, (y0 + y1) / 2, z]));
-  parts.push(box(x1 - x0 + 0.02, 0.08, zf - zb + 0.02, 0x3f6b4f, [cx, y1 - 0.04, cz]));
-  parts.push(box(x1 - x0 + 0.02, 0.06, 0.04, 0x3f6b4f, [cx, y0 + 0.06, zf + 0.02]));
+  parts.push(box(x1 - x0 + 0.02, 0.08, zf - zb + 0.02, MODERN_BAND, [cx, y1 - 0.04, cz]));
+  parts.push(box(x1 - x0 + 0.02, 0.06, 0.04, MODERN_BAND, [cx, y0 + 0.06, zf + 0.02]));
   for (const [x, z] of [
     [x0, zf],
     [x1, zf],
@@ -656,7 +675,7 @@ export function coopAviary(parts: Parts, windows: THREE.Mesh[]) {
   ramp(parts, 2.5, 0.1, zf + 0.02, 3.1, 0.42, 0xb7c0c7, 0x8e939b);
   for (const x of [1.0, 3.6]) parts.push(box(0.5, 0.04, 0.32, 0xc4c7cb, [x, 0.02, zf + 0.2]));
   // toit en bac acier : cheminées d'extraction, panneaux solaires, faîtière
-  const roof = gableRoof(parts, { cx, cz, y: y1, w: x1 - x0, d: zf - zb, h: 0.5, over: 0.12, side: 0.1, a: 0x8c979f, b: 0x7c868e, style: 'ribs', ridge: 0x5f6870, rive: 0x5f6870, gable: PANEL });
+  const roof = gableRoof(parts, { cx, cz, y: y1, w: x1 - x0, d: zf - zb, h: 0.5, over: 0.12, side: 0.1, a: 0x939da7, b: 0x838d97, style: 'ribs', ridge: 0x6b7580, rive: 0x6b7580, gable: PANEL });
   const r: V3 = [roof.slope, 0, 0];
   for (const px of [0.7, 1.55, 2.4, 3.25]) {
     const [y, z] = roof.at(1, roof.len * 0.48, 0.1);
@@ -693,7 +712,7 @@ export function coopAviary(parts: Parts, windows: THREE.Mesh[]) {
     parts.push(box(0.04, 0.55, 0.04, 0x8e939b, [sx + dx, 0.27, sz + dz2]));
   parts.push(cone(0.3, 0.3, 18, 0xd9dee2, [sx, 0.68, sz], [Math.PI, 0, 0]));
   parts.push(cyl(0.31, 0.31, 1.45, 20, 0xeef1f3, [sx, 1.55, sz]));
-  for (let i = 0; i < 6; i++) parts.push(cyl(0.313, 0.313, 0.02, 20, i === 3 ? 0x3f6b4f : 0xc9ced3, [sx, 0.92 + i * 0.25, sz]));
+  for (let i = 0; i < 6; i++) parts.push(cyl(0.313, 0.313, 0.02, 20, i === 3 ? MODERN_BAND : 0xc9ced3, [sx, 0.92 + i * 0.25, sz]));
   parts.push(cone(0.34, 0.32, 20, 0xc9ced3, [sx, 2.43, sz]));
   for (const dx of [-0.07, 0.07]) parts.push(box(0.015, 1.9, 0.015, 0x8e939b, [sx + dx, 1.45, sz + 0.33]));
   for (let i = 0; i < 11; i++) parts.push(box(0.15, 0.012, 0.012, 0x8e939b, [sx, 0.6 + i * 0.17, sz + 0.33]));
@@ -1384,6 +1403,64 @@ export function dustbathShelter(parts: Parts, slots: number) {
   parts.push(sph(0.07, 7, 4, 0xb5652e, [1, 0.58, 0.135], [1.6, 0.45, 0.2], [0, 0, 0.5]));
 }
 
+/**
+ * Niveau 3 — grand bain de sable (3 × 3 cases), à ciel ouvert : bassin de pierre taillée posé sur un
+ * dallage propre, sable fin ratissé en lignes régulières, cuvettes nettes, quatre buis en boule.
+ */
+export function dustbathBasin(parts: Parts, slots: number) {
+  const C0 = 1.5;
+  // dallage clair et ses joints
+  parts.push(box(2.94, 0.05, 2.94, 0xd8cfbd, [C0, 0.025, C0]));
+  for (const t of [0.24, 2.76]) {
+    parts.push(box(2.94, 0.006, 0.02, 0xc2b8a4, [C0, 0.052, t]));
+    parts.push(box(0.02, 0.006, 2.94, 0xc2b8a4, [t, 0.052, C0]));
+  }
+  // margelle de pierre taillée
+  const M = 0.17;
+  const A = 0.34;
+  const B = 2.66;
+  const L = B - A + M;
+  for (const [w, d, x, z] of [
+    [L, M, C0, A],
+    [L, M, C0, B],
+    [M, L, A, C0],
+    [M, L, B, C0],
+  ] as const) {
+    parts.push(box(w, 0.17, d, 0xc9bea9, [x, 0.13, z]));
+    parts.push(box(w + 0.02, 0.025, d + 0.02, 0xe2d9c6, [x, 0.22, z]));
+    // joints des blocs
+    const along = w > d;
+    for (let k = 1; k < 5; k++) {
+      const o = -L / 2 + (k * L) / 5;
+      parts.push(box(along ? 0.012 : w + 0.024, 0.027, along ? d + 0.024 : 0.012, 0xb5ab97, [x + (along ? o : 0), 0.221, z + (along ? 0 : o)]));
+    }
+  }
+  // sable fin, ratissé en lignes parallèles
+  const inner = B - A - M;
+  parts.push(box(inner, 0.08, inner, 0xeadcb4, [C0, 0.09, C0]));
+  for (let k = 0; k < 12; k++) parts.push(box(inner - 0.04, 0.005, 0.016, 0xdccba0, [C0, 0.132, A + M / 2 + 0.1 + (k * (inner - 0.2)) / 11]));
+  // cuvettes là où les poules se roulent, bien rangées
+  for (let i = 0; i < slots; i++) {
+    const a = 0.6 + (i * Math.PI * 2) / slots;
+    const x = C0 + Math.sin(a) * 0.63;
+    const z = C0 + Math.cos(a) * 0.63;
+    parts.push(cyl(0.2, 0.21, 0.014, 14, 0xf1e4c0, [x, 0.136, z]));
+    parts.push(cyl(0.15, 0.15, 0.01, 14, 0xcdb587, [x, 0.143, z]));
+  }
+  // buis en boule dans leurs pots, aux quatre coins du dallage
+  for (const [x, z] of [
+    [0.16, 0.16],
+    [2.84, 0.16],
+    [0.16, 2.84],
+    [2.84, 2.84],
+  ]) {
+    parts.push(cyl(0.11, 0.08, 0.15, 10, 0xb9694a, [x, 0.125, z]));
+    parts.push(cyl(0.115, 0.115, 0.022, 10, 0xa35a3f, [x, 0.2, z]));
+    parts.push(ico(0.14, 1, 0x5f9c52, [x, 0.33, z]));
+    parts.push(ico(0.08, 1, 0x74b163, [x + 0.04, 0.38, z + 0.03]));
+  }
+}
+
 // ============================================================== COMPOST ====
 /** Rayon de la butte de compost (mètres) ; sa hauteur vaut 1 avant mise à l'échelle par le rendu. */
 const HEAP_R = 0.74;
@@ -1646,13 +1723,32 @@ export function nurseryHouse(parts: Parts, windows: THREE.Mesh[], level: number)
     parts.push(prism(0.82, 0.16, 0.46, 0xb85c3f, [cx - 0.9, roof.ridgeY + 0.18, cz]));
     weathervane(parts, cx + 1.3, roof.ridgeY - 0.02, cz, 0.85);
   }
-  // abords : bottes de paille, sacs de grain, bûches du poêle
-  const hx = h.x1 + 0.45;
-  parts.push(box(0.55, 0.3, 0.36, C.straw, [hx + 0.1, 0.17, h.z0 + 0.5]));
-  parts.push(box(0.57, 0.03, 0.38, 0xd8b85a, [hx + 0.1, 0.22, h.z0 + 0.5]));
-  parts.push(box(0.5, 0.26, 0.34, C.straw, [hx + 0.1, 0.45, h.z0 + 0.5], [0, 0.3, 0]));
-  for (let k = 0; k < 2; k++) parts.push(box(0.3, 0.16, 0.42, k ? 0xe9dfc8 : 0xf0e6cf, [h.x0 - 0.4, 0.1 + k * 0.15, h.z0 + 0.7], [0, k * 0.4, 0]));
-  for (let k = 0; k < 6; k++) parts.push(cyl(0.055, 0.055, 0.42, 7, k % 2 ? 0x8b6240 : 0x7a5436, [h.x0 - 0.4 + (k % 3) * 0.12 - 0.12, 0.08 + Math.floor(k / 3) * 0.1, h.z1 - 0.45], [Math.PI / 2, 0, 0]));
+  // emplacements des couveuses : un dallage de chaque côté, libre tant qu'aucune n'y est installée
+  for (const q of plan.seats) {
+    const along = q.rot % 2 === 1;
+    const pw = (along ? 1.14 : 2.14) * q.k;
+    const pd = (along ? 2.14 : 1.14) * q.k;
+    parts.push(box(pw, 0.05, pd, 0xd9cfbd, [q.x, 0.04, q.z]));
+    for (const s2 of [-1, 1]) {
+      parts.push(box(pw + 0.06, 0.07, 0.05, 0xbcb19b, [q.x, 0.05, q.z + (s2 * pd) / 2]));
+      parts.push(box(0.05, 0.07, pd + 0.06, 0xbcb19b, [q.x + (s2 * pw) / 2, 0.05, q.z]));
+    }
+    for (let k = 1; k < 4; k++) {
+      const t = -0.5 + k / 4;
+      if (along) parts.push(box(pw, 0.004, 0.018, 0xc2b8a4, [q.x, 0.067, q.z + t * pd]));
+      else parts.push(box(0.018, 0.004, pd, 0xc2b8a4, [q.x + t * pw, 0.067, q.z]));
+    }
+  }
+  // abords, de l'autre côté du bâtiment : bottes de paille, sacs de grain, bûches du poêle
+  const hx = big ? 1.1 : 0.82;
+  const sz = big ? 0.72 : 0.78;
+  parts.push(box(0.55, 0.3, 0.36, C.straw, [hx, 0.17, sz]));
+  parts.push(box(0.57, 0.03, 0.38, 0xd8b85a, [hx, 0.22, sz]));
+  parts.push(box(0.5, 0.26, 0.34, C.straw, [hx, 0.45, sz], [0, 0.3, 0]));
+  const [bagX, bagZ] = big ? [0.42, 0.78] : [0.86, 1.34];
+  for (let k = 0; k < 2; k++) parts.push(box(0.3, 0.16, 0.42, k ? 0xe9dfc8 : 0xf0e6cf, [bagX, 0.1 + k * 0.15, bagZ], [0, k * 0.4, 0]));
+  const [logX, logZ] = big ? [1.42, 1.42] : [0.86, 1.86];
+  for (let k = 0; k < 6; k++) parts.push(cyl(0.055, 0.055, 0.42, 7, k % 2 ? 0x8b6240 : 0x7a5436, [logX + (k % 3) * 0.12 - 0.12, 0.08 + Math.floor(k / 3) * 0.1, logZ], [Math.PI / 2, 0, 0]));
 
   // grillage : poteaux de bois et lisses (le treillis et le portillon sont à part, dans models.ts)
   const post = (x: number, z: number) => parts.push(box(0.07, 0.74, 0.07, C.woodDark, [x, 0.38, z]));

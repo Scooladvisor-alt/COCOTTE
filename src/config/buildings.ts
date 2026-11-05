@@ -82,7 +82,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Poulailler en bois', cost: 4500, reqLevel: 2, upkeep: 45, capacity: 16, comfort: 0.55, dirtFactor: 1, perk: 'Accueille les Araucana' },
       { name: 'Poulailler isolé', cost: 16000, reqLevel: 3, upkeep: 100, capacity: 28, comfort: 0.78, dirtFactor: 0.9, perk: 'Accueille les Marans' },
       { name: 'Poulailler moderne', cost: 45000, reqLevel: 5, upkeep: 200, capacity: 45, comfort: 1, dirtFactor: 0.6, perk: 'Ventilation : s’encrasse moins vite' },
-      { name: 'Grand poulailler de ferme', cost: 120000, reqLevel: 7, upkeep: 320, capacity: 80, comfort: 1, dirtFactor: 0.5, w: 8, d: 5, perk: 'Grange de 8 × 5 cases : 80 places' },
+      { name: 'Grand poulailler moderne', cost: 120000, reqLevel: 7, upkeep: 320, capacity: 80, comfort: 1, dirtFactor: 0.5, w: 8, d: 5, perk: 'Mêmes panneaux isolés, en grand (8 × 5 cases) : 80 places, ventilation renforcée' },
       { name: 'Bâtiment avicole plein air', cost: 280000, reqLevel: 9, upkeep: 520, capacity: 140, comfort: 1, dirtFactor: 0.4, w: 10, d: 6, perk: 'Grand bâtiment de 10 × 6 cases : 140 places, silo et ventilation' },
     ],
   },
@@ -174,6 +174,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     levels: [
       { name: 'Bain de poussière', cost: 3500, reqLevel: 2, upkeep: 3, capacity: 0, slots: 3, wellbeing: 10 },
       { name: 'Bain de sable couvert', cost: 9000, reqLevel: 4, upkeep: 6, capacity: 0, slots: 5, wellbeing: 16, perk: 'Abrité : encore moins de parasites et de maladies' },
+      { name: 'Grand bain de sable', cost: 22000, reqLevel: 6, upkeep: 10, capacity: 0, slots: 8, wellbeing: 20, w: 3, d: 3, perk: 'Grand bassin de pierre à ciel ouvert (3 × 3 cases), sable fin ratissé : 8 places et très peu de maladies' },
     ],
   },
   pond: {
@@ -242,13 +243,14 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   incubator: {
     type: 'incubator',
     name: 'Couveuse',
-    description: 'Garde les œufs fécondés au chaud et les retourne : au bout de 15 jours, ils éclosent. Les poussins vont à la poussinière s’il y en a une (sinon ils grandissent avec les poules) et deviennent pondeuses à 30 jours.',
-    w: 2,
-    d: 1,
+    description: 'Faite pour la poussinière : elle s’installe sur un de ses emplacements et ne se pose nulle part ailleurs. Elle garde les œufs fécondés au chaud et les retourne ; au bout de 15 jours, les poussins éclosent directement à la poussinière et deviennent pondeuses à 30 jours.',
+    // aucune case au sol : elle occupe un emplacement de la poussinière
+    w: 0,
+    d: 0,
     access: 'none',
     unique: false,
     buildable: true,
-    movable: true,
+    movable: false,
     icon: '🐣',
     levels: [
       { name: 'Petite couveuse', cost: 9000, reqLevel: 2, upkeep: 15, capacity: 12, quality: 0 },
@@ -277,7 +279,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   nursery: {
     type: 'nursery',
     name: 'Poussinière',
-    description: 'Les poussins éclos dans vos couveuses y grandissent à part : un bâtiment chauffé pour dormir et un petit parc grillagé pour se promener, loin des poules et des prédateurs. Grain et eau sont pris dans la réserve. Quand ils vont bientôt pondre, ils sortent seuls rejoindre le troupeau.',
+    description: 'Le coin des poussins : un bâtiment chauffé, un parc grillagé et des emplacements pour les couveuses (un par niveau). Ils éclosent sur place et grandissent à part, loin des poules et des prédateurs. Grain et eau sont pris dans la réserve. Quand ils vont bientôt pondre, ils sortent seuls rejoindre le troupeau.',
     w: 7,
     d: 6,
     access: 'front',
@@ -286,8 +288,8 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     movable: true,
     icon: '🐤',
     levels: [
-      { name: 'Poussinière', cost: 15000, reqLevel: 3, upkeep: 25, capacity: 24, comfort: 1, growth: 1.1, perk: 'Parc grillagé pour 24 poussins, croissance +10 %' },
-      { name: 'Grande poussinière', cost: 50000, reqLevel: 6, upkeep: 60, capacity: 60, comfort: 1, growth: 1.25, w: 10, d: 8, perk: 'Grand parc de 10 × 8 cases pour 60 poussins, croissance +25 %' },
+      { name: 'Poussinière', cost: 15000, reqLevel: 3, upkeep: 25, capacity: 24, comfort: 1, growth: 1.1, perk: 'Un emplacement de couveuse, parc grillagé pour 24 poussins, croissance +10 %' },
+      { name: 'Grande poussinière', cost: 50000, reqLevel: 6, upkeep: 60, capacity: 60, comfort: 1, growth: 1.25, w: 10, d: 8, perk: 'Deux emplacements de couveuse, grand parc de 10 × 8 cases pour 60 poussins, croissance +25 %' },
     ],
   },
   stand: {
@@ -322,7 +324,7 @@ export function sizeOf(type: BuildingType, level = 1, rot = 0): { w: number; d: 
   return rot % 2 ? { w: d, d: w } : { w, d };
 }
 
-export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'incubator', 'nursery', 'gooseincubator'];
+export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'nursery', 'incubator', 'gooseincubator'];
 
 /**
  * Hôtel de ville (décor, à l'ouest de la grille), où logent les salariés : ligne de sa façade, et

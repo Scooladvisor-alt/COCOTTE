@@ -1,6 +1,6 @@
 // Toutes les commandes du joueur. Chaque action valide ses préconditions AVANT de
 // modifier l'état : une action refusée ne laisse aucune trace (ni argent, ni objet).
-import { AUTO_DOOR, BREEDING, COSTS, DELIVERY, GRAIN_BINS, HEN_PACKS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
+import { AUTO_DOOR, BREEDING, COSTS, DELIVERY, GRAIN_BINS, GRID_W, GRID_Z0, GRID_Z1, HEN_PACKS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
 import { grainCapacity, takeGrain, takeWater, waterCapacity } from './stocks';
 import { BREEDS, ROOSTER_TITLES, isGoose } from '../config/breeds';
 import { BUILDINGS, sizeOf } from '../config/buildings';
@@ -11,10 +11,12 @@ import { canPlace, cleaningCost, countOfType } from './buildings';
 import { collectEggs, collectNest, isTreasure } from './eggs';
 import { reseedParcel } from './grass';
 import { adoptChicks, createHen, henValue, recallHen, releaseChicks, resetHenAfterLayout } from './hens';
+import { addToStorage } from './eggs';
+import { freeSeats, hostedIncubators, nurseryPlan, nurseryWithSeat, seatIncubators } from './nursery';
 import { autoEnclose } from './fences';
-import { adultCount, coopFor, coopOccupancy, getBuilding, getHen, landCapacity, lvl, shelterType, storageFree } from './queries';
+import { adultCount, buildingsOf, coopFor, coopOccupancy, getBuilding, getHen, landCapacity, lvl, shelterType, storageFree } from './queries';
 import { makeBuilding } from './state';
-import type { ActionResult, BreedId, BuildingType, GameState } from './types';
+import type { ActionResult, BreedId, Building, BuildingType, GameState } from './types';
 
 const fail = (reason: string): ActionResult => ({ ok: false, reason });
 const OK: ActionResult = { ok: true };
@@ -437,11 +439,93 @@ export function checkBuild(s: GameState, type: BuildingType): ActionResult {
   const L = def.levels[0];
   if (def.strictLevel ? farmLevel(s) < L.reqLevel : !levelReached(s, L.reqLevel)) return fail(`Débloqué au niveau ${L.reqLevel}`);
   if (countOfType(s, type) >= maxCount(s, type)) return fail(`Maximum atteint (${maxCount(s, type)})`);
+  // une couveuse s'installe uniquement sur un emplacement libre d'une poussinière
+  if (type === 'incubator' && !nurseryWithSeat(s)) return fail(buildingsOf(s, 'nursery').length ? 'Plus d’emplacement libre : améliorez ou construisez une poussinière' : 'Il faut d’abord une poussinière');
   if (s.money < L.cost) return fail('Fonds insuffisants');
   return OK;
 }
 
+/** Achète une couveuse et l'installe dans une poussinière (celle demandée, ou la moins équipée). */
+export function installIncubator(s: GameState, nurseryId?: number): ActionResult {
+  const chk = checkBuild(s, 'incubator');
+  if (!chk.ok) return chk;
+  const host = nurseryId === undefined ? nurseryWithSeat(s) : getBuilding(s, nurseryId);
+  if (!host || host.type !== 'nursery') return fail('Poussinière introuvable');
+  if (!freeSeats(s, host)) return fail('Plus d’emplacement libre dans cette poussinière');
+  const L = BUILDINGS.incubator.levels[0];
+  if (!spend(s, L.cost, 'constructions', `Construction : ${L.name}`)) return fail('Fonds insuffisants');
+  const b = makeBuilding(newId(s), 'incubator', host.x, host.z, s.clock.t);
+  b.hostId = host.id;
+  b.hatch = [];
+  b.invested = L.cost;
+  s.buildings.push(b);
+  seatIncubators(s);
+  emit(s, { kind: 'build', buildingId: b.id });
+  addXp(s, 5);
+  return OK;
+}
+
+/** Œufs d'une couveuse retirée : ils repartent dans une autre couveuse, sinon au stockage. */
+function rescueEggs(s: GameState, inc: Building) {
+  for (const e of inc.hatch ?? []) {
+    const other = buildingsOf(s, 'incubator').find((c) => c !== inc && (c.hatch?.length ?? 0) < lvl(c).capacity);
+    if (other) (other.hatch ?? (other.hatch = [])).push(e);
+    else addToStorage(s, BREEDS[e.breed].egg, 'A', 60, 1, e.breed, e.genes);
+  }
+  inc.hatch = [];
+}
+
+/**
+ * Anciennes parties : les couveuses posées au sol rejoignent une poussinière. S'il n'y en a aucune,
+ * une poussinière est offerte (si elle tient) ; les couveuses de trop sont remboursées, leurs œufs
+ * ne sont pas perdus. Sans effet sur une partie déjà à jour, à part recaler les emplacements.
+ */
+export function settleIncubators(s: GameState) {
+  const seated = (b: Building) => b.hostId !== undefined && buildingsOf(s, 'nursery').some((n) => n.id === b.hostId && hostedIncubators(s, n).indexOf(b) < nurseryPlan(n.level).seats.length);
+  const orphans = s.buildings.filter((b) => b.type === 'incubator' && !seated(b)).sort((a, b) => b.level - a.level || (b.hatch?.length ?? 0) - (a.hatch?.length ?? 0));
+  if (orphans.length) {
+    for (const b of orphans) delete b.hostId;
+    if (!buildingsOf(s, 'nursery').length) offerNursery(s);
+    let installed = 0;
+    let refunded = 0;
+    for (const b of orphans) {
+      const host = nurseryWithSeat(s);
+      if (host) {
+        b.hostId = host.id;
+        installed++;
+        continue;
+      }
+      // pas la place : remboursée
+      s.buildings.splice(s.buildings.indexOf(b), 1);
+      rescueEggs(s, b);
+      if (b.invested > 0) earn(s, b.invested, 'reventes', `Couveuse remboursée : ${lvl(b).name}`);
+      refunded++;
+    }
+    if (installed) notify(s, `Les couveuses s’installent maintenant dans la poussinière : ${installed > 1 ? `${installed} ont trouvé leur place` : 'la vôtre a trouvé sa place'}, les poussins y naissent directement.`, 'good', '🐣');
+    if (refunded) notify(s, `${refunded} couveuse${refunded > 1 ? 's' : ''} sans emplacement : remboursée${refunded > 1 ? 's' : ''}, œufs conservés. Une poussinière de plus ou agrandie offrira d’autres places.`, 'info', '🐣');
+  }
+  seatIncubators(s);
+}
+
+/** Pose une poussinière offerte au premier endroit libre du terrain ; vrai si elle a trouvé sa place. */
+export function offerNursery(s: GameState, spots: Array<[number, number]> = [], adopt = true) {
+  const ok = (x: number, z: number) => canPlace(s, 'nursery', x, z).ok;
+  let at = spots.find(([x, z]) => ok(x, z));
+  if (!at)
+    for (let z = GRID_Z0; z < GRID_Z1 && !at; z++)
+      for (let x = 0; x < GRID_W && !at; x++) if (ok(x, z)) at = [x, z];
+  if (!at) return null;
+  const b = makeBuilding(newId(s), 'nursery', at[0], at[1], s.clock.t);
+  b.invested = 0; // offerte : pas remboursée au démontage
+  s.buildings.push(b);
+  invalidateLayout(s);
+  if (adopt) adoptChicks(s, b);
+  return b;
+}
+
 export function build(s: GameState, type: BuildingType, x: number, z: number, rot = 0): ActionResult {
+  // (la couveuse n'a pas de place au sol : elle va dans la poussinière)
+  if (type === 'incubator') return installIncubator(s);
   const chk = checkBuild(s, type);
   if (!chk.ok) return chk;
   const place = canPlace(s, type, x, z, -1, 1, rot);
@@ -515,7 +599,10 @@ export function upgrade(s: GameState, id: number): ActionResult {
     resetHenAfterLayout(s);
   }
   b.invested += next.cost;
-  if (b.type === 'nursery') adoptChicks(s, b);
+  if (b.type === 'nursery') {
+    adoptChicks(s, b);
+    seatIncubators(s);
+  }
   if (isShelter(b)) b.cleanliness = Math.max(b.cleanliness, 90);
   emit(s, { kind: 'upgrade', buildingId: b.id });
   addXp(s, 8 + b.level * 4);
@@ -534,6 +621,8 @@ export function move(s: GameState, id: number, x: number, z: number, rot?: numbe
   b.z = z;
   if (r % 4) b.rot = r % 4;
   else delete b.rot;
+  // ses couveuses suivent la poussinière
+  if (b.type === 'nursery') seatIncubators(s);
   // les œufs du pondoir suivent
   if (b.type === 'nest') {
     const c = buildingCenter(b);
@@ -615,8 +704,24 @@ export function demolish(s: GameState, id: number): ActionResult {
       if (target) h.coopId = target.id;
     }
   }
-  // ses poussins rejoignent la basse-cour
-  if (b.type === 'nursery') releaseChicks(s, b);
+  // ses poussins rejoignent la basse-cour ; ses couveuses vont dans une autre poussinière, sinon
+  // elles sont démontées avec elle (remboursées comme elle, œufs conservés)
+  if (b.type === 'nursery') {
+    releaseChicks(s, b);
+    for (const inc of hostedIncubators(s, b)) {
+      delete inc.hostId;
+      const other = buildingsOf(s, 'nursery').find((n) => n !== b && freeSeats(s, n) > 0);
+      if (other) {
+        inc.hostId = other.id;
+        continue;
+      }
+      s.buildings.splice(s.buildings.indexOf(inc), 1);
+      rescueEggs(s, inc);
+      const back = Math.round(inc.invested * COSTS.demolishRefund);
+      if (back > 0) earn(s, back, 'reventes', `Démontage : ${lvl(inc).name}`);
+    }
+  }
+  if (b.type === 'incubator') rescueEggs(s, b);
   if (b.type === 'nest') {
     // les œufs restés dans le pondoir tombent au sol à côté
     for (const e of s.worldEggs) if (e.nestId === b.id) (e.where = 'ground'), (e.nestId = -1), (e.z += 1);
@@ -625,6 +730,7 @@ export function demolish(s: GameState, id: number): ActionResult {
   s.buildings.splice(s.buildings.indexOf(b), 1);
   if (refund > 0) earn(s, refund, 'reventes', `Démontage : ${lvl(b).name}`);
   for (const h of s.hens) if (h.targetId === b.id) (h.act = 'idle'), (h.actT = 0), (h.targetId = -1);
+  seatIncubators(s);
   invalidateLayout(s);
   relocateGroundEggs(s);
   resetHenAfterLayout(s);

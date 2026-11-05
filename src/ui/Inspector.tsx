@@ -2,7 +2,7 @@ import { useState } from 'preact/hooks';
 import { AUTO_DOOR, BREEDING, COMPOST, EGG_TYPES, TIME, GRADES, HEALTH, LAYING, NATURE, PARCELS, ROBOT, parcelPrice, WORLD } from '../config/balance';
 import { season, seasonIndex } from '../sim/seasons';
 import { hopperCount, sellRobot } from '../sim/robots';
-import { crowdedChicks, crowdedGoslings, dadCount, eggHatchIn, fertileStock, fertility, hatchesGeese, isIncubator, growthLabel, growthStage, incubatable, incubateAll, incubatingCount, loadIncubator, roosterCount, toggleIncubatorAuto } from '../sim/breeding';
+import { crowdedChicks, crowdedGoslings, dadCount, eggHatchIn, fertileStock, fertility, hatchesGeese, isIncubator, growthLabel, growthStage, incubatable, incubateAll, incubatingCount, loadIncubator, nextHatchIn, roosterCount, toggleIncubatorAuto } from '../sim/breeding';
 import { birdThumb, buildingThumb, dogThumb, robotThumb } from '../render/thumbs';
 import { parcelPerks } from '../sim/perks';
 import { parcelKeyOfCell } from '../sim/core';
@@ -15,7 +15,7 @@ import { cleaningCost } from '../sim/buildings';
 import { fmtMoney, maxParcelsOf } from '../sim/economy';
 import { parcelGrass } from '../sim/grass';
 import { actLabel, eggsPerDayOf, henStatus, henValue, productivity } from '../sim/hens';
-import { nurseryCount, readyToLeave } from '../sim/nursery';
+import { hostedIncubators, incubatorSeat, nurseryCount, nurseryPlan, readyToLeave } from '../sim/nursery';
 import { customersPerDay, lostToday, queueLength, standCounters } from '../sim/market';
 import { buildingsOf, coopOccupancy, getBuilding, getHen, lvl, storageCapacity, storedCount } from '../sim/queries';
 import { GRASS } from '../config/balance';
@@ -303,6 +303,56 @@ function whenLabel(t: number) {
 }
 
 /** Fiche de la poussinière : qui y grandit, et quand ils rejoindront le troupeau. */
+/** Les emplacements de couveuse d'une poussinière : ce qui y est installé, et de quoi compléter. */
+function NurserySeats({ b }: { b: Building }) {
+  const game = useGame();
+  const s = game.state;
+  const seats = nurseryPlan(b.level).seats.length;
+  const incs = hostedIncubators(s, b);
+  const price = BUILDINGS.incubator.levels[0].cost;
+  const next = BUILDINGS.nursery.levels[b.level];
+  return (
+    <>
+      <div class="kv">
+        <span>Couveuses</span>
+        <b>
+          {incs.length} / {seats} emplacement{seats > 1 ? 's' : ''}
+        </b>
+      </div>
+      {incs.length > 0 && (
+        <div class="inc-list">
+          {incs.map((inc) => {
+            const L = lvl(inc);
+            const n = inc.hatch?.length ?? 0;
+            const left = nextHatchIn(s, inc);
+            return (
+              <button type="button" class="inc-row seat" key={inc.id} onClick={() => game.select({ kind: 'building', id: inc.id })} title="Voir cette couveuse">
+                <div class="inc-main">
+                  <b>{L.name}</b>
+                  <Bar value={n / Math.max(1, L.capacity)} max={1} tone="blue" thin />
+                </div>
+                <span class="inc-left">{n ? `${n}/${L.capacity} œufs${left !== null ? ` · ${left < 1 ? 'imminent' : `${Math.ceil(left)} j`}` : ''}` : 'Vide'}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {incs.length < seats && (
+        <div class="auto-door">
+          <div>
+            <b>Emplacement libre</b>
+            <small>Une couveuse posée ici : ses poussins naîtront directement dans cette poussinière.</small>
+          </div>
+          <Btn kind="primary" small disabled={s.money < price} onClick={() => game.act(() => A.installIncubator(s, b.id), 'build')}>
+            <Icon name="hammer" size={15} /> Installer · {fmtMoney(price)}
+          </Btn>
+        </div>
+      )}
+      {incs.length >= seats && next && <p class="hint">Tous les emplacements sont pris : {next.name.toLowerCase()} en offre {nurseryPlan(b.level + 1).seats.length}.</p>}
+    </>
+  );
+}
+
 function NurseryInfo({ b }: { b: Building }) {
   const game = useGame();
   const s = game.state;
@@ -342,7 +392,8 @@ function NurseryInfo({ b }: { b: Building }) {
           ))}
         </div>
       )}
-      {!sorted.length && <p class="hint">Aucun poussin pour l’instant. Ceux qui éclosent dans vos couveuses arrivent ici tout seuls.</p>}
+      <NurserySeats b={b} />
+      {!sorted.length && <p class="hint">Aucun poussin pour l’instant. Ceux qui éclosent dans ses couveuses naissent ici directement.</p>}
       {(s.grain <= 0 || s.water <= 0) && <p class="hint warn">{s.grain <= 0 ? 'Plus de grain en réserve' : 'Plus d’eau en réserve'} : les poussins ont besoin de la réserve de la ferme.</p>}
       <p class="hint">Grain et eau sont pris dans la réserve. À l’abri du grillage, ni poules ni prédateurs. Quand il leur reste {BREEDING.nurseryLeaveDays} jours avant de pondre, ils sortent seuls rejoindre le troupeau.</p>
     </>
@@ -368,8 +419,14 @@ function IncubatorInfo({ b }: { b: Building }) {
     rows.set(k, r);
   }
   const sorted = [...rows.values()].sort((a, c) => a.t - c.t);
+  const seatHost = incubatorSeat(s, b)?.host;
   return (
     <>
+      {seatHost && (
+        <button type="button" class="seat-host" onClick={() => game.select({ kind: 'building', id: seatHost.id })}>
+          <Icon name="home" size={14} /> Installée dans : <b>{lvl(seatHost).name}</b>
+        </button>
+      )}
       <div class="kv">
         <span>En couvaison</span>
         <b>
@@ -425,7 +482,7 @@ function IncubatorInfo({ b }: { b: Building }) {
       <p class="desc">
         {goose
           ? `Chaque œuf éclot ${BREEDING.incubationDays} jours après sa mise en couveuse (les plus frais éclosent le mieux). L’oison sort tout seul, suit les oies et il est adulte à ${BREEDING.growthDays} jours.`
-          : `Chaque œuf éclot ${BREEDING.incubationDays} jours après sa mise en couveuse (les plus frais éclosent le mieux). Les poussins suivent les poules et pondent à ${BREEDING.growthDays} jours.`}
+          : `Chaque œuf éclot ${BREEDING.incubationDays} jours après sa mise en couveuse (les plus frais éclosent le mieux). Les poussins naissent directement à la poussinière et pondent à ${BREEDING.growthDays} jours.`}
       </p>
     </>
   );
@@ -581,10 +638,10 @@ function levelDiff(type: Building['type'], cur: BuildingLevel, next: BuildingLev
   if (type === 'feeder') out.push(`Capacité ${cur.capacity} → ${next.capacity} rations`, `Gaspillage ${Math.round((cur.waste ?? 0) * 100)} → ${Math.round((next.waste ?? 0) * 100)} %`, `${next.slots} places`);
   if (type === 'drinker') out.push(`Capacité ${cur.capacity} → ${next.capacity} L`, `${next.slots} places`);
   if (type === 'storage') out.push(`Capacité ${cur.capacity} → ${next.capacity} œufs`, `Vieillissement ×${cur.decay} → ×${next.decay}`);
-  if (type === 'dustbath') out.push(`Bien-être +${cur.wellbeing} → +${next.wellbeing}`);
+  if (type === 'dustbath') out.push(`Bien-être +${cur.wellbeing} → +${next.wellbeing}`, `${cur.slots} → ${next.slots} places`);
   if (type === 'pond') out.push(`Réserve ${cur.capacity} → ${next.capacity} L`, `Pluie +${cur.regen} → +${next.regen} L/jour`, `Bien-être +${cur.wellbeing} → +${next.wellbeing}`);
   if (type === 'incubator' || type === 'gooseincubator') out.push(`Capacité ${cur.capacity} → ${next.capacity} œufs`, `Éclosion +${Math.round((next.quality ?? 0) * 100)} %`);
-  if (type === 'nursery') out.push(`Capacité ${cur.capacity} → ${next.capacity} poussins`, `Croissance +${Math.round(((cur.growth ?? 1) - 1) * 100)} % → +${Math.round(((next.growth ?? 1) - 1) * 100)} %`);
+  if (type === 'nursery') out.push('Couveuses : 1 → 2 emplacements', `Capacité ${cur.capacity} → ${next.capacity} poussins`, `Croissance +${Math.round(((cur.growth ?? 1) - 1) * 100)} % → +${Math.round(((next.growth ?? 1) - 1) * 100)} %`);
   if (type === 'stand') out.push(`Clients ${cur.flow}/h → ${next.flow}/h`, `Paniers ×${cur.qtyMult} → ×${next.qtyMult}`);
   if (next.perk) out.push(next.perk);
   const w0 = cur.w ?? BUILDINGS[type].w;
@@ -949,10 +1006,10 @@ function StorageInfo() {
       {(noChickInc || noGooseInc) && (
         <div class="hint warn">
           {noChickInc && noGooseInc
-            ? 'Ces œufs peuvent éclore : construisez une couveuse pour les poules et une couveuse à oies (Boutique → Bâtiments).'
+            ? 'Ces œufs peuvent éclore : installez une couveuse dans une poussinière pour les poules, et construisez une couveuse à oies (Boutique → Bâtiments).'
             : noGooseInc
               ? 'Ces œufs d’oie peuvent donner des oisons : construisez une couveuse à oies (Boutique → Bâtiments).'
-              : 'Ces œufs peuvent donner des poussins : construisez une couveuse (Boutique → Bâtiments).'}{' '}
+              : 'Ces œufs peuvent donner des poussins : installez une couveuse dans une poussinière (Boutique → Bâtiments).'}{' '}
           <button class="link" onClick={() => game.openPanel('shop', 'buildings')}>
             Voir les couveuses
           </button>

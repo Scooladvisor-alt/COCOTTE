@@ -27,9 +27,10 @@ export function createShowcase(): GameState {
   for (const b of breeds) A.buyHen(s, b);
   A.buyRooster(s, 'rousse');
   // un peu de vie autour : compost, couveuse, chien de garde
-  const place = (type: 'compost' | 'incubator', spots: Array<[number, number]>) => spots.some(([x, z]) => A.build(s, type, x, z).ok);
+  const place = (type: 'compost' | 'nursery', spots: Array<[number, number]>) => spots.some(([x, z]) => A.build(s, type, x, z).ok);
   place('compost', [[11, 27], [10, 27], [12, 27]]);
-  place('incubator', [[16, 28], [15, 28], [17, 28]]);
+  place('nursery', [[12, 11], [4, 11], [0, 23]]);
+  A.installIncubator(s);
   buyDog(s);
   // en milieu de matinée, le commis déjà au travail, l'étal ouvert
   s.clock.t = TIME.DAY + 9 * HOUR;

@@ -1,12 +1,12 @@
 // Nouvelle partie du joueur : la ferme de départ (clôturée) avec Cocotte, ses trois poussins,
-// un coq et une couveuse.
+// un coq, et une poussinière équipée de sa couveuse.
 import { BREEDING } from '../config/balance';
 import { createHen } from './hens';
 import { inherit } from './genetics';
 import { buildingsOf } from './queries';
 import { createNewGame, makeBuilding } from './state';
-import { canPlace } from './buildings';
-import { invalidateLayout } from './core';
+import { offerNursery } from './actions';
+import { seatIncubators } from './nursery';
 import type { GameState, Genes } from './types';
 
 /** Les volailles de départ restent des « fermières » ordinaires (3★ au plus) : les 4★ se méritent. */
@@ -30,23 +30,21 @@ export function addStarterFlock(s: GameState) {
   }
 }
 
-/** Un coq pour féconder les œufs et une petite couveuse offerte : les poussins peuvent arriver dès le début. */
+/** Un coq pour féconder les œufs, une poussinière et sa petite couveuse offertes : les poussins peuvent arriver dès le début. */
 export function addStarterBreeding(s: GameState) {
   const coop = buildingsOf(s, 'coop')[0];
   if (!coop) return;
   const rooster = createHen(s, 'rousse', coop, false, { rooster: true, black: false, at: [coop.x + 2.6, coop.z + 3.6], genes: { p: 3, r: 2, b: 3 } });
   s.hens.push(rooster);
-  // couveuse posée sur le premier emplacement libre, près des installations
-  const spots: Array<[number, number]> = [[17, 28], [13, 28], [11, 28], [17, 24], [13, 24], [18, 23], [10, 25]];
-  for (const [x, z] of spots) {
-    if (!canPlace(s, 'incubator', x, z).ok) continue;
-    const b = makeBuilding(s.nextId++, 'incubator', x, z, s.clock.t);
-    b.invested = 0; // offerte : pas remboursée à la démolition
-    b.hatch = [];
-    s.buildings.push(b);
-    invalidateLayout(s);
-    break;
-  }
+  // (les poussins de Cocotte restent avec elle : la poussinière attend les prochains)
+  const nursery = offerNursery(s, [[12, 11], [11, 11], [4, 11], [0, 23]], false);
+  if (!nursery) return;
+  const b = makeBuilding(s.nextId++, 'incubator', nursery.x, nursery.z, s.clock.t);
+  b.invested = 0; // offerte : pas remboursée au démontage
+  b.hostId = nursery.id;
+  b.hatch = [];
+  s.buildings.push(b);
+  seatIncubators(s);
 }
 
 /** Ferme d'une nouvelle partie (le moteur de simulation et les tests partent, eux, d'une ferme vide). */

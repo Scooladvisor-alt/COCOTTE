@@ -855,9 +855,11 @@ function computeSlotSpots(s: GameState, b: Building): Array<[number, number]> {
   }
   if (b.type === 'dustbath') {
     const n = L.slots ?? 3;
+    // (le grand bain de 3 × 3 cases écarte ses places d'autant)
+    const R = 0.42 * (sizeOf(b.type, b.level).w / 2);
     return Array.from({ length: n }, (_, i) => {
       const a = 0.6 + (i * Math.PI * 2) / n;
-      return [c.x + Math.sin(a) * 0.42, c.z + Math.cos(a) * 0.42] as [number, number];
+      return [c.x + Math.sin(a) * R, c.z + Math.cos(a) * R] as [number, number];
     });
   }
   // poulailler : au pied de la rampe, face à la trappe
@@ -888,7 +890,8 @@ function approachPoint(s: GameState, b: Building, spot: [number, number]): [numb
     const dx = spot[0] - c.x;
     const dz = spot[1] - c.z;
     const d = Math.hypot(dx, dz) || 1;
-    return [c.x + (dx / d) * 1.38, c.z + (dz / d) * 1.38];
+    const R = 1.38 * (sizeOf(b.type, b.level).w / 2);
+    return [c.x + (dx / d) * R, c.z + (dz / d) * R];
   }
   return spot;
 }

@@ -700,7 +700,7 @@ export const NATURE = {
   /** Fraîcheur de la mare : soif en moins sur la parcelle (mare, grande mare). */
   pondThirst: [0, 0.12, 0.2],
   /** Bain de poussière : il débarrasse des parasites, les maladies se font plus rares (mult. par niveau). */
-  dustSick: [1, 0.5, 0.3],
+  dustSick: [1, 0.5, 0.3, 0.2],
   /** La pluie remplit les mares : multiplicateur selon la saison (printemps, été, automne, hiver). */
   rainBySeason: [1.25, 0.45, 1.35, 0.8],
 };

@@ -4,7 +4,7 @@
 export type BreedId = 'rousse' | 'leghorn' | 'sussex' | 'soie' | 'araucana' | 'marans' | 'oie';
 export type EggType = 'roux' | 'blanc' | 'creme' | 'mini' | 'bleu' | 'chocolat' | 'oie' | 'or' | 'phenix';
 export type Grade = 'extra' | 'A' | 'B';
-export type BuildingType = 'coop' | 'goosehouse' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'gooseincubator' | 'pond' | 'tree' | 'nursery';
+export type BuildingType = 'coop' | 'goosehouse' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'gooseincubator' | 'pond' | 'tree' | 'nursery' | 'petshop';
 
 export type HenAct =
   | 'idle'
@@ -43,6 +43,8 @@ export interface Hen {
   id: number;
   name: string;
   breed: BreedId;
+  /** Vendue à un revendeur : elle rejoint le portail, d'où elle partira dans le camion. */
+  ship?: boolean;
   /** Âge en jours de jeu depuis l'arrivée à la ferme. */
   age: number;
   /** 0..100 */
@@ -144,7 +146,10 @@ export type WorkerJobKind =
   | 'closeCoop'
   | 'openCoop'
   /** Salarié armé : traque un prédateur et lui tire dessus. */
-  | 'hunt';
+  | 'hunt'
+  /** Commis : aide à charger le camion d'un revendeur, puis rentre par le portail. */
+  | 'loadTruck'
+  | 'loadBack';
 
 export interface WorkerJob {
   kind: WorkerJobKind;
@@ -430,6 +435,42 @@ export interface Order {
   ready?: boolean;
 }
 
+/** Commande de volailles d'un revendeur ou d'une association (à partir du niveau 15). */
+export interface BirdOrder {
+  id: number;
+  client: string;
+  /** Des oies plutôt que des poules. */
+  goose: boolean;
+  /** Race demandée (toutes races sinon). */
+  breed?: BreedId;
+  count: number;
+  unitPrice: number;
+  deadlineDay: number;
+  offerUntilDay: number;
+  status: 'offer' | 'active' | 'loading';
+}
+
+/** Le grand camion qui vient chercher une commande de volailles. */
+export interface BirdLoad {
+  id: number;
+  orderId: number;
+  /** Arrivée du camion à sa place, au bord de la route. */
+  eta: number;
+  /** Les volailles ont pris le chemin du portail. */
+  called: boolean;
+  henIds: number[];
+  loaded: number;
+  /** Volailles parties vers le camion, pour le rendu (instant et point de départ). */
+  gone: Array<{ t: number; breed: BreedId; x: number; z: number }>;
+  nextT: number;
+  lastT?: number;
+  warned?: boolean;
+  /** Le camion est encore coincé dans la circulation : le rendu le signale, on l'attend un peu. */
+  late?: boolean;
+  /** Départ du camion, une fois le chargement terminé. */
+  leave?: number;
+}
+
 export interface Contract {
   id: number;
   client: string;
@@ -446,7 +487,7 @@ export interface Contract {
   lastDay?: number;
 }
 
-export type IncomeCat = 'etal' | 'cooperative' | 'commandes' | 'contrats' | 'primes' | 'reventes' | 'emprunt';
+export type IncomeCat = 'etal' | 'cooperative' | 'commandes' | 'contrats' | 'primes' | 'reventes' | 'animalerie' | 'emprunt';
 export type ExpenseCat =
   | 'grain'
   | 'eau'
@@ -527,6 +568,9 @@ export interface Stats {
   hensBought: number;
   hensDied: number;
   hensSold: number;
+  birdsSoldRetail?: number;
+  birdsSoldDealers?: number;
+  birdOrdersDone?: number;
   /** Vieilles poules confiées à une association ou à un particulier. */
   hensRehomed: number;
   /** Œufs d'or ramassés et vendus. */
@@ -608,6 +652,11 @@ export interface GameState {
   buildings: Building[];
   worldEggs: WorldEgg[];
   lots: EggLot[];
+  /** L'animalerie : volailles en vitrine, prix fixés par le joueur, surplus envoyé d'office. */
+  petShop: { birds: Hen[]; prices: Partial<Record<BreedId, number>>; auto?: boolean; soldDay?: number; soldToday?: number };
+  petCustomers: Customer[];
+  birdOrders: BirdOrder[];
+  birdLoad: BirdLoad | null;
   /** Parcelles possédées, clé "col,row". */
   parcels: string[];
   /** Niveau d'herbe 0..1 pour chaque case (W*H). */
@@ -684,7 +733,7 @@ export type GameEvent =
   /** La poule légendaire renaît de ses cendres, ou pond : grande gerbe de flammes. */
   | { kind: 'phoenix'; x: number; z: number; big: boolean }
   | { kind: 'workerArrived'; workerId: number; x: number; z: number }
-  | { kind: 'henGone'; henId: number; reason: 'died' | 'sold' | 'escaped' }
+  | { kind: 'henGone'; henId: number; reason: 'died' | 'sold' | 'escaped' | 'moved' }
   | { kind: 'fence'; placed: number }
   | { kind: 'customerMood'; customerId: number; mood: CustomerMood }
   | { kind: 'levelUp'; level: number }

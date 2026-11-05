@@ -292,6 +292,24 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Grande poussinière', cost: 50000, reqLevel: 6, upkeep: 60, capacity: 60, comfort: 1, growth: 1.25, w: 10, d: 8, perk: 'Deux emplacements de couveuse, grand parc de 10 × 8 cases pour 60 poussins, croissance +25 %' },
     ],
   },
+  petshop: {
+    type: 'petshop',
+    name: 'Animalerie',
+    description: 'Une petite boutique à côté de l’étal, pour vendre vos poules et vos oies en trop. Vous y mettez les volailles que vous voulez, au prix que vous voulez ; les gens du village viennent avec leur carton et en emportent quelques-unes pour leur tenir compagnie.',
+    // à sa place fixe, le long du trottoir : aucune case de la ferme
+    w: 0,
+    d: 0,
+    access: 'none',
+    unique: true,
+    buildable: true,
+    movable: false,
+    icon: '🐔',
+    levels: [
+      { name: 'Petite animalerie', cost: 20000, reqLevel: 1, upkeep: 30, capacity: 12, flow: 0.7, perk: 'Un comptoir, un parc à poules et un parc à oies : 12 volailles en vitrine' },
+      { name: 'Animalerie', cost: 90000, reqLevel: 1, upkeep: 70, capacity: 30, flow: 1.4, perk: 'Vraie boutique, parcs plus grands : 30 volailles, deux fois plus de clients' },
+      { name: 'Grande animalerie', cost: 300000, reqLevel: 1, upkeep: 150, capacity: 80, flow: 2.6, perk: 'Deux comptoirs et de grands parcs : 80 volailles, une clientèle fidèle' },
+    ],
+  },
   stand: {
     type: 'stand',
     name: 'Étal de vente',
@@ -324,7 +342,7 @@ export function sizeOf(type: BuildingType, level = 1, rot = 0): { w: number; d: 
   return rot % 2 ? { w: d, d: w } : { w, d };
 }
 
-export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'nursery', 'incubator', 'gooseincubator'];
+export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'nursery', 'incubator', 'gooseincubator', 'petshop'];
 
 /**
  * Hôtel de ville (décor, à l'ouest de la grille), où logent les salariés : ligne de sa façade, et
@@ -335,6 +353,24 @@ export const HALL_DOOR: [number, number] = [-6, 25.72];
 
 /** Position fixe de l'étal (hors parcelles, sur la place pavée qui donne sur le trottoir). */
 export const STAND_POS = { x: 17.2, z: 31.8 };
+/** L'animalerie : sur l'herbe entre le chemin du personnel et le trottoir, juste à l'ouest de l'étal. */
+export const PET_POS = { x: 5.9, z: 34.4 };
+
+/**
+ * Plan de l'animalerie (coordonnées locales autour de PET_POS, façade vers le trottoir). Une allée
+ * centrale mène au comptoir ; de part et d'autre, un parc pour les poules et un pour les oies.
+ */
+export function petLayout(level = 1) {
+  const half = level >= 3 ? { x1: 4.6, z0: -0.15, z1: 1.95 } : level === 2 ? { x1: 4.1, z0: -0.2, z1: 1.85 } : { x1: 3.5, z0: -0.35, z1: 1.6 };
+  return {
+    cx: PET_POS.x,
+    stopZ: PET_POS.z + 0.62,
+    gap: 0.9,
+    /** Parcs (locaux) : les poules à l'ouest, les oies à l'est. */
+    hens: { x0: -half.x1, x1: -1.05, z0: half.z0, z1: half.z1 },
+    geese: { x0: 1.05, x1: half.x1, z0: half.z0, z1: half.z1 },
+  };
+}
 
 /**
  * Où se passe la vente selon le niveau de l'étal. cx, stopZ, gap : milieu des guichets, où s'arrêtent

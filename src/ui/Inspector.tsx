@@ -16,6 +16,7 @@ import { fmtMoney, maxParcelsOf } from '../sim/economy';
 import { parcelGrass } from '../sim/grass';
 import { actLabel, eggsPerDayOf, henStatus, henValue, productivity } from '../sim/hens';
 import { hostedIncubators, incubatorSeat, nurseryCount, nurseryPlan, readyToLeave } from '../sim/nursery';
+import { petPrice, petRoom, petShopOf, sellable, stockBird } from '../sim/petshop';
 import { customersPerDay, lostToday, queueLength, standCounters } from '../sim/market';
 import { buildingsOf, coopOccupancy, getBuilding, getHen, lvl, storageCapacity, storedCount } from '../sim/queries';
 import { GRASS } from '../config/balance';
@@ -545,7 +546,7 @@ function HenCard({ h }: { h: Hen }) {
           )}
         </div>
         <GeneStars h={h} />
-        <small class="gb-note">{h.rooster ? 'Il les transmet à ses poussins.' : 'Elle les transmet à ses poussins (avec le coq).'}</small>
+        <small class="gb-note">{isGoose(h.breed) ? (h.rooster ? 'Il les transmet à ses oisons.' : 'Elle les transmet à ses oisons (avec le jars).') : h.rooster ? 'Il les transmet à ses poussins.' : 'Elle les transmet à ses poussins (avec le coq).'}</small>
       </div>
       <div class="grid2">
         <div>
@@ -557,13 +558,13 @@ function HenCard({ h }: { h: Hen }) {
           <div>
             <span>Adulte dans</span>
             <b>{Math.ceil(h.young)} j</b>
-            <small>{h.rooster ? 'deviendra un coq' : 'puis elle pondra'}</small>
+            <small>{h.rooster ? (isGoose(h.breed) ? 'deviendra un jars' : 'deviendra un coq') : 'puis elle pondra'}</small>
           </div>
         ) : h.rooster ? (
           <div>
             <span>Œufs fécondés</span>
             <b>{Math.round(fertility(s) * 100)} %</b>
-            <small>{roosterCount(s)} coq{roosterCount(s) > 1 ? 's' : ''} · 1 pour ~{BREEDING.hensPerRooster}</small>
+            <small>{isGoose(h.breed) ? `${dadCount(s, true)} jars` : `${dadCount(s, false)} coq${dadCount(s, false) > 1 ? 's' : ''}`} · 1 pour ~{BREEDING.hensPerRooster}</small>
           </div>
         ) : (
           <div>
@@ -617,6 +618,11 @@ function HenCard({ h }: { h: Hen }) {
             Confier à une association
           </Btn>
         )}
+        {petShopOf(s) && sellable(h) && (
+          <Btn kind="soft" disabled={petRoom(s) <= 0} title={petRoom(s) <= 0 ? 'La vitrine est pleine' : `Vendue à ${fmtMoney(petPrice(s, h.breed))} par l’animalerie`} onClick={() => game.act(() => stockBird(s, h.id), 'pop')}>
+            Mettre à l’animalerie · {fmtMoney(petPrice(s, h.breed))}
+          </Btn>
+        )}
         {!confirm ? (
           <Btn kind="ghost" onClick={() => setConfirm(true)}>
             Vendre · {fmtMoney(henValue(h))}
@@ -641,6 +647,7 @@ function levelDiff(type: Building['type'], cur: BuildingLevel, next: BuildingLev
   if (type === 'dustbath') out.push(`Bien-être +${cur.wellbeing} → +${next.wellbeing}`, `${cur.slots} → ${next.slots} places`);
   if (type === 'pond') out.push(`Réserve ${cur.capacity} → ${next.capacity} L`, `Pluie +${cur.regen} → +${next.regen} L/jour`, `Bien-être +${cur.wellbeing} → +${next.wellbeing}`);
   if (type === 'incubator' || type === 'gooseincubator') out.push(`Capacité ${cur.capacity} → ${next.capacity} œufs`, `Éclosion +${Math.round((next.quality ?? 0) * 100)} %`);
+  if (type === 'petshop') out.push(`Vitrine ${cur.capacity} → ${next.capacity} volailles`, `Clients ${cur.flow}/h → ${next.flow}/h`);
   if (type === 'nursery') out.push('Couveuses : 1 → 2 emplacements', `Capacité ${cur.capacity} → ${next.capacity} poussins`, `Croissance +${Math.round(((cur.growth ?? 1) - 1) * 100)} % → +${Math.round(((next.growth ?? 1) - 1) * 100)} %`);
   if (type === 'stand') out.push(`Clients ${cur.flow}/h → ${next.flow}/h`, `Paniers ×${cur.qtyMult} → ×${next.qtyMult}`);
   if (next.perk) out.push(next.perk);
@@ -721,6 +728,27 @@ function BuildingCard({ b }: { b: Building }) {
       )}
       {isIncubator(b) && <IncubatorInfo b={b} />}
       {b.type === 'nursery' && <NurseryInfo b={b} />}
+      {b.type === 'petshop' && (
+        <>
+          <div class="kv">
+            <span>En vitrine</span>
+            <b>
+              {s.petShop.birds.length} / {L.capacity} volailles
+            </b>
+          </div>
+          <div class="kv">
+            <span>Poules · oies</span>
+            <b>
+              {s.petShop.birds.filter((x) => !isGoose(x.breed)).length} · {s.petShop.birds.filter((x) => isGoose(x.breed)).length}
+            </b>
+          </div>
+          <div class="actions">
+            <Btn kind="primary" onClick={() => game.openPanel('market', 'pets')}>
+              <Icon name="sell" size={15} /> Gérer les ventes et les prix
+            </Btn>
+          </div>
+        </>
+      )}
       {b.type === 'compost' && (
         <>
           <div class="kv">

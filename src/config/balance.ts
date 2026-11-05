@@ -322,6 +322,82 @@ export const HEN_PACKS = [
  */
 export const DELIVERY = { delay: 16, drive: 8, firstJump: 1.0, henGap: 0.5, henSpeed: 2.3, closeUp: 1.4, stops: [0, 8.4, 12.8], tail: 1.55, convoyGap: 1.1, joinMargin: 4, slots: 3 };
 
+/** L'animalerie : la vente de volailles au détail. */
+export const PETSHOP = {
+  /** Prix conseillé : environ la moitié du prix d'achat. */
+  priceShare: 0.5,
+  /** Le joueur fixe son prix entre ces deux parts du prix d'achat. */
+  priceMin: 0.2,
+  priceMax: 1.5,
+  /** Les clients acceptent en moyenne ce prix (part du prix d'achat), plus ou moins selon chacun. */
+  wtpShare: 0.66,
+  wtpSigma: 0.24,
+  /** Combien de volailles un client emporte dans son carton. */
+  wantChoices: [1, 1, 2, 2, 2, 3, 3, 4, 6],
+  /** Part des clients qui viennent plutôt pour une oie. */
+  gooseShare: 0.25,
+  serveTime: 1.2,
+  servePerBird: 0.45,
+  maxQueue: 3,
+  patience: [8, 16] as [number, number],
+};
+
+/** Les commandes de revendeurs et d'associations, et le grand camion qui vient les chercher. */
+export const BIRD_ORDERS = {
+  reqLevel: 15,
+  maxOffers: 2,
+  maxActive: 2,
+  offerDays: 3,
+  daysMin: 3,
+  daysMax: 6,
+  henQty: [12, 20, 30, 40, 60, 80, 120],
+  gooseQty: [4, 6, 8, 12, 16],
+  gooseShare: 0.25,
+  /** Part des commandes de poules qui demandent une race précise (un peu mieux payées). */
+  breedShare: 0.35,
+  breedBonus: 1.12,
+  /** Prix payé par volaille (part du prix d'achat) : du gros, donc un peu moins qu'au détail. */
+  priceMin: 0.42,
+  priceMax: 0.6,
+  xp: 25,
+  repDone: 2,
+  repLate: 4,
+  /** Le camion arrive tant de secondes après l'appel ; les volailles partent vers le portail un peu avant. */
+  delay: 16,
+  prep: 14,
+  /** Le camion n'arrive qu'aux heures où les commis peuvent finir le chargement. */
+  earliestHour: 7,
+  marginHours: 4,
+  morningHour: 8,
+  /** Durée visée du chargement (secondes), bornée pour chaque volaille. */
+  loadSeconds: 30,
+  gapMin: 0.3,
+  gapMax: 0.85,
+  helpers: 2,
+  /** Une volaille monte quand elle est assez près du portail ; une retardataire finit par être portée. */
+  boardFrom: 4,
+  lateAfter: 12,
+  maxWait: 45,
+  /** Retard toléré du camion pris dans la circulation (secondes). */
+  truckGrace: 25,
+  closeUp: 2,
+  /** Place du camion au bord de la route (x), et position de son hayon par rapport à lui. */
+  stopX: 7,
+  tail: 2.7,
+  clients: [
+    'Volailles du Val',
+    'Basse-cour & Compagnie',
+    'Association Poules Heureuses',
+    'Les Amis du Poulailler',
+    'Refuge La Plume',
+    'Jardinerie Verdier',
+    'Coopérative des Particuliers',
+    'Comptoir Avicole Morel',
+    'Mairie de Saint-Aubin',
+    'École des Tilleuls',
+  ],
+};
+
 export const ORDERS = {
   maxOffers: 3,
   maxActive: 3,

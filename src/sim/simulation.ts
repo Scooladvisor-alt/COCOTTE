@@ -21,6 +21,7 @@ import { updateRobots } from './robots';
 import { dogUpkeep, updateDog } from './dog';
 import { updateVaults } from './vault';
 import { updateDeliveries } from './actions';
+import { petShopHourly, updateBirdLoad, updatePetCustomers } from './petshop';
 import { autoWholesale, checkOrdersReady, deliverContracts, marketNewDay, updateCustomers } from './market';
 import { checkMissions } from './progression';
 import { dailyWages, hasRole, onDuty, resetWorkersDay, separateBodies, updateWorkers } from './workers';
@@ -148,6 +149,7 @@ function hourly(s: GameState) {
   maybeSpawnPredator(s);
   breedingHourly(s);
   showHourly(s);
+  petShopHourly(s);
 
   // Alertes de gestion
   if (s.hens.length > 0) {
@@ -195,11 +197,13 @@ export function step(s: GameState, dt: number) {
   updateWorkers(s, dt);
   updateRobots(s, dt);
   updateDeliveries(s);
+  updateBirdLoad(s);
   updateDog(s, dt);
   // personne ne traverse le grillage : on saute par-dessus
   updateVaults(s, dt);
   separateBodies(s);
   updateCustomers(s, dt);
+  updatePetCustomers(s, dt);
   autoRefill(s);
   compostTick(s, dt);
   autoIncubate(s);

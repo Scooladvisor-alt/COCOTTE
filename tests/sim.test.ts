@@ -1,16 +1,40 @@
 import { describe, expect, it } from 'vitest';
-import { AUTO_DOOR, BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, GRID_W, GRID_Z0, HOUR, LEVELS, levelAt, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, tradeAt, waterPrice } from '../src/config/balance';
+import { AUTO_DOOR, BIRD_ORDERS, BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, GRID_W, GRID_Z0, HOUR, LEVELS, levelAt, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, tradeAt, waterPrice } from '../src/config/balance';
 import { GATE_EDGE, farmEnclosed, perimeter } from '../src/sim/fences';
 import { waterCapacity } from '../src/sim/stocks';
-import { BREEDS, BREED_ORDER, GOOSE_NAMES } from '../src/config/breeds';
-import { BUILDINGS, COOP_SCALE, STAND_POS, sizeOf, standLayout } from '../src/config/buildings';
+import { BREEDS, BREED_ORDER, GOOSE_NAMES, isGoose } from '../src/config/breeds';
+import { BUILDINGS, COOP_SCALE, PET_POS, STAND_POS, sizeOf, standLayout } from '../src/config/buildings';
 import { BACKUP_KEY, SAVE_KEY, deserialize, loadGame, saveGame, serialize, type Storage } from '../src/save/save';
 import * as A from '../src/sim/actions';
 import { canPlace } from '../src/sim/buildings';
 import { accessCells, buildingCenter, coopDoor, coopDoorCells, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable, rt, toLocal, toWorld } from '../src/sim/core';
 import { freeSeats, hostedIncubators, nurseryCount, nurseryPlan, nurseryWithRoom, readyToLeave } from '../src/sim/nursery';
+import {
+  birdOrdersNewDay,
+  birdWord,
+  callTruck,
+  checkCallTruck,
+  flockOf,
+  generateBirdOrders,
+  orderLabel,
+  orderStock,
+  petBuyChance,
+  petPrice,
+  petShopHourly,
+  petShopOf,
+  priceBounds,
+  sellable,
+  setPetPrice,
+  stockBird,
+  stockBirds,
+  stockOf,
+  stockOfKind,
+  suggestedPrice,
+  togglePetAuto,
+  unstockBirds,
+} from '../src/sim/petshop';
 import { onlineIsNewer } from '../src/online/farms';
-import { canAfford, farmLevel, spend } from '../src/sim/economy';
+import { canAfford, farmLevel, spend, today } from '../src/sim/economy';
 import { addToStorage, ageEggs, collectNest, layEgg, takeFromStorage } from '../src/sim/eggs';
 import {
   acceptOrder,
@@ -41,7 +65,7 @@ import {
 } from '../src/sim/market';
 import { FEED_REACH, feedLayout, feedPose } from '../src/sim/feeding';
 import { updateVaults, vaultOf } from '../src/sim/vault';
-import { buildingsOf, coopCapacity, coopOccupancy, flockCapacity, landCapacity, storageCapacity, storageFree, storedCount } from '../src/sim/queries';
+import { buildingsOf, coopCapacity, coopOccupancy, flockCapacity, landCapacity, lvl, storageCapacity, storageFree, storedCount } from '../src/sim/queries';
 import { advance, advanceRealtime, canSkipNight, closeDay, dailyCharges, simulateOffline, skipNight, step } from '../src/sim/simulation';
 import { createNewGame } from '../src/sim/state';
 import { newFarm } from '../src/sim/starter';
@@ -3889,4 +3913,405 @@ describe('Longue vie d’un troupeau d’oies', () => {
     const far = geese().filter((g) => Math.hypot(g.x - door.x, g.z - door.z) > 22);
     expect(far.length).toBe(0);
   }, 120000);
+});
+
+describe('Animalerie', () => {
+  const farm = (seed: number) => {
+    const s = newFarm(seed);
+    morning(s);
+    s.money = 10_000_000;
+    s.xp = 99999;
+    s.settings.predators = false;
+    return s;
+  };
+  /** Ajoute des volailles adultes à la ferme. */
+  const flock = (s: GameState, breed: 'rousse' | 'marans' | 'oie', n: number, rooster = false) => {
+    const coop = buildingsOf(s, breed === 'oie' ? 'goosehouse' : 'coop')[0] ?? buildingsOf(s, 'coop')[0];
+    for (let i = 0; i < n; i++) s.hens.push(createHen(s, breed, coop, false, { rooster, at: [coop.x + 1, coop.z + 5] }));
+  };
+  const open = (s: GameState) => {
+    expect(A.openPetShop(s).ok).toBe(true);
+    return petShopOf(s)!;
+  };
+
+  it('ne s’ouvre qu’une fois, à sa place à côté de l’étal, sans prendre de case à la ferme', () => {
+    const s = farm(1501);
+    invalidateLayout(s);
+    const walk = rt(s).walk.reduce((a: number, v: number) => a + v, 0);
+    const b = open(s);
+    invalidateLayout(s);
+    expect(rt(s).walk.reduce((a: number, v: number) => a + v, 0)).toBe(walk);
+    expect([b.x, b.z]).toEqual([PET_POS.x, PET_POS.z]);
+    expect(A.openPetShop(s).ok).toBe(false);
+  });
+
+  it('le prix conseillé est la moitié du prix d’achat, et le joueur le change comme il veut', () => {
+    const s = farm(1502);
+    expect(suggestedPrice('rousse')).toBe(Math.round(BREEDS.rousse.price / 2));
+    expect(petPrice(s, 'rousse')).toBe(suggestedPrice('rousse'));
+    setPetPrice(s, 'rousse', 1000);
+    expect(petPrice(s, 'rousse')).toBe(1000);
+    // bornes : ni donné, ni hors de prix
+    setPetPrice(s, 'rousse', 1);
+    expect(petPrice(s, 'rousse')).toBe(priceBounds('rousse')[0]);
+    setPetPrice(s, 'rousse', 1e7);
+    expect(petPrice(s, 'rousse')).toBe(priceBounds('rousse')[1]);
+    // plus c'est cher, moins les clients acceptent
+    expect(petBuyChance(s, 'rousse', 400)).toBeGreaterThan(petBuyChance(s, 'rousse', 1200));
+  });
+
+  it('une volaille en vitrine quitte le troupeau, et on peut la reprendre', () => {
+    const s = farm(1503);
+    open(s);
+    flock(s, 'rousse', 6);
+    const before = s.hens.length;
+    const r = stockBirds(s, 'rousse', 4);
+    expect(r.count).toBe(4);
+    expect(s.hens.length).toBe(before - 4);
+    expect(stockOf(s, 'rousse')).toHaveLength(4);
+    expect(unstockBirds(s, 'rousse', 2).count).toBe(2);
+    expect(stockOf(s, 'rousse')).toHaveLength(2);
+    expect(s.hens.length).toBe(before - 2);
+    // elles reviennent par le portail, sur une case praticable
+    const back = s.hens.at(-1)!;
+    expect(isWalkable(s, back.x, back.z)).toBe(true);
+  });
+
+  it('les coqs, les jars, les jeunes et les spécimens rares ne vont pas en vitrine', () => {
+    const s = farm(1504);
+    open(s);
+    buildGooseHouse(s);
+    flock(s, 'rousse', 1, true);
+    flock(s, 'oie', 1, true);
+    const coq = s.hens.at(-2)!;
+    const jars = s.hens.at(-1)!;
+    expect(stockBird(s, coq.id).ok).toBe(false);
+    expect(stockBird(s, jars.id).reason).toMatch(/jars/);
+    const chick = s.hens.find((h) => h.young)!;
+    expect(stockBird(s, chick.id).ok).toBe(false);
+    flock(s, 'rousse', 1);
+    const gold = s.hens.at(-1)!;
+    gold.golden = true;
+    expect(stockBird(s, gold.id).ok).toBe(false);
+  });
+
+  it('les oies et les poules se comptent et se vendent à part', () => {
+    const s = farm(1505);
+    open(s);
+    buildGooseHouse(s);
+    flock(s, 'oie', 3);
+    flock(s, 'rousse', 3);
+    expect(stockBirds(s, 'oie', 10).count).toBe(3);
+    expect(stockOfKind(s, true)).toHaveLength(3);
+    expect(stockOfKind(s, false)).toHaveLength(0);
+    expect(birdWord(true, 2)).toBe('oies');
+    expect(birdWord(false, 1)).toBe('poule');
+    // une oie vaut son prix d'oie
+    expect(petPrice(s, 'oie')).toBe(suggestedPrice('oie'));
+    expect(suggestedPrice('oie')).toBeGreaterThan(suggestedPrice('rousse'));
+  });
+
+  it('la vitrine a une capacité, et s’agrandit avec le niveau', () => {
+    const s = farm(1506);
+    const b = open(s);
+    flock(s, 'rousse', 40);
+    expect(stockBirds(s, 'rousse', 40).count).toBe(lvl(b).capacity);
+    expect(stockBirds(s, 'rousse', 1).ok).toBe(false);
+    expect(A.upgrade(s, b.id).ok).toBe(true);
+    expect(stockBirds(s, 'rousse', 40).count).toBeGreaterThan(0);
+    expect(s.petShop.birds.length).toBe(lvl(b).capacity);
+  });
+
+  it('les clients viennent avec leur carton, achètent plusieurs volailles et paient le prix fixé', () => {
+    const s = farm(1507);
+    open(s);
+    flock(s, 'rousse', 12);
+    stockBirds(s, 'rousse', 12);
+    setPetPrice(s, 'rousse', 500);
+    const money = s.money;
+    const sold = s.stats.hensSold;
+    let most = 0;
+    run(s, 6 * HOUR, () => {
+      most = Math.max(most, ...s.petCustomers.map((c) => c.bought));
+    });
+    const n = 12 - s.petShop.birds.length;
+    expect(n).toBeGreaterThan(0);
+    expect(s.stats.hensSold - sold).toBe(n);
+    expect(most).toBeGreaterThan(1);
+    expect(today(s).income.animalerie).toBe(n * 500);
+    expect(s.money).toBeGreaterThan(money - 2000);
+  });
+
+  it('trop cher, personne n’achète ; vitrine vide, personne ne se déplace', () => {
+    const s = farm(1508);
+    open(s);
+    run(s, 4 * HOUR);
+    expect(s.petCustomers).toHaveLength(0);
+    flock(s, 'rousse', 6);
+    stockBirds(s, 'rousse', 6);
+    setPetPrice(s, 'rousse', priceBounds('rousse')[1]);
+    run(s, 6 * HOUR);
+    // à 1,5 × le prix d'achat, plus personne ou presque
+    expect(s.petShop.birds.length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('elle ferme la nuit', () => {
+    const s = farm(1509);
+    open(s);
+    flock(s, 'rousse', 10);
+    stockBirds(s, 'rousse', 10);
+    s.clock.t = Math.floor(s.clock.t / TIME.DAY) * TIME.DAY + 22 * HOUR;
+    s.clock.lastHourTick = Math.floor(s.clock.t / HOUR);
+    s.petCustomers = [];
+    run(s, 3 * HOUR, () => expect(s.petCustomers).toHaveLength(0));
+  });
+
+  it('la sauvegarde garde la vitrine et les prix', () => {
+    const s = farm(1510);
+    open(s);
+    flock(s, 'marans', 3);
+    const ids = flockOf(s, 'marans').slice(0, 2).map((h) => h.id);
+    stockBirds(s, 'marans', 2);
+    setPetPrice(s, 'marans', 7000);
+    s.petShop.auto = true;
+    const back = deserialize(serialize(s))!;
+    expect(back.petShop.birds.map((h) => h.id).sort()).toEqual(ids.sort());
+    expect(petPrice(back, 'marans')).toBe(7000);
+    expect(back.petShop.auto).toBe(true);
+    // aucun identifiant réutilisé par la suite
+    expect(back.nextId).toBeGreaterThan(Math.max(...back.petShop.birds.map((h) => h.id)));
+  });
+
+  it('le surplus part tout seul en vitrine quand on le demande, les meilleures restent', () => {
+    const s = farm(1511);
+    open(s);
+    flock(s, 'rousse', 30);
+    const top = s.hens.filter((h) => sellable(h)).at(-1)!;
+    top.genes = { p: 5, r: 5, b: 5 };
+    expect(s.hens.length).toBeGreaterThan(flockCapacity(s));
+    petShopHourly(s);
+    expect(s.petShop.birds).toHaveLength(0);
+    togglePetAuto(s);
+    expect(s.petShop.birds.length).toBeGreaterThan(0);
+    expect(s.hens).toContain(top);
+  });
+
+  it('démontable seulement une fois vidée', () => {
+    const s = farm(1512);
+    const b = open(s);
+    flock(s, 'rousse', 2);
+    stockBirds(s, 'rousse', 2);
+    expect(A.demolish(s, b.id).ok).toBe(false);
+    unstockBirds(s, 'rousse', 2);
+    expect(A.demolish(s, b.id).ok).toBe(true);
+    expect(petShopOf(s)).toBeUndefined();
+  });
+});
+
+describe('Commandes de revendeurs et grand camion', () => {
+  const farm = (seed: number, level = 16) => {
+    const s = newFarm(seed);
+    morning(s);
+    s.money = 10_000_000;
+    s.settings.predators = false;
+    while (farmLevel(s) < level) s.xp += 1000;
+    return s;
+  };
+  const flock = (s: GameState, breed: 'rousse' | 'marans' | 'oie', n: number) => {
+    const coop = buildingsOf(s, breed === 'oie' ? 'goosehouse' : 'coop')[0] ?? buildingsOf(s, 'coop')[0];
+    for (let i = 0; i < n; i++) s.hens.push(createHen(s, breed, coop, false, { at: [coop.x + 1 + (i % 4), coop.z + 5] }));
+  };
+  const order = (s: GameState, o: Partial<import('../src/sim/types').BirdOrder> = {}) => {
+    const b: import('../src/sim/types').BirdOrder = { id: 900000 + s.birdOrders.length, client: 'Volailles du Val', goose: false, count: 6, unitPrice: 700, deadlineDay: currentDay(s) + 3, offerUntilDay: currentDay(s) + 2, status: 'active', ...o };
+    s.birdOrders.push(b);
+    return b;
+  };
+
+  it('il faut le niveau 15, même sans déblocages', () => {
+    const low = farm(1601, 14);
+    generateBirdOrders(low);
+    expect(low.birdOrders).toHaveLength(0);
+    const s = farm(1602);
+    expect(farmLevel(s)).toBeGreaterThanOrEqual(BIRD_ORDERS.reqLevel);
+    for (let i = 0; i < 40 && !s.birdOrders.length; i++) generateBirdOrders(s);
+    expect(s.birdOrders.length).toBeGreaterThan(0);
+    for (const o of s.birdOrders) {
+      expect(o.status).toBe('offer');
+      expect(o.count).toBeGreaterThan(0);
+      expect(o.client.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('pas de commande d’oies tant que la ferme n’en élève pas', () => {
+    const s = farm(1603);
+    for (let i = 0; i < 80; i++) {
+      s.birdOrders = [];
+      generateBirdOrders(s);
+      for (const o of s.birdOrders) expect(o.goose).toBe(false);
+    }
+  });
+
+  it('il faut un commis de ferme et assez de volailles pour appeler le camion', () => {
+    const s = farm(1604);
+    const o = order(s);
+    expect(checkCallTruck(s, o).reason).toMatch(/commis/);
+    hire(s, 'farmhand');
+    s.hens = s.hens.filter((h) => h.young || h.rooster);
+    expect(checkCallTruck(s, o).reason).toMatch(/Pas assez/);
+    flock(s, 'rousse', 6);
+    expect(checkCallTruck(s, o).ok).toBe(true);
+    expect(callTruck(s, o.id).ok).toBe(true);
+    // un seul camion à la fois
+    const other = order(s);
+    expect(callTruck(s, other.id).ok).toBe(false);
+  });
+
+  it('le camion vient, le commis charge, les volailles partent et le paiement tombe', () => {
+    const s = farm(1605);
+    hire(s, 'farmhand');
+    run(s, 2 * HOUR);
+    flock(s, 'rousse', 10);
+    const o = order(s, { count: 6, unitPrice: 700 });
+    const money = s.money;
+    const rousses = s.hens.filter((h) => h.breed === 'rousse' && !h.young && !h.rooster).length;
+    expect(callTruck(s, o.id).ok).toBe(true);
+    expect(o.status).toBe('loading');
+    let helped = false;
+    let went = false;
+    run(s, 12 * HOUR, () => {
+      if (s.workers.some((w) => w.job?.kind === 'loadTruck' && w.job.phase === 'work')) helped = true;
+      if (s.hens.some((h) => h.ship)) went = true;
+    });
+    expect(went).toBe(true);
+    expect(helped).toBe(true);
+    expect(s.birdLoad).toBeNull();
+    expect(s.birdOrders.find((x) => x.id === o.id)).toBeUndefined();
+    expect(s.hens.filter((h) => h.breed === 'rousse' && !h.young && !h.rooster).length).toBe(rousses - 6);
+    expect(s.hens.some((h) => h.ship)).toBe(false);
+    expect(s.stats.birdOrdersDone).toBe(1);
+    expect(s.stats.birdsSoldDealers).toBe(6);
+    expect(s.money).toBeGreaterThan(money);
+    expect(today(s).income.animalerie).toBeGreaterThanOrEqual(6 * 700);
+    // le commis est rentré par le portail et reprend son travail
+    run(s, 2 * HOUR);
+    for (const w of s.workers) expect(w.job?.kind).not.toBe('loadTruck');
+  });
+
+  it('une commande d’oies n’emporte que des oies', () => {
+    const s = farm(1606);
+    buildGooseHouse(s);
+    hire(s, 'farmhand');
+    run(s, 2 * HOUR);
+    flock(s, 'oie', 4);
+    flock(s, 'rousse', 6);
+    const poules = s.hens.filter((h) => !isGoose(h.breed)).length;
+    const o = order(s, { goose: true, count: 3, unitPrice: 4000 });
+    expect(orderLabel(o)).toBe('3 oies');
+    expect(callTruck(s, o.id).ok).toBe(true);
+    run(s, 12 * HOUR);
+    expect(s.birdLoad).toBeNull();
+    expect(s.hens.filter((h) => !isGoose(h.breed)).length).toBe(poules);
+    expect(s.hens.filter((h) => isGoose(h.breed) && !h.rooster && !h.young)).toHaveLength(1);
+  });
+
+  it('une commande d’une race précise n’emporte que cette race', () => {
+    const s = farm(1607);
+    hire(s, 'farmhand');
+    run(s, 2 * HOUR);
+    flock(s, 'marans', 3);
+    flock(s, 'rousse', 5);
+    const o = order(s, { breed: 'marans', count: 3 });
+    expect(orderStock(s, o)).toBe(3);
+    const rousses = s.hens.filter((h) => h.breed === 'rousse').length;
+    callTruck(s, o.id);
+    run(s, 12 * HOUR);
+    expect(s.hens.filter((h) => h.breed === 'marans')).toHaveLength(0);
+    expect(s.hens.filter((h) => h.breed === 'rousse')).toHaveLength(rousses);
+  });
+
+  it('sans commis, le camion repart à vide et la commande reste à livrer', () => {
+    const s = farm(1608);
+    hire(s, 'farmhand');
+    run(s, 2 * HOUR);
+    flock(s, 'rousse', 8);
+    const o = order(s, { count: 4 });
+    callTruck(s, o.id);
+    // le commis est renvoyé juste après l'appel
+    fire(s, s.workers[0].id);
+    const hens = s.hens.length;
+    run(s, 14 * HOUR);
+    expect(s.birdLoad).toBeNull();
+    const left = s.birdOrders.find((x) => x.id === o.id)!;
+    expect(left.status).toBe('active');
+    expect(left.count).toBe(4);
+    expect(s.hens.some((h) => h.ship)).toBe(false);
+    expect(s.hens.length).toBe(hens);
+  });
+
+  it('une volaille disparue entre-temps est remplacée', () => {
+    const s = farm(1609);
+    hire(s, 'farmhand');
+    run(s, 2 * HOUR);
+    flock(s, 'rousse', 8);
+    const o = order(s, { count: 4 });
+    callTruck(s, o.id);
+    run(s, BIRD_ORDERS.delay - BIRD_ORDERS.prep + 1);
+    const first = s.hens.find((h) => h.ship)!;
+    expect(first).toBeTruthy();
+    A.sellHen(s, first.id);
+    run(s, 12 * HOUR);
+    expect(s.birdOrders.find((x) => x.id === o.id)).toBeUndefined();
+    expect(s.stats.birdsSoldDealers).toBe(4);
+  });
+
+  it('trop tard pour les commis : le camion passe le lendemain matin', () => {
+    const s = farm(1610);
+    hire(s, 'farmhand');
+    flock(s, 'rousse', 5);
+    const o = order(s, { count: 3, deadlineDay: currentDay(s) + 3 });
+    const day = Math.floor(s.clock.t / TIME.DAY);
+    s.clock.t = day * TIME.DAY + 20 * HOUR;
+    s.clock.lastHourTick = Math.floor(s.clock.t / HOUR);
+    callTruck(s, o.id);
+    expect(s.birdLoad!.eta).toBe((day + 1) * TIME.DAY + BIRD_ORDERS.morningHour * HOUR);
+    // la nuit, les poules dorment normalement
+    run(s, 4 * HOUR);
+    expect(s.hens.some((h) => h.ship)).toBe(false);
+  });
+
+  it('une commande acceptée et oubliée coûte de la réputation', () => {
+    const s = farm(1611);
+    const o = order(s, { deadlineDay: currentDay(s) - 1 });
+    const rep = s.reputation;
+    birdOrdersNewDay(s);
+    expect(s.birdOrders.find((x) => x.id === o.id)).toBeUndefined();
+    expect(s.reputation).toBeLessThan(rep);
+  });
+
+  it('la sauvegarde pendant un chargement reprend là où on en était', () => {
+    const s = farm(1612);
+    hire(s, 'farmhand');
+    run(s, 2 * HOUR);
+    flock(s, 'rousse', 8);
+    const o = order(s, { count: 5 });
+    callTruck(s, o.id);
+    run(s, BIRD_ORDERS.delay + 2);
+    const back = deserialize(serialize(s))!;
+    expect(back.birdLoad?.orderId).toBe(o.id);
+    expect(back.hens.filter((h) => h.ship).length).toBe(back.birdLoad!.henIds.length);
+    run(back, 12 * HOUR);
+    expect(back.birdLoad).toBeNull();
+    expect(back.birdOrders.find((x) => x.id === o.id)).toBeUndefined();
+  });
+
+  it('un jars n’est pas un coq, même dans les messages', () => {
+    const s = farm(1613);
+    buildGooseHouse(s);
+    const coop = buildingsOf(s, 'coop')[0];
+    const house = buildingsOf(s, 'goosehouse')[0];
+    const male = (breed: 'rousse' | 'oie', c: typeof coop) => createHen(s, breed, c, false, { rooster: true, black: false });
+    expect(A.maleWords([male('rousse', coop), male('rousse', coop), male('oie', house)])).toBe('2 coqs et 1 jars');
+    expect(A.maleWords([male('oie', house), male('oie', house)])).toBe('2 jars');
+    expect(A.maleWords([male('rousse', coop)])).toBe('1 coq');
+  });
 });

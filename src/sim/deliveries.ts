@@ -3,7 +3,7 @@
 // sautent du hayon une à une, trottinent sur le trottoir jusqu'au portail et entrent dans la
 // ferme à la file. Tout l'horaire se lit sur le temps simulé : la simulation fait apparaître
 // chaque poule au portail à l'instant où le rendu la montre arriver (render/delivery.ts).
-import { DELIVERY, WORLD } from '../config/balance';
+import { BIRD_ORDERS, DELIVERY, WORLD } from '../config/balance';
 import { GATE } from './core';
 import type { Delivery, GameState } from './types';
 
@@ -32,6 +32,29 @@ export function pathLength(p: Array<[number, number]>) {
   for (let i = 1; i < p.length; i++) l += Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]);
   return l;
 }
+
+// ------------------------------------------------------- Le camion du revendeur ----
+/** Le hayon du grand camion, garé devant l'animalerie (son avant regarde l'ouest). */
+export const pickupTailX = BIRD_ORDERS.stopX + BIRD_ORDERS.tail;
+/** Trajet d'une volaille vendue : portail, place, trottoir, puis la rampe du hayon. */
+export function boardPath(x: number, z: number): Array<[number, number]> {
+  // elle quitte le trottoir juste à côté du hayon : les voitures qui attendent derrière ne la croisent pas
+  const side = pickupTailX + 0.4;
+  return [
+    [x, z],
+    [GATE.x + 0.5, GATE.z + 0.3],
+    [GATE.x + 0.5, WORLD.WALK_Z],
+    [side, WORLD.WALK_Z],
+    [side, TRUCK_LANE - 0.15],
+    [pickupTailX - 0.15, TRUCK_LANE],
+  ];
+}
+export const boardTime = (x: number, z: number) => pathLength(boardPath(x, z)) / DELIVERY.henSpeed;
+/** Places des commis qui aident au chargement, au bord de la route, à côté de la rampe. */
+export const LOADER_SPOTS: Array<[number, number]> = [
+  [pickupTailX + 1.05, WORLD.ROAD_Z - WORLD.ROAD_HALF + 0.12],
+  [pickupTailX + 1.85, WORLD.ROAD_Z - WORLD.ROAD_HALF + 0.12],
+];
 
 /** Point du trajet à la fraction k (0 → 1) et direction de marche. */
 export function alongPath(p: Array<[number, number]>, k: number): { x: number; z: number; dx: number; dz: number } {

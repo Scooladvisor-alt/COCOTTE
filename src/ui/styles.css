@@ -7917,3 +7917,57 @@ body {
 .seat-host:hover {
   background: rgba(47, 107, 255, 0.13);
 }
+
+/* Animalerie : ouverture, déplacements de volailles, camion en cours de chargement */
+.pet-open {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 14px;
+  border-radius: 14px;
+  background: #fbf8f2;
+  border: 1px solid var(--line);
+}
+.pet-open img {
+  width: 132px;
+  height: 132px;
+  object-fit: contain;
+  flex: none;
+}
+.pet-open h4 {
+  margin: 0 0 4px;
+}
+.pet-open p {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+.pet-moves {
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.pet-top {
+  margin: 0 0 8px;
+  flex-wrap: wrap;
+}
+.pet-load {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  margin-top: 4px;
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: #eef2f8;
+}
+.pet-load i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(47, 107, 255, 0.18);
+}
+.pet-load span {
+  position: relative;
+}
+@media (max-width: 560px) {
+  .pet-open {
+    flex-direction: column;
+  }
+}

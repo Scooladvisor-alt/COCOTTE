@@ -103,6 +103,7 @@ export function HenListPanel() {
   const layers = s.hens.filter(isLayer);
   const avgProd = layers.length ? layers.reduce((a, h) => a + productivity(h), 0) / layers.length : 0;
   const roosters = s.hens.filter((h) => h.rooster && !h.young).length;
+  const hasJars = s.hens.some((h) => h.rooster && !h.young && isGoose(h.breed));
   const young = s.hens.filter((h) => h.young).length;
   const toWatch = s.hens.filter(watch).length;
   const sick = s.hens.filter((h) => h.sick || h.health < HEALTH.warnAt);
@@ -118,7 +119,7 @@ export function HenListPanel() {
         </div>
         {(roosters > 0 || young > 0) && (
           <div>
-            <small>Coqs · Jeunes</small>
+            <small>{hasJars ? 'Coqs et jars · Jeunes' : 'Coqs · Jeunes'}</small>
             <b>
               {roosters} · {young}
             </b>
@@ -146,7 +147,7 @@ export function HenListPanel() {
               ['watch', `À surveiller ${toWatch}`],
               ['sick', `Malades ${sick.length}`],
               ['old', `Âgées ${old.length}`],
-              ...(roosters ? [['roosters', `Coqs ${roosters}`]] : []),
+              ...(roosters ? [['roosters', `${hasJars ? 'Coqs et jars' : 'Coqs'} ${roosters}`]] : []),
               ...(young ? [['young', `Jeunes ${young}`]] : []),
             ] as Array<[Filter, string]>
           ).map(([f, l]) => (
@@ -183,7 +184,7 @@ export function HenListPanel() {
             <div class="bulk">
               {!confirmRoosters ? (
                 <Btn small kind="soft" onClick={() => setConfirmRoosters(true)} title="Garde le meilleur reproducteur (un coq pour les poules, un jars pour les oies). Les coqs entièrement noirs ne sont jamais vendus d’office.">
-                  Vendre les {extra.length} coq{extra.length > 1 ? 's' : ''} en trop · garder le meilleur · +{fmtMoney(total)}
+                  Vendre {A.maleWords(extra)} en trop · garder le meilleur · +{fmtMoney(total)}
                 </Btn>
               ) : (
                 <Btn
@@ -194,7 +195,7 @@ export function HenListPanel() {
                     game.act(() => A.sellExtraRoosters(game.state), 'coin');
                   }}
                 >
-                  Confirmer : vendre {extra.length} coq{extra.length > 1 ? 's' : ''} pour {fmtMoney(total)}
+                  Confirmer : vendre {A.maleWords(extra)} pour {fmtMoney(total)}
                 </Btn>
               )}
             </div>

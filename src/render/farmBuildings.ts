@@ -1461,6 +1461,77 @@ export function dustbathBasin(parts: Parts, slots: number) {
   }
 }
 
+// ============================================================ ANIMALERIE ====
+/**
+ * La boutique de l'animalerie, centrée sur son origine, façade vers le trottoir (+z) : du kiosque de
+ * bois au grand magasin, avec son comptoir au bout de l'allée, son auvent rayé et ses cartons.
+ * Les parcs et les enseignes sont ajoutés à part (models.ts).
+ */
+export function petShopHouse(parts: Parts, windows: THREE.Mesh[], level: number) {
+  const hw = level >= 3 ? 3.1 : level === 2 ? 2.5 : 1.75;
+  const z0 = -2.15;
+  const z1 = -0.55;
+  const y1 = level >= 3 ? 2.05 : level === 2 ? 1.7 : 1.4;
+  const cz = (z0 + z1) / 2;
+  const WALL = level === 1 ? 0x8a6a48 : 0xf3ead6;
+  const AW_A = 0x3f8f63;
+  const AW_B = 0xf6f2ea;
+  parts.push(box(hw * 2 + 0.06, 0.16, z1 - z0 + 0.06, STONE, [0, 0.1, cz]));
+  parts.push(box(hw * 2, y1 - 0.16, z1 - z0, WALL, [0, (y1 + 0.16) / 2, cz]));
+  if (level === 1) {
+    boardsZ(parts, -hw, hw, 0.16, y1, z1, C.wood, 0xc98f52, 0.17);
+    boardsX(parts, z0, z1, 0.16, y1, hw, C.wood, 0xc98f52, 0.17);
+  }
+  for (const [x, z] of [
+    [-hw, z1],
+    [hw, z1],
+    [hw, z0],
+  ])
+    parts.push(box(0.08, y1 - 0.16, 0.08, level === 1 ? TIMBER : TRIM, [x, (y1 + 0.16) / 2, z]));
+  // ouverture sombre derrière le comptoir, étagères de sacs de grain
+  parts.push(box(2.3, 1.0, 0.02, 0x3b312a, [0, 0.82, z1 + 0.012]));
+  for (const y of [0.74, 1.08]) parts.push(box(2.1, 0.03, 0.04, TIMBER, [0, y, z1 + 0.03]));
+  for (let k = 0; k < 7; k++) {
+    const x = -0.9 + k * 0.3;
+    parts.push(box(0.2, 0.26, 0.05, k % 2 ? 0xe9dfc8 : 0xd8c08a, [x, 0.89, z1 + 0.04]));
+    if (k % 2 === 0) parts.push(box(0.17, 0.2, 0.05, k % 4 ? 0x6fa64c : 0xc9694a, [x, 1.2, z1 + 0.04]));
+  }
+  // le comptoir, au bout de l'allée
+  parts.push(box(2.3, 0.62, 0.44, C.wood, [0, 0.31, z1 + 0.27]));
+  for (let k = 0; k < 9; k++) parts.push(box(0.012, 0.6, 0.446, 0xb07f4a, [-1.08 + k * 0.27, 0.31, z1 + 0.27]));
+  parts.push(box(2.42, 0.05, 0.54, 0xe0b98a, [0, 0.645, z1 + 0.27]));
+  // balance et carton ouvert posés sur le comptoir
+  parts.push(box(0.36, 0.22, 0.28, 0xc9a26b, [0.7, 0.78, z1 + 0.27]));
+  parts.push(box(0.37, 0.012, 0.1, 0xb48c58, [0.7, 0.9, z1 + 0.2], [0.5, 0, 0]));
+  parts.push(box(0.37, 0.012, 0.1, 0xb48c58, [0.7, 0.9, z1 + 0.34], [-0.5, 0, 0]));
+  parts.push(cyl(0.11, 0.13, 0.04, 12, 0x8e939b, [-0.7, 0.69, z1 + 0.27]), cyl(0.02, 0.02, 0.12, 6, 0x8e939b, [-0.7, 0.76, z1 + 0.27]), box(0.3, 0.02, 0.2, 0xc9ccd1, [-0.7, 0.82, z1 + 0.27]));
+  // auvent à rayures au-dessus du comptoir
+  const n = 9;
+  const awW = 2.7 / n;
+  for (let k = 0; k < n; k++) {
+    const x = -1.35 + (k + 0.5) * awW;
+    const c = k % 2 ? AW_B : AW_A;
+    parts.push(box(awW, 0.03, 0.92, c, [x, y1 - 0.13, z1 + 0.42], [0.42, 0, 0]));
+    parts.push(box(awW, 0.13, 0.02, c, [x, y1 - 0.38, z1 + 0.84]));
+  }
+  for (const x of [-1.34, 1.34]) parts.push(box(0.04, 0.5, 0.92, TIMBER, [x, y1 - 0.31, z1 + 0.4]));
+  // fenêtres de part et d'autre (boutique et grand magasin)
+  if (level >= 2) for (const x of level >= 3 ? [-2.3, 2.3] : [-1.95, 1.95]) farmWindow(parts, windows, x, 0.95, z1 + 0.02, 0.62, 0.6);
+  if (level >= 2) farmWindow(parts, windows, hw + 0.012, 0.95, cz, 0.6, 0.55, true);
+  // toit
+  const roof = gableRoof(parts, { cx: 0, cz, y: y1, w: hw * 2, d: z1 - z0, h: level >= 3 ? 0.95 : level === 2 ? 0.8 : 0.62, over: 0.16, side: 0.14, a: 0xb5573b, b: 0xa24b33, n: 7, ridge: 0x8a3c29, rive: TIMBER, gable: level === 1 ? C.wood : WALL });
+  if (level >= 3) weathervane(parts, hw - 0.6, roof.ridgeY, cz, 0.9);
+  // cartons pliés et piles de cartons prêts à emporter, de chaque côté de l'allée
+  for (const [x, z, k] of [
+    [1.42, -0.32, 0],
+    [1.42, -0.32, 1],
+    [-1.42, -0.3, 0],
+  ] as const) {
+    parts.push(box(0.42, 0.26, 0.34, k ? 0xc9a26b : 0xbf9862, [x, 0.17 + k * 0.27, z], [0, k * 0.3, 0]));
+    parts.push(box(0.43, 0.012, 0.05, 0xe9dcb8, [x, 0.3 + k * 0.27, z], [0, k * 0.3, 0]));
+  }
+}
+
 // ============================================================== COMPOST ====
 /** Rayon de la butte de compost (mètres) ; sa hauteur vaut 1 avant mise à l'échelle par le rendu. */
 const HEAP_R = 0.74;

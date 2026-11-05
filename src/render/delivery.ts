@@ -7,10 +7,11 @@
 // (horaire dans sim/deliveries.ts). Puis le camion se réinsère dans le trafic et repart.
 import * as THREE from 'three';
 import { BREEDS } from '../config/breeds';
-import { alongPath, hopPath, hopTime, jumpAt, leaveAt, truckStopX, unloadEnd } from '../sim/deliveries';
+import { BIRD_ORDERS } from '../config/balance';
+import { alongPath, boardPath, boardTime, hopPath, hopTime, jumpAt, leaveAt, truckStopX, unloadEnd } from '../sim/deliveries';
 import type { Street } from './street';
 import type { BreedId, Delivery, GameState } from '../sim/types';
-import { C, box, cyl, merge, mesh, sph } from './geo';
+import { C, MAT, box, cyl, merge, mesh, sph } from './geo';
 import { ADULT_STAGE, HEN_MAT, HEN_PIVOT, henGeometry } from './models';
 
 function truckModel() {
@@ -64,6 +65,88 @@ function truckModel() {
     blink.add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.12), blinkMat).translateX(x).translateY(0.5).translateZ(z));
   g.add(blink);
   return { g, blink, gate };
+}
+
+/** Le grand camion des revendeurs : long plateau à ridelles, les cageots s'y empilent au chargement. */
+function bigTruckModel() {
+  const g = new THREE.Group();
+  const wheel = (x: number, z: number) => [cyl(0.25, 0.25, 0.16, 12, 0x2b2b31, [x, 0.25, z], [Math.PI / 2, 0, 0]), cyl(0.13, 0.13, 0.17, 8, 0xc9ccd1, [x, 0.25, z], [Math.PI / 2, 0, 0])];
+  const COL = 0x2f6f4e;
+  const parts = [
+    // cabine (avant vers +x)
+    box(1.05, 1.15, 1.2, COL, [2.0, 0.92, 0]),
+    box(1.07, 0.14, 1.22, 0xf3efe6, [2.0, 0.5, 0]),
+    box(0.05, 0.46, 1.04, 0x9fc4dc, [2.53, 1.14, 0]),
+    box(0.6, 0.38, 1.22, 0x9fc4dc, [2.1, 1.16, 0]),
+    box(0.08, 0.12, 1.2, 0x55585f, [2.54, 0.45, 0]),
+    box(0.9, 0.18, 1.1, 0xf3efe6, [1.9, 1.6, 0]),
+    // châssis et plateau
+    box(4.9, 0.16, 1.1, 0x55585f, [-0.1, 0.42, 0]),
+    box(4.0, 0.08, 1.24, C.woodDark, [-0.65, 0.54, 0]),
+    ...wheel(2.0, 0.56),
+    ...wheel(2.0, -0.56),
+    ...wheel(-1.5, 0.56),
+    ...wheel(-1.5, -0.56),
+    ...wheel(-2.1, 0.56),
+    ...wheel(-2.1, -0.56),
+  ];
+  // ridelles à claire-voie, poteaux, bandeau peint
+  for (const z of [-0.6, 0.6]) for (let y = 0.68; y < 1.6; y += 0.17) parts.push(box(4.0, 0.08, 0.04, C.wood, [-0.65, y, z]));
+  for (const x of [-2.62, -1.65, -0.65, 0.35, 1.34]) for (const z of [-0.6, 0.6]) parts.push(box(0.07, 1.14, 0.07, C.woodDark, [x, 1.1, z]));
+  parts.push(box(0.05, 1.1, 1.24, C.woodDark, [1.36, 1.08, 0]));
+  for (const z of [-0.625, 0.625]) parts.push(box(2.2, 0.2, 0.012, COL, [-0.65, 1.1, z]));
+  g.add(mesh(merge(parts)));
+  // les cageots, qui apparaissent à mesure du chargement
+  const crates: THREE.Object3D[] = [];
+  const crate = merge([box(0.62, 0.3, 1.0, 0xd9b77a, [0, 0, 0]), box(0.64, 0.03, 1.02, 0xb08a52, [0, 0.1, 0]), box(0.64, 0.03, 1.02, 0xb08a52, [0, -0.08, 0])]);
+  for (let row = 0; row < 3; row++)
+    for (let i = 0; i < 6; i++) {
+      const c = new THREE.Mesh(crate, MAT);
+      c.castShadow = true;
+      c.position.set(1.0 - i * 0.66, 0.74 + row * 0.32, 0);
+      c.visible = false;
+      g.add(c);
+      crates.push(c);
+    }
+  const gate = new THREE.Group();
+  gate.position.set(-2.66, 0.56, 0);
+  gate.add(mesh(merge([box(0.05, 0.78, 1.18, C.wood, [0, 0.39, 0]), box(0.06, 0.06, 1.2, C.woodDark, [0, 0.76, 0]), box(0.06, 0.06, 1.2, C.woodDark, [0, 0.05, 0])])));
+  g.add(gate);
+  const blinkMat = new THREE.MeshBasicMaterial({ color: 0xf0a33a });
+  const blink = new THREE.Group();
+  for (const [x, z] of [
+    [2.54, 0.5],
+    [2.54, -0.5],
+    [-2.66, 0.5],
+    [-2.66, -0.5],
+  ])
+    blink.add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.08, 0.12), blinkMat).translateX(x).translateY(0.56).translateZ(z));
+  g.add(blink);
+  return { g, blink, gate, crates };
+}
+
+/** Une poule ou une oie immobile, d'un seul tenant (celles de la vitrine de l'animalerie). */
+const puppetGeo = new Map<string, THREE.BufferGeometry>();
+export function henPuppet(breed: BreedId, skin = 0) {
+  const key = `${breed}:${skin}`;
+  let g = puppetGeo.get(key);
+  if (!g) {
+    const h = henGeometry(breed, 'hen', ADULT_STAGE, skin);
+    const at = (geo: THREE.BufferGeometry, x: number, y: number, z: number) => geo.clone().translate(x, y, z);
+    g = merge([
+      at(h.body, 0, HEN_PIVOT.body, 0),
+      at(h.head, HEN_PIVOT.neck[0], HEN_PIVOT.neck[1], HEN_PIVOT.neck[2]),
+      at(h.eyes, HEN_PIVOT.neck[0], HEN_PIVOT.neck[1], HEN_PIVOT.neck[2]),
+      at(h.wingL, HEN_PIVOT.wing[0], HEN_PIVOT.wing[1], HEN_PIVOT.wing[2]),
+      at(h.wingR, -HEN_PIVOT.wing[0], HEN_PIVOT.wing[1], HEN_PIVOT.wing[2]),
+      at(h.leg, HEN_PIVOT.hip[0], HEN_PIVOT.hip[1], HEN_PIVOT.hip[2]),
+      at(h.leg, -HEN_PIVOT.hip[0], HEN_PIVOT.hip[1], HEN_PIVOT.hip[2]),
+    ]);
+    puppetGeo.set(key, g);
+  }
+  const m = new THREE.Mesh(g, HEN_MAT);
+  m.castShadow = true;
+  return m;
 }
 
 /** Poule qui trottine du camion au portail (rendu seul ; la simulation la crée au portail). */
@@ -122,6 +205,8 @@ export function buildDeliveryTruck(street: Street): DeliveryTruck {
   }
   const tracks = new Map<number, Track>();
   const walkers = new Map<BreedId, Walker[]>();
+  /** Le grand camion du revendeur en cours (un seul à la fois). */
+  let pickup: { id: number; truck?: ReturnType<typeof bigTruckModel>; called: boolean; released: boolean; open: number; loaded: number; count: number } | null = null;
   let scene: THREE.Object3D | null = null;
   let last = performance.now();
 
@@ -209,6 +294,67 @@ export function buildDeliveryTruck(street: Street): DeliveryTruck {
           const step = (t - j) * 13 + i;
           w.root.visible = true;
           w.root.position.set(p.x, 0.07 + jump + Math.abs(Math.sin(step)) * 0.035, p.z);
+          w.root.rotation.y = Math.atan2(p.dx, p.dz);
+          w.legL.rotation.x = Math.sin(step) * 0.7;
+          w.legR.rotation.x = -Math.sin(step) * 0.7;
+        }
+      }
+      // ---- le grand camion : il vient se garer devant l'animalerie, charge, et repart
+      const L = s.birdLoad;
+      if (L && (!pickup || pickup.id !== L.id)) pickup = { id: L.id, called: false, released: false, open: 0, loaded: 0, count: 1 };
+      if (pickup) {
+        const P = pickup;
+        const o = L ? s.birdOrders.find((x) => x.id === L.orderId) : undefined;
+        if (L && L.id === P.id) {
+          P.loaded = L.loaded;
+          P.count = Math.max(1, o?.count ?? 1);
+        }
+        const still = !!L && L.id === P.id;
+        if (still && !P.called && spd > 0) {
+          const remain = ((L!.eta - t) * Math.min(2, spd)) / spd;
+          if ((remain - 1) * 4.6 <= 75) {
+            const truck = bigTruckModel();
+            const ahead = Math.max(14, Math.min(75, (remain - 1) * 4.6));
+            if (street.callDelivery(P.id, truck.g, 5.4, BIRD_ORDERS.stopX, ahead)) {
+              P.truck = truck;
+              P.called = true;
+            }
+          }
+        }
+        const st = P.called ? street.delivery(P.id) : null;
+        if (P.called && !st && (P.released || !still)) pickup = null;
+        else if (!P.called && !still) pickup = null;
+        else if (P.called && !P.released && (!still || L!.leave !== undefined)) {
+          street.releaseDelivery(P.id);
+          P.released = true;
+        }
+        // la circulation décide de son heure d'arrivée : on le dit à la simulation, qui l'attend
+        if (still) L!.late = !st?.parked;
+        if (P.truck && st) {
+          P.truck.blink.visible = st.parked && Math.floor(now / 420) % 2 === 0;
+          const want = st.parked && !P.released ? 1 : 0;
+          P.open += (want - P.open) * Math.min(1, rdt * 3.5);
+          P.truck.gate.rotation.z = P.open * 1.95;
+          if (!scene) scene = P.truck.g.parent;
+          const fill = Math.ceil((Math.min(1, P.loaded / P.count) * P.truck.crates.length));
+          P.truck.crates.forEach((c, i) => (c.visible = i < fill));
+        }
+      }
+      if (L && scene) {
+        // volailles en route vers le camion : du portail au trottoir, puis la rampe du hayon
+        for (let i = 0; i < L.gone.length; i++) {
+          const q = L.gone[i];
+          const dur = boardTime(q.x, q.z);
+          if (t < q.t || t > q.t + dur) continue;
+          const n = used.get(q.breed) ?? 0;
+          used.set(q.breed, n + 1);
+          const w = walkerAt(q.breed, n);
+          const k = (t - q.t) / dur;
+          const p = alongPath(boardPath(q.x, q.z), k);
+          const hop = k > 0.9 ? ((k - 0.9) / 0.1) * 0.5 : 0;
+          const step = (t - q.t) * 13 + i;
+          w.root.visible = true;
+          w.root.position.set(p.x, 0.07 + hop + Math.abs(Math.sin(step)) * 0.035, p.z);
           w.root.rotation.y = Math.atan2(p.dx, p.dz);
           w.legL.rotation.x = Math.sin(step) * 0.7;
           w.legR.rotation.x = -Math.sin(step) * 0.7;

@@ -1674,10 +1674,39 @@ function startFlee(s: GameState, h: Hen, px: number, pz: number, hawk = false) {
   setAct(h, 'flap', 0.6);
 }
 
+/** En route vers le portail, sans s'arrêter en chemin ; bloquée trop longtemps, elle se faufile. */
+function shipTick(s: GameState, h: Hen, r: HenRt, dt: number) {
+  if (h.act === 'sleep') {
+    const coop = getBuilding(s, h.coopId);
+    if (coop) {
+      const d = coopDoor(coop);
+      h.x = d.x;
+      h.z = d.z;
+    }
+  }
+  const tx = GATE.x + 0.5 + h.ox * 0.7;
+  const tz = GATE.z + 0.2 - Math.abs(h.oz) * 0.9;
+  h.targetId = -1;
+  h.actT = 5;
+  if (Math.hypot(tx - h.x, tz - h.z) < 0.25) {
+    h.act = 'idle';
+    r.spd = 0;
+    nudge(s, h, r, dt);
+    return;
+  }
+  h.act = 'walk';
+  steer(s, h, r, tx, tz, speedOf(h, 'go') * 1.2, dt, r.stuckT > 1.2);
+  // (une fois sortie de l'impasse, elle reprend le chemin normal)
+  if (r.stuckT > 3) r.stuckT = 0;
+}
+
 function behave(s: GameState, h: Hen, dt: number, night: boolean, hour: number) {
   const r = rtHen(h);
   h.actT -= dt;
   h.thinkT -= dt;
+
+  // vendue à un revendeur : elle file vers le portail, où un commis la fera monter dans le camion
+  if (h.ship && h.act !== 'caught') return shipTick(s, h, r, dt);
 
   // à la poussinière, la vie se passe dans le parc (voir plus bas)
   if (h.nursery) {

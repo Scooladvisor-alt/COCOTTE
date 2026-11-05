@@ -34,7 +34,7 @@ function store(): Storage | null {
 export function serialize(s: GameState): string {
   s.savedAt = Date.now();
   // l'herbe n'a pas besoin de plus de 3 décimales : sauvegarde 3× plus légère
-  return JSON.stringify({ ...s, customers: [], predators: [], grass: s.grass.map((g) => Math.round(g * 1000) / 1000) });
+  return JSON.stringify({ ...s, customers: [], petCustomers: [], predators: [], grass: s.grass.map((g) => Math.round(g * 1000) / 1000) });
 }
 
 export function saveGame(s: GameState, st: Storage | null = store()): boolean {
@@ -270,12 +270,12 @@ export function sanitize(input: unknown): GameState | null {
   // chacun garde son logis : poulailler, abri à oies ou, pour un jeune, poussinière
   const homes = s.buildings.filter((b) => b.type === 'coop' || b.type === 'goosehouse');
   const nurseries = s.buildings.filter((b) => b.type === 'nursery');
-  for (const rh of arr(raw.hens)) {
+  const readHen = (rh: unknown): Hen | null => {
     const h = obj(rh);
     // l'Isa Brown, d'abord race à part, est devenue un plumage de la Rousse des prés
     const wasIsa = h.breed === 'isa';
     const breed = (wasIsa ? 'rousse' : h.breed) as Hen['breed'];
-    if (!BREEDS[breed]) continue;
+    if (!BREEDS[breed]) return null;
     const raising = !isGoose(breed) && bool(h.nursery, false) && num(h.young, 0) > 0 && nurseries.some((c) => c.id === h.coopId);
     // anciennes parties : un oison resté à la poussinière rejoint les oies, à la porte de leur abri
     const flockHouse = isGoose(breed) ? homes.find((c) => c.type === 'goosehouse') : undefined;
@@ -327,8 +327,58 @@ export function sanitize(input: unknown): GameState | null {
     const young = num(h.young, 0, 0, 365);
     if (young > 0) hen.young = young;
     if (raising) hen.nursery = true;
-    s.hens.push(hen);
+    return hen;
+  };
+  for (const rh of arr(raw.hens)) {
+    const hen = readHen(rh);
+    if (hen) s.hens.push(hen);
   }
+
+  // L'animalerie : volailles en vitrine, prix fixés par le joueur
+  const pet = obj(raw.petShop);
+  for (const rh of arr(pet.birds)) {
+    const hen = readHen(rh);
+    if (hen) {
+      hen.act = 'idle';
+      s.petShop.birds.push(hen);
+    }
+  }
+  const petPrices = obj(pet.prices);
+  for (const b of Object.keys(BREEDS) as BreedId[]) if (typeof petPrices[b] === 'number') s.petShop.prices[b] = int(petPrices[b], BREEDS[b].price, 10, BREEDS[b].price * 4);
+  if (bool(pet.auto, false)) s.petShop.auto = true;
+  if (typeof pet.soldDay === 'number') {
+    s.petShop.soldDay = int(pet.soldDay, 0, 0);
+    s.petShop.soldToday = int(pet.soldToday, 0, 0);
+  }
+
+  // Commandes de volailles, et le camion qui en charge une
+  for (const ro of arr(raw.birdOrders).slice(0, 20)) {
+    const o = obj(ro);
+    const breed = o.breed as BreedId;
+    const status = o.status === 'active' || o.status === 'loading' ? o.status : 'offer';
+    s.birdOrders.push({
+      id: int(o.id, s.nextId++),
+      client: str(o.client, 'Revendeur', 40),
+      goose: bool(o.goose, false),
+      ...(BREEDS[breed] ? { breed } : {}),
+      count: int(o.count, 1, 1, 1000),
+      unitPrice: int(o.unitPrice, 100, 1, 1e7),
+      deadlineDay: int(o.deadlineDay, 1, 0),
+      offerUntilDay: int(o.offerUntilDay, 1, 0),
+      status,
+    });
+  }
+  const rawLoad = obj(raw.birdLoad);
+  const loading = s.birdOrders.find((o) => o.id === rawLoad.orderId && o.status === 'loading');
+  if (loading) {
+    const eta = num(rawLoad.eta, s.clock.t, 0);
+    const ids = arr(rawLoad.henIds).filter((id): id is number => typeof id === 'number' && s.hens.some((h) => h.id === id));
+    s.birdLoad = { id: int(rawLoad.id, s.nextId++), orderId: loading.id, eta, called: bool(rawLoad.called, false), henIds: ids, loaded: int(rawLoad.loaded, 0, 0, loading.count), gone: [], nextT: num(rawLoad.nextT, eta, 0) };
+    if (rawLoad.leave !== undefined) s.birdLoad.leave = num(rawLoad.leave, eta, 0);
+    for (const h of s.hens) if (ids.includes(h.id)) h.ship = true;
+  }
+  // (une commande en cours de chargement sans son camion repart à zéro)
+  for (const o of s.birdOrders) if (o.status === 'loading' && !s.birdLoad) o.status = 'active';
 
   // Œufs dans le monde (et cohérence avec les pondoirs)
   const seen = new Set<number>();
@@ -604,7 +654,7 @@ export function sanitize(input: unknown): GameState | null {
 
   // Identifiants : le prochain doit dépasser tous ceux existants
   let maxId = int(raw.nextId, 1, 1);
-  for (const x of [...s.hens, ...s.buildings, ...s.worldEggs, ...s.lots, ...s.orders, ...s.contracts, ...s.workers, ...s.robots, ...s.loans]) maxId = Math.max(maxId, x.id + 1);
+  for (const x of [...s.hens, ...s.petShop.birds, ...s.birdOrders, ...s.buildings, ...s.worldEggs, ...s.lots, ...s.orders, ...s.contracts, ...s.workers, ...s.robots, ...s.loans]) maxId = Math.max(maxId, x.id + 1);
   s.nextId = maxId;
   // v7 -> v8 : poulaillers deux fois plus grands, reposés là où ils tiennent
   if (fromVersion < 8) refitCoops(s);

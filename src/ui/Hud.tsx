@@ -11,7 +11,7 @@ import { canSkipNight } from '../sim/simulation';
 import { dailyDue, totalDebt } from '../sim/bank';
 import { season, seasonDay } from '../sim/seasons';
 import { ShowLine } from './Show';
-import { fertileStock, fertility, incubatingCount, roosterCount, youngCount } from '../sim/breeding';
+import { dadCount, fertileStock, fertility, incubatingCount, roosterCount, youngCount } from '../sim/breeding';
 import { currentDay, currentHour, fmtClock, isNightHour } from '../sim/core';
 import { farmLevel, fmtMoney, fmtSigned, levelDef, levelReached, nextLevelDef, sumExpense, sumIncome, today } from '../sim/economy';
 import { farmGrass } from '../sim/grass';
@@ -404,7 +404,7 @@ export function Dock() {
   const game = useGame();
   const s = game.state;
   const lvlN = farmLevel(s);
-  const orders = s.orders.filter((o) => o.status === 'offer').length + s.contracts.filter((c) => c.status === 'offer').length;
+  const orders = s.orders.filter((o) => o.status === 'offer').length + s.contracts.filter((c) => c.status === 'offer').length + s.birdOrders.filter((o) => o.status === 'offer').length;
   const watch = s.hens.filter((h) => h.sick || h.health < 40 || h.satiety < 30 || h.hydration < 30).length;
   const items: Array<{ id: 'shop' | 'market' | 'finance' | 'missions' | 'hens' | 'team' | 'ranking'; icon: string; label: string; badge?: number; tut?: string }> = [
     { id: 'shop', icon: 'shop', label: 'Boutique', tut: 'shop' },
@@ -456,7 +456,11 @@ function BreedingLine() {
   const fertile = fertileStock(s);
   if (!roosters && !young && !hatching && !fertile) return null;
   const parts: string[] = [];
-  if (roosters) parts.push(`${roosters} coq${roosters > 1 ? 's' : ''}`);
+  // un jars n'est pas un coq : chacun son compte
+  const jars = dadCount(s, true);
+  const coqs = dadCount(s, false);
+  if (coqs) parts.push(`${coqs} coq${coqs > 1 ? 's' : ''}`);
+  if (jars) parts.push(`${jars} jars`);
   if (young) parts.push(`${young} jeune${young > 1 ? 's' : ''}`);
   if (fertile) parts.push(`${fertile} œuf${fertile > 1 ? 's' : ''} fécondé${fertile > 1 ? 's' : ''} au stockage`);
   if (hatching) parts.push(`${hatching} en couveuse`);

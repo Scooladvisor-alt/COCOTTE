@@ -511,7 +511,7 @@ export class Game {
         sound.play('pop');
         break;
       case 'sale': {
-        const lbl = e.channel === 'etal' ? '' : e.channel === 'cooperative' ? ' coop.' : e.channel === 'commandes' ? ' commande' : ' contrat';
+        const lbl = e.channel === 'etal' || e.channel === 'animalerie' ? '' : e.channel === 'cooperative' ? ' coop.' : e.channel === 'commandes' ? ' commande' : ' contrat';
         R.labels.float(e.x, 1.7, e.z, `+${fmtMoney(e.amount)}${lbl}`, 'money');
         R.particles.burst(e.x, 1.2, e.z, 0xf5c542, 6, { speed: 0.6, up: 1.8, size: 0.8 });
         sound.play('coin');
@@ -692,7 +692,7 @@ export class Game {
       const L1 = lvl(b);
       let info = '';
       let cls = '';
-      const height = b.type === 'goosehouse' ? 2.2 + b.level * 0.25 : b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 * STORAGE_SCALE : b.type === 'stand' ? (b.level >= 4 ? 3.6 : 1.9) : b.type === 'nursery' ? 2.4 : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.1;
+      const height = b.type === 'goosehouse' ? 2.2 + b.level * 0.25 : b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 * STORAGE_SCALE : b.type === 'stand' ? (b.level >= 4 ? 3.6 : 1.9) : b.type === 'nursery' ? 2.4 : b.type === 'petshop' ? 3.2 : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.1;
       if (b.type === 'nest') {
         if (b.eggIds.length > 0) {
           info = `<em>${b.eggIds.length} œuf${b.eggIds.length > 1 ? 's' : ''}</em>`;

@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { BREEDING, COSTS, DELIVERY, HEN_PACKS, DOG, EGG_TYPES, GRAIN_BINS, GRAIN_SACKS, PARCELS, ROBOT, UNLOCKS, WATER, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice, type StoreLevel, COMPOST, NATURE } from '../config/balance';
 import { grainBinDef, grainPerDay, waterPerDay, waterTankDef } from '../sim/stocks';
 import { BREEDS, BREED_ORDER, ROOSTER_TITLES, isGoose } from '../config/breeds';
-import { BUILDINGS, BUILD_ORDER } from '../config/buildings';
+import { BUILDINGS, BUILD_ORDER, PET_POS } from '../config/buildings';
 import * as A from '../sim/actions';
 import { parcelCenter } from '../sim/core';
 import { countOfType } from '../sim/buildings';
@@ -456,6 +456,12 @@ function keyStat(type: BuildingType): Array<[string, ComponentChildren]> {
         ['Ponte', `jusqu’à +${Math.round(COMPOST.laying * 100)} %`],
         ['Grain', `jusqu’à −${Math.round(COMPOST.grainSaving * 100)} %`],
       ];
+    case 'petshop':
+      return [
+        ['Vitrine', `${L.capacity} volailles`],
+        ['Se pose', 'à côté de l’étal'],
+        ['Clients', 'avec leur carton'],
+      ];
     case 'gooseincubator':
       return [
         ['Capacité', `${L.capacity} œufs d’oie`],
@@ -500,11 +506,18 @@ function BuildTab() {
               stats={[...keyStat(type), ...(def.w ? ([['Emprise', `${def.w} × ${def.d} cases`]] as Array<[string, string]>) : []), ['Entretien', `${fmtMoney(L.upkeep)} / jour`]]}
               price={L.cost}
               count={Number.isFinite(A.maxCount(s, type)) ? `${countOfType(s, type)} / ${A.maxCount(s, type)}` : countOfType(s, type) ? `${countOfType(s, type)} construit${countOfType(s, type) > 1 ? 's' : ''}` : undefined}
-              cta={type === 'incubator' ? 'Installer' : 'Construire'}
+              cta={type === 'incubator' ? 'Installer' : type === 'petshop' ? 'Ouvrir' : 'Construire'}
               ok={chk.ok}
               why={chk.ok ? undefined : chk.reason}
               locked={locked}
               onBuy={() => {
+                if (type === 'petshop') {
+                  if (game.act(() => A.openPetShop(s), 'build')) {
+                    game.openPanel('market', 'pets');
+                    game.renderer.focusOn(PET_POS.x, PET_POS.z);
+                  }
+                  return;
+                }
                 if (type !== 'incubator') return game.startPlacing(type);
                 if (game.act(() => A.installIncubator(s), 'build')) game.toast('Couveuse installée dans la poussinière : les poussins y naîtront directement.', 'good', '🐣');
               }}

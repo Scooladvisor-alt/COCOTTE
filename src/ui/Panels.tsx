@@ -22,7 +22,7 @@ export function PanelHost() {
   if (!p) return null;
   const titles: Record<string, string> = {
     shop: 'Boutique',
-    market: 'Vente des œufs',
+    market: 'Ventes',
     finance: 'Banque',
     missions: 'Missions & progression',
     settings: 'Réglages',

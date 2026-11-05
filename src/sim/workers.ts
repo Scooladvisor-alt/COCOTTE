@@ -1,10 +1,11 @@
 // Le personnel : des salariés visibles qui se déplacent dans la ferme et font réellement
 // le travail (ramassage, remplissage, nettoyage, soins, arrosage, vente au comptoir).
-import { FRESHNESS, TIME, GRAIN_SACKS, GRID_H, GRID_W, PREDATORS, WORLD, clamp, gradeOf, sackPrice } from '../config/balance';
+import { BIRD_ORDERS, FRESHNESS, TIME, GRAIN_SACKS, GRID_H, GRID_W, PREDATORS, WORLD, clamp, gradeOf, sackPrice } from '../config/balance';
 import { BUILDINGS, STAND_POS, sizeOf, standLayout, HALL_DOOR } from '../config/buildings';
 import { ROLES, STAFF, WORKER_NAMES } from '../config/staff';
 import { buildingCenter, canStand, cellIndex, coopDoor, cellX, cellZ, crossesFence, currentDay, facadeHeading, frontOf, toWorld, currentHour, emit, inGrid, isWalkable, nearestWalkable, newId, notify, pick, planPath, rand, randRange, rt, isShelter } from './core';
 import { PREDATOR_INFO, damagePredator, distanceToFarm, predatorAimY } from './predators';
+import { LOADER_SPOTS, TRUCK_LANE, pickupTailX } from './deliveries';
 import { henMovable } from './hens';
 import { addXp, buyLevel, fmtMoney, spend } from './economy';
 import { addToStorage, removeWorldEgg } from './eggs';
@@ -118,6 +119,8 @@ export const JOB_LABELS: Record<WorkerJobKind, string> = {
   closeCoop: 'Ferme la trappe du poulailler',
   openCoop: 'Ouvre la trappe du poulailler',
   hunt: 'Traque le prédateur, fusil en main',
+  loadTruck: 'Charge le camion du revendeur',
+  loadBack: 'Rentre du camion',
 };
 
 /** Le commis et le jardinier sont armés ; le vendeur et le soigneur restent à leur poste. */
@@ -471,7 +474,29 @@ function pickupOnTheWay(s: GameState, w: Worker) {
   }
 }
 
+/** Va prêter main-forte au camion du revendeur, par le portail. */
+function goLoadTruck(s: GameState, w: Worker) {
+  const L = s.birdLoad;
+  if (!L || L.leave !== undefined || s.clock.t < L.eta - BIRD_ORDERS.prep) return false;
+  const others = s.workers.filter((o) => o.job?.kind === 'loadTruck');
+  if (others.length >= BIRD_ORDERS.helpers) return false;
+  const used = new Set(others.map((o) => o.job!.tx));
+  const spot = LOADER_SPOTS.find(([x]) => !used.has(x)) ?? LOADER_SPOTS[0];
+  const inside = humanPath(s, w.x, w.z, 14.5, 29.5) ?? [14.5, 29.5];
+  w.path = [...inside, 14.5, 30.4, 14.5, WORLD.WALK_Z - 0.6, spot[0], WORLD.WALK_Z - 0.6, spot[0], spot[1]];
+  w.job = { kind: 'loadTruck', targetId: L.id, tx: spot[0], tz: spot[1], phase: 'walk', t: 1e9 };
+  return true;
+}
+
+/** Le chargement est fini (ou la journée) : il rentre par le portail, sans enjamber le grillage. */
+function backFromTruck(w: Worker) {
+  w.path = [w.x, WORLD.WALK_Z - 0.6, 14.5, WORLD.WALK_Z - 0.6, 14.5, 30.4, 14.5, 29.5];
+  w.job = { kind: 'loadBack', targetId: -1, tx: 14.5, tz: 29.5, phase: 'walk', t: 0 };
+}
+
 function chooseFarmhandJob(s: GameState, w: Worker) {
+  // un camion à charger passe avant tout le reste
+  if (goLoadTruck(s, w)) return;
   const taken = reservedBy(s, w);
   const carried = basketCount(w);
   const st = storage(s);
@@ -782,6 +807,8 @@ function complete(s: GameState, w: Worker, j: WorkerJob) {
     case 'wander':
     case 'waitCoop':
     case 'hunt':
+    case 'loadTruck':
+    case 'loadBack':
       return;
   }
 }
@@ -957,6 +984,23 @@ export function updateWorkers(s: GameState, dt: number) {
         w.path = [];
       }
     }
+    // au camion : il va à sa place, charge tant qu'il y a de quoi, puis rentre par le portail
+    if (w.job?.kind === 'loadBack') {
+      if (follow(s, w, dt)) w.job = null;
+      continue;
+    }
+    if (w.job?.kind === 'loadTruck') {
+      const L = s.birdLoad;
+      if (!L || L.id !== w.job.targetId || L.leave !== undefined || !working) {
+        backFromTruck(w);
+        continue;
+      }
+      if (w.job.phase === 'walk' && follow(s, w, dt)) {
+        w.job.phase = 'work';
+        face(w, pickupTailX, TRUCK_LANE);
+      }
+      continue;
+    }
     // le commis ne rentre jamais avant d'avoir enfermé les poules : il part en dernier
     const evening = w.role === 'farmhand' && !working && hour >= STAFF.farmhandEnd - 0.01;
     const lateNight = hour >= STAFF.closeDeadline || hour < STAFF.farmhandStart;
@@ -990,6 +1034,8 @@ export function updateWorkers(s: GameState, dt: number) {
       }
       w.job = { kind: 'commuteOut', targetId: -1, tx: HOUSE[0], tz: HOUSE[1], phase: 'walk', t: 0 };
     }
+    // une ronde ou des œufs au sol peuvent attendre : le camion, non
+    if (w.role === 'farmhand' && working && (w.job?.kind === 'wander' || w.job?.kind === 'collectGround') && goLoadTruck(s, w)) continue;
     if (!w.job) {
       if (w.role === 'farmhand') chooseFarmhandJob(s, w);
       else if (w.role === 'caretaker') chooseCaretakerJob(s, w);

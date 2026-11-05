@@ -29,6 +29,7 @@ import { sellerAtStand } from './workers';
 import { STAFF } from '../config/staff';
 import type { Contract, Customer, EggType, GameState, Grade, Order } from './types';
 import { seasonalPrice } from './seasons';
+import { birdOrdersNewDay } from './petshop';
 
 
 /** Note le cours du jour (une entrée par jour, 60 jours gardés) : sert à tracer la courbe du marché. */
@@ -679,6 +680,7 @@ export function marketNewDay(s: GameState) {
   s.contracts = s.contracts.filter((c) => (c.status === 'offer' && c.offerUntilDay >= day) || c.status === 'active');
   generateOrders(s);
   generateContracts(s);
+  birdOrdersNewDay(s);
   if (s.reputation < REPUTATION.floor) rep(s, REPUTATION.floorRecoveryPerDay);
   // les poules soie font parler de la ferme
   const soies = s.hens.filter((h) => h.breed === 'soie').length;

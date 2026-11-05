@@ -3,7 +3,7 @@
 import { AUTO_DOOR, BREEDING, COSTS, DELIVERY, GRAIN_BINS, GRID_W, GRID_Z0, GRID_Z1, HEN_PACKS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
 import { grainCapacity, takeGrain, takeWater, waterCapacity } from './stocks';
 import { BREEDS, ROOSTER_TITLES, isGoose } from '../config/breeds';
-import { BUILDINGS, sizeOf } from '../config/buildings';
+import { BUILDINGS, PET_POS, sizeOf } from '../config/buildings';
 import { buildingCenter, emit, invalidateLayout, isShelter, isWalkable, nearestWalkable, newId, notify, parcelCoords, pick, rand } from './core';
 import { GATE_IN, arriveAt, scheduleTruck, syncWaveLeave } from './deliveries';
 import { addXp, breedUnlocked, earn, farmLevel, fmtMoney, levelReached, maxParcelsOf, spend } from './economy';
@@ -16,7 +16,7 @@ import { freeSeats, hostedIncubators, nurseryPlan, nurseryWithSeat, seatIncubato
 import { autoEnclose } from './fences';
 import { adultCount, buildingsOf, coopFor, coopOccupancy, getBuilding, getHen, landCapacity, lvl, shelterType, storageFree } from './queries';
 import { makeBuilding } from './state';
-import type { ActionResult, BreedId, Building, BuildingType, GameState } from './types';
+import type { ActionResult, BreedId, Building, BuildingType, GameState, Hen } from './types';
 
 const fail = (reason: string): ActionResult => ({ ok: false, reason });
 const OK: ActionResult = { ok: true };
@@ -185,6 +185,13 @@ export function sellHen(s: GameState, henId: number): ActionResult {
   return OK;
 }
 
+/** « 2 coqs et 1 jars » : un jars n'est pas un coq. */
+export function maleWords(list: Hen[]) {
+  const jars = list.filter((h) => isGoose(h.breed)).length;
+  const coqs = list.length - jars;
+  return [coqs ? `${coqs} coq${coqs > 1 ? 's' : ''}` : '', jars ? `${jars} jars` : ''].filter(Boolean).join(' et ');
+}
+
 /**
  * Coqs en trop : on garde le meilleur reproducteur (le plus beau, le plus pondeur, le plus robuste
  * et en bonne santé) — un coq pour les poules et un jars pour les oies — et on vend les autres.
@@ -208,13 +215,13 @@ export function extraRoosters(s: GameState) {
 
 export function sellExtraRoosters(s: GameState): ActionResult {
   const extra = extraRoosters(s);
-  if (!extra.length) return fail('Un seul coq : rien à vendre');
+  if (!extra.length) return fail('Pas de coq ni de jars en trop : rien à vendre');
   let total = 0;
   for (const h of extra) {
     total += henValue(h);
     sellHen(s, h.id);
   }
-  notify(s, `${extra.length} coq${extra.length > 1 ? 's' : ''} vendu${extra.length > 1 ? 's' : ''} pour ${fmtMoney(total)} : vous gardez votre meilleur reproducteur.`, 'good', '🐓');
+  notify(s, `${maleWords(extra)} vendu${extra.length > 1 ? 's' : ''} pour ${fmtMoney(total)} : vous gardez votre meilleur reproducteur.`, 'good', '🐓');
   return OK;
 }
 
@@ -523,9 +530,24 @@ export function offerNursery(s: GameState, spots: Array<[number, number]> = [], 
   return b;
 }
 
+/** Ouvre l'animalerie : elle a sa place à elle, le long du trottoir, à côté de l'étal. */
+export function openPetShop(s: GameState): ActionResult {
+  const chk = checkBuild(s, 'petshop');
+  if (!chk.ok) return chk;
+  const L = BUILDINGS.petshop.levels[0];
+  if (!spend(s, L.cost, 'constructions', `Construction : ${L.name}`)) return fail('Fonds insuffisants');
+  const b = makeBuilding(newId(s), 'petshop', PET_POS.x, PET_POS.z, s.clock.t);
+  b.invested = L.cost;
+  s.buildings.push(b);
+  emit(s, { kind: 'build', buildingId: b.id });
+  addXp(s, 5);
+  return OK;
+}
+
 export function build(s: GameState, type: BuildingType, x: number, z: number, rot = 0): ActionResult {
   // (la couveuse n'a pas de place au sol : elle va dans la poussinière)
   if (type === 'incubator') return installIncubator(s);
+  if (type === 'petshop') return openPetShop(s);
   const chk = checkBuild(s, type);
   if (!chk.ok) return chk;
   const place = canPlace(s, type, x, z, -1, 1, rot);
@@ -676,6 +698,7 @@ export function demolishRefund(s: GameState, id: number) {
 export function checkDemolish(s: GameState, id: number): ActionResult {
   const b = getBuilding(s, id);
   if (!b) return fail('Bâtiment introuvable');
+  if (b.type === 'petshop') return s.petShop.birds.length ? fail('Reprenez ou vendez d’abord ses volailles') : OK;
   if (BUILDINGS[b.type].unique) return fail('Installation indispensable');
   if (isShelter(b)) {
     const hens = s.hens.filter((h) => h.coopId === b.id);

@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { EGG_TYPES } from '../config/balance';
 import { BREEDS } from '../config/breeds';
-import { COOP_SCALE, STORAGE_SCALE, sizeOf } from '../config/buildings';
+import { COOP_SCALE, STORAGE_SCALE, petLayout, sizeOf } from '../config/buildings';
 import { HEN_MAT, HEN_PIVOT, type HenGeo } from './henModel';
 import type { BreedId, BuildingType, EggType } from '../sim/types';
 import { C, CREATURE_MAT, MAT, box, cone, cyl, finalizeExport, ico, merge, mesh, prism, sph } from './geo';
@@ -23,6 +23,7 @@ import {
   coopAviary,
   coopNormand,
   dustbathBasin,
+  petShopHouse,
   dustbathShelter,
   dustbathSleepers,
   eggCrate,
@@ -1284,8 +1285,116 @@ function shadeTreeModel(): BuildingView {
   return { group: groupOf(parts), eggSlots: [], eggMeshes: [], key: 'tree1' };
 }
 
+/** Petit panneau écrit à la main : les enseignes de l'animalerie. */
+function textPanel(text: string, w: number, h: number, bg: number, fg: string) {
+  const c = document.createElement('canvas');
+  const px = 220;
+  c.width = Math.round(w * px);
+  c.height = Math.round(h * px);
+  const g = c.getContext('2d')!;
+  g.fillStyle = `#${bg.toString(16).padStart(6, '0')}`;
+  g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = fg;
+  g.globalAlpha = 0.55;
+  g.lineWidth = Math.max(3, c.height * 0.05);
+  g.strokeRect(g.lineWidth, g.lineWidth, c.width - 2 * g.lineWidth, c.height - 2 * g.lineWidth);
+  g.globalAlpha = 1;
+  g.fillStyle = fg;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.font = `800 ${Math.round(c.height * 0.56)}px 'Nunito', system-ui, sans-serif`;
+  g.fillText(text, c.width / 2, c.height * 0.54, c.width * 0.88);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: t }));
+}
+
+/**
+ * L'animalerie : une allée centrale jusqu'au comptoir et, de part et d'autre, un parc grillagé pour
+ * les poules et un pour les oies, chacun avec son écriteau : on ne les confond pas.
+ */
+function petShopModel(level: number): BuildingView {
+  const { hens, geese } = petLayout(level);
+  // dallage assorti à la place de l'étal, jusqu'au trottoir et jusqu'à la place
+  const x0 = -4.85;
+  const x1 = 5.3;
+  const z0 = -2.2;
+  const z1 = 2.9;
+  const parts: THREE.BufferGeometry[] = [box(x1 - x0, 0.06, z1 - z0, 0xeadfc6, [(x0 + x1) / 2, 0.03, (z0 + z1) / 2])];
+  for (let x = x0 + 0.8; x < x1 - 0.2; x += 0.8) parts.push(box(0.03, 0.006, z1 - z0 - 0.1, 0xdacdb2, [x, 0.063, (z0 + z1) / 2]));
+  for (let z = z0 + 0.8; z < z1 - 0.2; z += 0.8) parts.push(box(x1 - x0 - 0.1, 0.006, 0.03, 0xdacdb2, [(x0 + x1) / 2, 0.063, z]));
+  const windows: THREE.Mesh[] = [];
+  petShopHouse(parts, windows, level);
+  const wire: Array<[number, number, number, number]> = [];
+  const pen = (a: { x0: number; x1: number; z0: number; z1: number }, floor: number) => {
+    const w = a.x1 - a.x0;
+    const d = a.z1 - a.z0;
+    const cx = (a.x0 + a.x1) / 2;
+    const cz = (a.z0 + a.z1) / 2;
+    parts.push(box(w, 0.05, d, floor, [cx, 0.08, cz]));
+    // poteaux, lisse du haut, muret du bas
+    const stepsX = Math.max(2, Math.round(w / 0.9));
+    const stepsZ = Math.max(2, Math.round(d / 0.9));
+    for (let k = 0; k <= stepsX; k++) for (const z of [a.z0, a.z1]) parts.push(box(0.06, 0.72, 0.06, C.woodDark, [a.x0 + (k * w) / stepsX, 0.36, z]));
+    for (let k = 1; k < stepsZ; k++) for (const x of [a.x0, a.x1]) parts.push(box(0.06, 0.72, 0.06, C.woodDark, [x, 0.36, a.z0 + (k * d) / stepsZ]));
+    for (const z of [a.z0, a.z1]) {
+      parts.push(box(w + 0.06, 0.04, 0.05, C.wood, [cx, 0.72, z]));
+      parts.push(box(w + 0.06, 0.1, 0.05, C.wood, [cx, 0.11, z]));
+    }
+    for (const x of [a.x0, a.x1]) {
+      parts.push(box(0.05, 0.04, d + 0.06, C.wood, [x, 0.72, cz]));
+      parts.push(box(0.05, 0.1, d + 0.06, C.wood, [x, 0.11, cz]));
+    }
+    wire.push([a.x0, a.z0, a.x0, a.z1], [a.x0, a.z1, a.x1, a.z1], [a.x1, a.z1, a.x1, a.z0], [a.x1, a.z0, a.x0, a.z0]);
+  };
+  pen(hens, 0xd9c27f);
+  pen(geese, 0xa9c07a);
+  // côté poules : abri à poules, perchoir, mangeoire et abreuvoir, botte de paille
+  const hx = hens.x0 + 0.42;
+  const hz = hens.z0 + 0.42;
+  parts.push(box(0.56, 0.42, 0.5, C.plank, [hx, 0.3, hz]), prism(0.66, 0.2, 0.6, C.roof, [hx, 0.51, hz], Math.PI / 2), box(0.2, 0.22, 0.02, 0x3b312a, [hx, 0.22, hz + 0.26]));
+  parts.push(box(0.62, 0.05, 0.14, 0x8e939b, [hens.x1 - 0.5, 0.14, hens.z0 + 0.25]), box(0.54, 0.02, 0.08, C.grain, [hens.x1 - 0.5, 0.17, hens.z0 + 0.25]));
+  parts.push(cyl(0.12, 0.14, 0.14, 10, 0xc9ccd1, [hens.x0 + 0.26, 0.17, hens.z1 - 0.28]), cyl(0.1, 0.1, 0.01, 10, 0x7cc7ee, [hens.x0 + 0.26, 0.245, hens.z1 - 0.28]));
+  parts.push(box(0.46, 0.22, 0.28, C.straw, [hens.x1 - 0.36, 0.2, hens.z1 - 0.24]), box(0.47, 0.02, 0.29, 0xd8b85a, [hens.x1 - 0.36, 0.22, hens.z1 - 0.24]));
+  // côté oies : un grand bac d'eau et de l'herbe à brouter
+  const gx = geese.x1 - 0.62;
+  const gz = geese.z0 + 0.52;
+  parts.push(cyl(0.48, 0.52, 0.16, 16, 0x8e939b, [gx, 0.17, gz]), cyl(0.43, 0.43, 0.012, 16, 0x7cc7ee, [gx, 0.252, gz]));
+  parts.push(box(0.66, 0.06, 0.16, C.woodDark, [geese.x0 + 0.5, 0.14, geese.z0 + 0.26]), box(0.58, 0.02, 0.1, 0x8cc46b, [geese.x0 + 0.5, 0.18, geese.z0 + 0.26]));
+  const g = groupOf(parts, ...windows);
+  g.add(wirePanels(wire, 0.14, 0.7));
+  // enseignes : le nom de la boutique, et un écriteau par parc
+  const sign = textPanel('ANIMALERIE', level >= 3 ? 3.2 : level === 2 ? 2.8 : 2.3, level >= 3 ? 0.46 : 0.4, 0x2f6f4e, '#fbf6e8');
+  sign.position.set(0, (level >= 3 ? 2.05 : level === 2 ? 1.7 : 1.4) + 0.2, -0.5);
+  g.add(sign);
+  const label = (text: string, a: { x0: number; x1: number; z1: number }, bg: number) => {
+    const m = textPanel(text, 0.86, 0.3, bg, '#fbf6e8');
+    m.position.set((a.x0 + a.x1) / 2, 0.92, a.z1 + 0.04);
+    g.add(m, mesh(merge([box(0.05, 0.24, 0.04, C.woodDark, [(a.x0 + a.x1) / 2 - 0.3, 0.74, a.z1 + 0.02]), box(0.05, 0.24, 0.04, C.woodDark, [(a.x0 + a.x1) / 2 + 0.3, 0.74, a.z1 + 0.02])])));
+  };
+  label('POULES', hens, 0xb5573b);
+  label('OIES', geese, 0x3f6f9e);
+  return { group: g, eggSlots: [], eggMeshes: [], key: `petshop${level}` };
+}
+
+/** Le carton percé de trous avec lequel les clients emportent leurs volailles (fermé, puis une tête qui dépasse). */
+export function cartonBox() {
+  const parts = [box(0.3, 0.2, 0.24, 0xc9a26b, [0, 0, 0]), box(0.31, 0.012, 0.05, 0xe9dcb8, [0, 0.1, 0])];
+  for (const [y, x] of [
+    [0.03, -0.09],
+    [0.03, 0.09],
+    [-0.04, 0],
+  ])
+    parts.push(cyl(0.016, 0.016, 0.005, 6, 0x4b3a28, [x, y, 0.122], [Math.PI / 2, 0, 0]));
+  return merge(parts);
+}
+export const cartonHead = () => merge([sph(0.055, 7, 5, 0xe8d9c4, [0, 0.14, 0.02]), box(0.025, 0.02, 0.05, 0xf0a33a, [0, 0.135, 0.075]), box(0.018, 0.04, 0.04, 0xd9534f, [0, 0.195, 0.015])]);
+
 export function buildingModel(type: BuildingType, level: number): BuildingView {
   switch (type) {
+    case 'petshop':
+      return petShopModel(level);
     case 'pond':
       return pondModel(level);
     case 'tree':

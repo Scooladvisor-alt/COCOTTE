@@ -11,6 +11,7 @@ export const INCOME_LABELS: Record<IncomeCat, string> = {
   contrats: 'Contrats',
   primes: 'Primes de mission',
   reventes: 'Reventes',
+  animalerie: 'Animalerie et revendeurs',
   emprunt: 'Prêts reçus',
 };
 export const EXPENSE_LABELS: Record<ExpenseCat, string> = {
@@ -110,7 +111,7 @@ export function earn(s: GameState, amount: number, cat: IncomeCat, label: string
   d.income[cat] = (d.income[cat] ?? 0) + amount;
   d.cashEnd = s.money;
   if (!FINANCING_IN.includes(cat)) s.stats.totalIncome += amount;
-  if (cat === 'etal' || cat === 'cooperative' || cat === 'commandes' || cat === 'contrats') s.stats.salesRevenue += amount;
+  if (cat === 'etal' || cat === 'cooperative' || cat === 'commandes' || cat === 'contrats' || cat === 'animalerie') s.stats.salesRevenue += amount;
   log(s, label, amount, cat);
 }
 

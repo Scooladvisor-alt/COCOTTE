@@ -31,6 +31,8 @@ export function inDecorZone(x: number, z: number) {
 
 export interface Decor {
   update(time: number, dt: number, day: number): void;
+  /** L'animalerie ouverte : la clôture cède la place à son dallage. */
+  setPetShop(open: boolean): void;
 }
 
 /** Rangée de pieux blancs entre deux points (avec ses deux lisses). */
@@ -455,6 +457,7 @@ export function buildDecor(scene: THREE.Scene): Decor {
   }
 
   // -------------------------------------------------- L'allée de la mairie ----
+  let plotFence: THREE.Mesh;
   // bordures de lavande, entre le chemin du personnel et le trottoir
   {
     const walkN = WORLD.WALK_Z - 0.6;
@@ -463,7 +466,11 @@ export function buildDecor(scene: THREE.Scene): Decor {
     plant(scene, lavenderGeometry(), null, items, { mat: CROP_CLUMPS.garden, spread: 0.06, chunk: 1000 });
     // clôture rustique le long du trottoir
     railFence(statics, -26, -7.6, walkN - 0.32);
-    railFence(statics, -3.9, 10.6, walkN - 0.32);
+    railFence(statics, -3.9, 1.0, walkN - 0.32);
+    const plot: THREE.BufferGeometry[] = [];
+    railFence(plot, 1.0, 10.6, walkN - 0.32);
+    plotFence = mesh(merge(plot));
+    scene.add(plotFence);
   }
 
   // --------------------------------------------- Charrette fleurie, arbres ----
@@ -491,13 +498,13 @@ export function buildDecor(scene: THREE.Scene): Decor {
     }
     const g = merge(cart);
     g.rotateY(-0.42);
-    g.translate(1.3, 0, 34.2);
+    g.translate(-2.45, 0, 34.5);
     statics.push(g);
-    // tilleuls et rosiers le long de l'herbe
-    const limes: Plant[] = [[-1.6, 35.1, 0.6, 1.08], [7.9, 34.5, 2.1, 1.16], [-22.2, 35.0, 4.2, 1.2], [-13.4, 35.2, 1.1, 1.05]];
+    // tilleuls et rosiers le long de l'herbe (de x = 1 à la place : la parcelle de l'animalerie reste libre)
+    const limes: Plant[] = [[-0.2, 33.1, 0.6, 1.08], [-22.2, 35.0, 4.2, 1.2], [-13.4, 35.2, 1.1, 1.05]];
     plant(scene, speciesGeometry('lime'), speciesGeometry('lime', true), limes, { cast: true, spread: 0.1 });
-    const roses: Plant[] = [[4.8, 35.6, 0.7, 0.95], [5.7, 35.75, 2, 0.84], [-2.9, 32.7, 1.2, 0.9], [-3.8, 32.5, 3, 0.8], [10, 32.4, 4, 0.9], [-9.2, 34.9, 5, 0.9], [-17.4, 34.3, 1.6, 0.95], [-18.4, 34.5, 2.6, 0.84]];
-    const hyd: Plant[] = [[9.2, 35.7, 1, 0.92], [-25, 35, 2, 0.96], [-24.1, 35.3, 3, 0.86], [-10.3, 35.5, 4, 0.92], [-4.5, 34.7, 5, 0.86]];
+    const roses: Plant[] = [[0.4, 36.2, 0.7, 0.95], [-0.5, 36.3, 2, 0.84], [-2.9, 32.7, 1.2, 0.9], [-3.8, 32.5, 3, 0.8], [-9.2, 34.9, 5, 0.9], [-17.4, 34.3, 1.6, 0.95], [-18.4, 34.5, 2.6, 0.84]];
+    const hyd: Plant[] = [[-25, 35, 2, 0.96], [-24.1, 35.3, 3, 0.86], [-10.3, 35.5, 4, 0.92], [-4.5, 36.1, 5, 0.86]];
     plant(scene, floweringBush(0xe85d75, 1), speciesGeometry('bush', true), roses, { cast: true, spread: 0.06 });
     plant(scene, floweringBush(0x8ea6e8, 2), speciesGeometry('bush', true), hyd, { cast: true, spread: 0.06 });
     scene.add(contactShadows([...limes.map(([x, z, , s]) => [x, z, SHADOW_RADIUS.lime * s] as [number, number, number]), ...[...roses, ...hyd].map(([x, z, , s]) => [x, z, 0.46 * s] as [number, number, number])]));
@@ -617,7 +624,8 @@ export function buildDecor(scene: THREE.Scene): Decor {
   const poolMat = new THREE.MeshBasicMaterial({ map: LANTERN_GLOW.map, color: 0xffd27a, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
   const lampPositions: Array<[number, number]> = [];
   // au bord du trottoir côté ferme, la crosse penchée au-dessus des passants (pas sur le parking)
-  for (let x = -12; x <= GRID_W + 12; x += 9) if (x < 32.5 || x > 42.5) lampPositions.push([x, WORLD.WALK_Z - 0.75]);
+  // (celui de x = 6 laisserait un poteau devant l'animalerie)
+  for (let x = -12; x <= GRID_W + 12; x += 9) if ((x < 32.5 || x > 42.5) && x !== 6) lampPositions.push([x, WORLD.WALK_Z - 0.75]);
   const lampGlass: THREE.BufferGeometry[] = [];
   lampPositions.forEach(([x, z], i) => {
     // socle mouluré, fût à bagues, crosse à volute, lanterne à quatre pans
@@ -700,6 +708,9 @@ export function buildDecor(scene: THREE.Scene): Decor {
   scene.add(balloon);
 
   return {
+    setPetShop(open) {
+      plotFence.visible = !open;
+    },
     update(time, dt, day) {
       WATER_U.uTime.value = time;
       setCropWind(time);

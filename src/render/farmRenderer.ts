@@ -1,7 +1,7 @@
 // Rendu de la ferme : synchronise l'état de simulation avec la scène three.js.
 import * as THREE from 'three';
 import { FRESHNESS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, NEEDS, TIME, WORLD, clamp, smoothstep } from '../config/balance';
-import { COOP_SCALE, STAND_POS, sizeOf, standLayout, HALL_DOOR, HALL_FRONT } from '../config/buildings';
+import { COOP_SCALE, PET_POS, STAND_POS, petLayout, sizeOf, standLayout, HALL_DOOR, HALL_FRONT } from '../config/buildings';
 import { nurseryPlan, incubatorSeat } from '../sim/nursery';
 import { nurseryGateOpen } from '../sim/hens';
 import { feedPose, type FeedPose } from '../sim/feeding';
@@ -11,7 +11,7 @@ import { lvl } from '../sim/queries';
 import { rtHen } from '../sim/hens';
 import { simAlpha } from '../sim/simulation';
 import type { BreedId, Building, BuildingType, GameState, Hen, Predator } from '../sim/types';
-import { BLACK_SKIN, BREED_ORDER, BREEDS, GOLD_SKIN, LEGEND_SKIN } from '../config/breeds';
+import { BLACK_SKIN, BREED_ORDER, BREEDS, GOLD_SKIN, LEGEND_SKIN, isGoose } from '../config/breeds';
 import { ROLES, femName } from '../config/staff';
 import { C, GLOW, GRASS_MAT, GRASS_WIND, SNOW_UNIFORM, box, cyl, merge, mesh } from './geo';
 import { Particles, Shots } from './fx';
@@ -35,6 +35,7 @@ import { sound } from '../audio/sound';
 import { buildCountryside } from './countryside';
 import { townHall, type TownHall } from './farmBuildings';
 import { buildDecor, inDecorZone, type Decor } from './decor';
+import { henPuppet } from './delivery';
 import { SHADOW_RADIUS, contactShadows, plant, setNatureSeason, setVegetationZoom, speciesGeometry, type Plant, type Species } from './nature';
 import { LabelLayer } from './labels';
 import {
@@ -56,6 +57,8 @@ import {
   ADULT_STAGE,
   henGeometry,
   type HenKind,
+  cartonBox,
+  cartonHead,
   createPerson,
   eggGeometry,
   flowerGeometry,
@@ -266,7 +269,8 @@ export class FarmRenderer {
   private groundMat = new THREE.MeshLambertMaterial({ color: 0xf0e7d5 });
   private buildings = new Map<number, BState>();
   private eggs = new Map<number, THREE.Mesh>();
-  private people = new Map<number, PersonView & { px: number; pz: number; phase: number }>();
+  private people = new Map<number, PersonView & { px: number; pz: number; phase: number; carton?: THREE.Object3D }>();
+  private petBirds = new Map<number, { root: THREE.Mesh; tx: number; tz: number; wait: number; k: number }>();
   private staffG = new THREE.Group();
   private staff = new Map<number, WorkerView & { walk: number; role: string; sweepT: number }>();
   private predG = new THREE.Group();
@@ -925,7 +929,7 @@ export class FarmRenderer {
         const c = this.center(b);
         if (v.bounce) this.particles.burst(c.x, 0.3, c.z, 0xe8d9b8, 18, { speed: 1.8, up: 1.2 });
       }
-      const y = b.type === 'stand' ? 0 : GRASS_TOP - 0.02;
+      const y = b.type === 'stand' || b.type === 'petshop' ? 0 : GRASS_TOP - 0.02;
       v.group.position.set(b.type === 'stand' ? STAND_POS.x : b.x, y, b.type === 'stand' ? STAND_POS.z - 0.2 : b.z);
       // pivoté : le modèle tourne autour de son coin, puis se recale sur son emprise
       const [ox, oz] = turnOffset(b.type, b.level, b.rot ?? 0);
@@ -1481,9 +1485,89 @@ export class FarmRenderer {
   }
 
   // ------------------------------------------------------------- Clients ----
-  private syncPeople(s: GameState, dt: number) {
+  /** Les volailles en vitrine : chacune dans le parc de son espèce, elles picorent et font quelques pas. */
+  private syncPetBirds(s: GameState, dt: number) {
+    const shop = s.buildings.find((b) => b.type === 'petshop');
     const seen = new Set<number>();
-    for (const c of s.customers) {
+    if (shop) {
+      const L = petLayout(shop.level);
+      const shown = { hens: 0, geese: 0 };
+      for (const h of s.petShop.birds) {
+        const goose = isGoose(h.breed);
+        const pen = goose ? L.geese : L.hens;
+        // on n'en dessine que ce que le parc peut montrer sans qu'elles se montent dessus
+        const room = Math.floor((pen.x1 - pen.x0) * (pen.z1 - pen.z0) * (goose ? 1.1 : 3));
+        if ((goose ? shown.geese : shown.hens) >= room) continue;
+        if (goose) shown.geese++;
+        else shown.hens++;
+        seen.add(h.id);
+        const m = 0.28;
+        const pick = (k: number): [number, number] => [PET_POS.x + pen.x0 + m + hash(k * 1.7 + h.id) * (pen.x1 - pen.x0 - 2 * m), PET_POS.z + pen.z0 + m + hash(k * 2.3 + h.id * 3) * (pen.z1 - pen.z0 - 2 * m)];
+        let v = this.petBirds.get(h.id);
+        if (!v) {
+          const root = henPuppet(h.breed, h.skin ?? 0);
+          const [x, z] = pick(1);
+          root.position.set(x, 0.1, z);
+          root.scale.setScalar(BREEDS[h.breed].scale);
+          root.rotation.y = hash(h.id) * 6.28;
+          this.peopleG.add(root);
+          v = { root, tx: x, tz: z, wait: hash(h.id * 7) * 3, k: 2 };
+          this.petBirds.set(h.id, v);
+        }
+        v.wait -= dt;
+        const dx = v.tx - v.root.position.x;
+        const dz = v.tz - v.root.position.z;
+        const d = Math.hypot(dx, dz);
+        if (d > 0.03) {
+          const step = Math.min(d, dt * 0.55);
+          v.root.position.x += (dx / d) * step;
+          v.root.position.z += (dz / d) * step;
+          v.root.rotation.y = Math.atan2(dx, dz);
+          v.root.position.y = 0.1 + Math.abs(Math.sin(this.time * 11 + h.id)) * 0.018;
+          v.root.rotation.x = 0;
+        } else {
+          // sur place : elle picore, puis repart ailleurs
+          v.root.position.y = 0.1;
+          v.root.rotation.x = Math.max(0, Math.sin(this.time * 2.4 + h.id * 1.3)) * 0.42;
+          if (v.wait <= 0) {
+            v.k++;
+            [v.tx, v.tz] = pick(v.k);
+            v.wait = 2 + hash(v.k * 3.1 + h.id) * 5;
+          }
+        }
+      }
+    }
+    for (const [id, v] of this.petBirds) {
+      if (!seen.has(id)) {
+        this.peopleG.remove(v.root);
+        this.petBirds.delete(id);
+      }
+    }
+  }
+
+  private syncPeople(s: GameState, dt: number) {
+    this.syncPetBirds(s, dt);
+    const seen = new Set<number>();
+    for (const c of s.petCustomers) {
+      // client de l'animalerie : il arrive avec son carton sous le bras, et repart avec une tête qui dépasse
+      let v = this.people.get(c.id);
+      if (!v) {
+        v = { ...createPerson(c.look), px: c.x, pz: c.z, phase: Math.random() * 6 };
+        v.root.position.set(c.x, 0.05, c.z);
+        const carton = mesh(cartonBox(), true, false);
+        const head = mesh(cartonHead(), false, false);
+        const holder = new THREE.Group();
+        holder.position.set(0, 0.52, 0.17);
+        holder.add(carton, head);
+        head.visible = false;
+        v.carton = head;
+        v.root.add(holder);
+        this.peopleG.add(v.root);
+        this.people.set(c.id, v);
+      }
+      if (v.carton) v.carton.visible = c.bought > 0;
+    }
+    for (const c of [...s.customers, ...s.petCustomers]) {
       seen.add(c.id);
       let v = this.people.get(c.id);
       if (!v) {
@@ -1506,7 +1590,7 @@ export class FarmRenderer {
       const sw = sp > 0.1 ? Math.sin(this.time * 9 + v.phase) * 0.5 : 0;
       v.legL.rotation.x = sw;
       v.legR.rotation.x = -sw;
-      v.basket.visible = c.bought > 0 && c.state !== 'toStand' && c.state !== 'queue';
+      v.basket.visible = !v.carton && c.bought > 0 && c.state !== 'toStand' && c.state !== 'queue';
     }
     for (const [id, v] of this.people) {
       if (!seen.has(id)) {
@@ -1944,6 +2028,12 @@ export class FarmRenderer {
             headY = 0;
             break;
           }
+          case 'loadTruck':
+            // il se baisse, attrape une volaille et la passe sur la rampe
+            crouch = Math.max(0, Math.sin(t * 3.4)) * 0.5;
+            torsoX = 0.15 + Math.max(0, Math.sin(t * 3.4)) * 0.4;
+            armL = armR = -1.15 + Math.sin(t * 3.4) * 0.45;
+            break;
           case 'heal':
             crouch = 1;
             v.tools.kit.visible = true;
@@ -2227,6 +2317,7 @@ export class FarmRenderer {
     this.syncDog(s, dt);
     this.updateLighting(s);
     const hh = currentHour(s);
+    this.decor.setPetShop(s.buildings.some((b) => b.type === 'petshop'));
     this.decor.update(this.time, dt, smoothstep(4.8, 7.2, hh) * (1 - smoothstep(19.2, 21.8, hh)));
     this.village.update(this.time, dt, smoothstep(4.8, 7.2, hh) * (1 - smoothstep(19.2, 21.8, hh)));
     // la circulation suit le temps du jeu (figée en pause, pressée en accéléré)
@@ -2271,7 +2362,7 @@ export class FarmRenderer {
     let halo: { x: number; z: number; w: number; d: number } | null = null;
     if (sb) {
       // (une couveuse n'a pas d'emprise au sol : le halo reprend la taille du meuble)
-      const d = sb.type === 'stand' ? standLayout(sb.level) : sb.type === 'incubator' ? { w: 1.2, d: 1.2 } : sizeOf(sb.type, sb.level, sb.rot);
+      const d = sb.type === 'stand' ? standLayout(sb.level) : sb.type === 'incubator' ? { w: 1.2, d: 1.2 } : sb.type === 'petshop' ? { w: 8.6, d: 4 } : sizeOf(sb.type, sb.level, sb.rot);
       const c = this.center(sb);
       halo = { x: c.x, z: c.z, w: d.w + 1.1, d: d.d + 1.1 };
     } else if (sw) halo = { x: sw.root.position.x, z: sw.root.position.z, w: 1.7, d: 1.7 };

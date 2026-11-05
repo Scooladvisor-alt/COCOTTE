@@ -454,6 +454,11 @@ function keyStat(type: BuildingType): Array<[string, ComponentChildren]> {
         ['Capacité', `${L.capacity} œufs`],
         ['Éclosion', `${BREEDING.incubationDays} jours`],
       ];
+    case 'nursery':
+      return [
+        ['Capacité', `${L.capacity} poussins`],
+        ['Croissance', `+${Math.round(((L.growth ?? 1) - 1) * 100)} %`],
+      ];
     default:
       return [];
   }

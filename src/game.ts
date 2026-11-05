@@ -1,12 +1,13 @@
 // Contrôleur : boucle de jeu, entrées, évènements → effets, sauvegarde automatique.
 import { AUTOSAVE_SECONDS, EGG_TYPES, FRESHNESS, LEVELS, TIME } from './config/balance';
-import { BUILDINGS, COOP_SCALE, STAND_POS, STORAGE_SCALE, sizeOf } from './config/buildings';
+import { BUILDINGS, COOP_SCALE, STORAGE_SCALE, sizeOf, standLayout } from './config/buildings';
 import { sound } from './audio/sound';
 import { music } from './audio/music';
 import { FarmRenderer, type PickResult } from './render/farmRenderer';
 import { Vector3 as THREE_V } from 'three';
 import { deserialize, saveGame } from './save/save';
 import { fetchFarm, pushFarm } from './online/farms';
+import { nurseryCount } from './sim/nursery';
 import * as A from './sim/actions';
 import { canPlace } from './sim/buildings';
 import { buildingCenter, drainEvents, isNightHour, currentHour, parcelCenter } from './sim/core';
@@ -113,6 +114,8 @@ export class Game {
         // personne pour défendre la ferme à l'écran : pas d'attaque tant que l'onglet est caché
         setPredatorsQuiet(this.state, true);
         this.save();
+        // l'application passe en arrière-plan : la ferme part en ligne tout de suite
+        if (this.started && this.persist && !this.visiting) void pushFarm(this.state, true);
       } else {
         this.background(true);
         setPredatorsQuiet(this.state, false);
@@ -644,11 +647,11 @@ export class Game {
     for (const b of s.buildings) {
       if (this.placing?.moveId === b.id) continue;
       const def = BUILDINGS[b.type];
-      const c = b.type === 'stand' ? { x: STAND_POS.x + 1, z: STAND_POS.z } : buildingCenter(b);
+      const c = b.type === 'stand' ? standLayout(b.level).center : buildingCenter(b);
       const L1 = lvl(b);
       let info = '';
       let cls = '';
-      const height = b.type === 'goosehouse' ? 2.2 + b.level * 0.25 : b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 * STORAGE_SCALE : b.type === 'stand' ? 1.9 : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.1;
+      const height = b.type === 'goosehouse' ? 2.2 + b.level * 0.25 : b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 * STORAGE_SCALE : b.type === 'stand' ? (b.level >= 4 ? 3.6 : 1.9) : b.type === 'nursery' ? 2.4 : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.1;
       if (b.type === 'nest') {
         if (b.eggIds.length > 0) {
           info = `<em>${b.eggIds.length} œuf${b.eggIds.length > 1 ? 's' : ''}</em>`;
@@ -661,6 +664,8 @@ export class Game {
         info = `<em>${occ}/${L1.capacity}</em>`;
         if (b.closed) info += '<em>fermé</em>';
         if (b.cleanliness < 35) (cls = 'alert'), (info += '<em>sale</em>');
+      } else if (b.type === 'nursery') {
+        info = `<em>${nurseryCount(s, b)}/${L1.capacity} poussins</em>`;
       } else if (b.type === 'feeder' || b.type === 'drinker') {
         const r = b.stock / L1.capacity;
         info = gauge(r);

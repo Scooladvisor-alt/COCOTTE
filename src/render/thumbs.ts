@@ -94,6 +94,7 @@ export const buildingThumb = (type: BuildingType, level = 1) =>
     `b:${type}:${level}`,
     () => {
       const v = buildingModel(type, level);
+      if (v.thumbOnly) v.thumbOnly.visible = true;
       // mangeoire, abreuvoir et compost photographiés bien garnis
       if (v.fill) {
         if (v.fillMode === 'scale') v.fill.scale.y = v.fillHeight ?? 0.1;

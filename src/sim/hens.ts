@@ -23,14 +23,15 @@ import {
 import { BREEDS, HEN_NAMES, ROOSTER_NAMES, pickSkin, GANDER_NAMES, GOOSE_NAMES, isGoose } from '../config/breeds';
 import { sizeOf } from '../config/buildings';
 import { STAFF } from '../config/staff';
-import { recordUse } from './stocks';
+import { recordUse, takeGrain, takeWater } from './stocks';
+import { NURSERY_REACH, NURSERY_RING, nurseryCount, nurseryPlan, readyToLeave } from './nursery';
 import { GATE, buildingCenter, canStand, coopDoor, crossesFence, facadeHeading, frontOf, toLocal, toWorld, exitSide, cellIndex, currentHour, distanceTo, emit, inGrid, isNightHour, flowField, isWalkable, lineClear, newId, planPath, nearestWalkable, notify, parcelCenter, parcelCoords, parcelKeyOfCell, parcelOrigin, pick, rand, randRange, rt, sameArea, isShelter, isShelterType } from './core';
 import { fmtMoney } from './economy';
 import { nearestTree, parcelPerks, perksAt } from './perks';
 import { layEgg } from './eggs';
 import { threatNear } from './predators';
 import { eatGrass, grassAt, parcelGrass } from './grass';
-import { buildingsOf, getBuilding, landCapacity, lvl, nestFree } from './queries';
+import { buildingsOf, getBuilding, homeForYoung, landCapacity, lvl, nestFree } from './queries';
 import type { BreedId, Building, GameState, Genes, Hen, HenAct } from './types';
 import { beautyValue, frailty, layingGene, shopGenes } from './genetics';
 import { season } from './seasons';
@@ -226,6 +227,18 @@ export const ACT_LABELS: Record<HenAct, string> = {
   fight: 'Se bat avec un autre coq !',
 };
 
+const NURSERY_LABELS: Partial<Record<HenAct, string>> = {
+  sleep: 'Au chaud dans la poussinière',
+  walk: 'Se promène dans son parc',
+  peck: 'Picore dans son parc',
+  scratch: 'Gratte la terre de son parc',
+  enter: 'Rentre se mettre au chaud',
+  exit: 'Sort dans son parc',
+  eat: 'Mange la pâtée des poussins',
+};
+/** Ce que fait la volaille, dit au joueur (à la poussinière, c'est un peu différent). */
+export const actLabel = (h: Hen) => (h.nursery && NURSERY_LABELS[h.act]) || ACT_LABELS[h.act];
+
 // ------------------------------------------------------- Vitalité (1 s) ----
 interface VitalsCache {
   acc: number;
@@ -286,6 +299,7 @@ function vitalsTick(s: GameState, dt: number) {
   const dtDay = dt / DAY;
   const dead: Array<[Hen, string]> = [];
   const grown: Hen[] = [];
+  const leaving: Hen[] = [];
   for (const h of s.hens) {
     const b = BREEDS[h.breed];
     const target = wellbeingTarget(s, h, v);
@@ -317,7 +331,10 @@ function vitalsTick(s: GameState, dt: number) {
     h.protein = Math.max(0, (h.protein ?? 0) - COMPOST.proteinDecayPerDay * dtDay);
     h.age += dtDay;
     if (h.young) {
-      h.young -= dtDay;
+      const was = h.young;
+      // à la poussinière, au chaud et bien nourris, les poussins poussent plus vite
+      h.young -= dtDay * (h.nursery && coop ? lvl(coop).growth ?? 1 : 1);
+      if (h.nursery && was > BREEDING.nurseryLeaveDays && h.young <= BREEDING.nurseryLeaveDays) leaving.push(h);
       if (h.young <= 0) {
         delete h.young;
         grown.push(h);
@@ -328,6 +345,7 @@ function vitalsTick(s: GameState, dt: number) {
       dead.push([h, cause]);
     }
   }
+  if (leaving.length) notify(s, leaving.length > 1 ? `${leaving.length} jeunes quittent la poussinière et rejoignent le troupeau : ils vont bientôt pondre !` : `${leaving[0].name} quitte la poussinière et rejoint le troupeau : ${leaving[0].rooster ? 'il' : 'elle'} a bien grandi !`, 'good', '🐤');
   for (const h of grown) {
     emit(s, { kind: 'grownUp', henId: h.id });
     notify(s, h.rooster ? `${h.name} est devenu un beau coq.` : `${h.name} est devenue une poule adulte : elle va commencer à pondre !`, 'good', h.rooster ? '🐓' : '🐔');
@@ -382,6 +400,7 @@ function escapeTick(s: GameState, dt: number) {
   const r = rt(s);
   const p = FENCE.escapePerHour * (dt / HOUR);
   for (const h of s.hens) {
+    if (h.nursery) continue; // bien gardés dans leur parc
     const hr = rtHen(h);
     if (hr.strayCool > 0) {
       hr.strayCool -= dt;
@@ -498,6 +517,8 @@ export interface HenRt {
   thirst: number;
   /** Adversaire pendant un combat de coqs. */
   foe: number;
+  /** À la poussinière : là où le poussin se rend (trappe, portillon, mangeoire, abreuvoir). */
+  goal: '' | 'door' | 'gate' | 'feed' | 'drink';
   /**
    * Coin de pré du moment : la poule y retourne entre deux repas et en change de temps en temps
    * (herbe broutée, envie d'ailleurs, copines), si bien que tout le terrain est parcouru.
@@ -513,7 +534,7 @@ export function rtHen(h: Hen): HenRt {
     r = {
       px: h.x, pz: h.z, ph: h.heading, spd: 0, slot: -1, wx: h.x, wz: h.z, wT: 0, sepX: 0, sepZ: 0, pauseT: 0, stuckT: 0,
       next: 'idle', nextT: 0, path: [], pathKey: -1, replans: 0, progT: 0, bestD: Infinity, strayOut: false, strayCool: 0, thirst: 1,
-      rangeX: NaN, rangeZ: NaN, rangeUntil: -1, foe: -1,
+      rangeX: NaN, rangeZ: NaN, rangeUntil: -1, foe: -1, goal: '',
     };
     henRts.set(h, r);
   }
@@ -600,7 +621,8 @@ function computeSeparation(s: GameState) {
     r.sepX = 0;
     r.sepZ = 0;
     // en route vers le poulailler : elles se serrent pour passer la trappe, sans s'écarter
-    if (ANCHORED.has(h.act) || h.act === 'goCoop') continue;
+    // (les poussins de la poussinière sont à part, derrière leur grillage)
+    if (ANCHORED.has(h.act) || h.act === 'goCoop' || h.nursery) continue;
     const cx = sepGrid.cx(h.x);
     const cz = sepGrid.cz(h.z);
     for (let dx = -1; dx <= 1; dx++)
@@ -608,7 +630,7 @@ function computeSeparation(s: GameState) {
         for (let j = sepGrid.first(cx + dx, cz + dz); j >= 0; j = next[j]) {
           if (j === i) continue;
           const o = hens[j];
-          if (o.act === 'enter' || o.act === 'exit') continue;
+          if (o.act === 'enter' || o.act === 'exit' || o.nursery) continue;
           const ox = h.x - o.x;
           const oz = h.z - o.z;
           const d2 = ox * ox + oz * oz;
@@ -1427,22 +1449,26 @@ function resolveOverlaps(s: GameState) {
     if (h.act === 'sleep' || fixed(h) || atDoor(h)) continue;
     const bx = overlapGrid.cx(h.x);
     const bz = overlapGrid.cz(h.z);
+    // les poussins, plus petits, se serrent davantage dans leur parc
+    const min = h.nursery ? 0.2 : MIN;
     for (let dx = -1; dx <= 1; dx++)
       for (let dz = -1; dz <= 1; dz++) {
         for (let j = overlapGrid.first(bx + dx, bz + dz); j >= 0; j = next[j]) {
           if (j === i) continue;
           const o = hens[j];
+          // le grillage de la poussinière sépare les poussins des poules
+          if (!!o.nursery !== !!h.nursery) continue;
           const ox = h.x - o.x;
           const oz = h.z - o.z;
           const d2 = ox * ox + oz * oz;
-          if (d2 >= MIN * MIN) continue;
+          if (d2 >= min * min) continue;
           const d = Math.sqrt(d2);
           const nx = d > 1e-4 ? ox / d : Math.sin(h.id);
           const nz = d > 1e-4 ? oz / d : Math.cos(h.id);
-          const push = (MIN - d) * (fixed(o) ? 1 : 0.5);
+          const push = (min - d) * (fixed(o) ? 1 : 0.5);
           const x = h.x + nx * push;
           const z = h.z + nz * push;
-          if (canStand(s, x, z, 0.08) && !crossesFence(s, h.x, h.z, x, z)) {
+          if (h.nursery ? inParkOf(s, h, x, z) : canStand(s, x, z, 0.08) && !crossesFence(s, h.x, h.z, x, z)) {
             h.x = x;
             h.z = z;
           }
@@ -1602,6 +1628,13 @@ function behave(s: GameState, h: Hen, dt: number, night: boolean, hour: number) 
   const r = rtHen(h);
   h.actT -= dt;
   h.thinkT -= dt;
+
+  // à la poussinière, la vie se passe dans le parc (voir plus bas)
+  if (h.nursery) {
+    const b = getBuilding(s, h.coopId);
+    if (b?.type === 'nursery') return nurseryTick(s, h, r, b, dt, night, hour);
+    delete h.nursery;
+  }
 
   // un renard ou une buse approche : sauve qui peut !
   if (s.predators.length && SCARED.has(h.act)) {
@@ -1801,10 +1834,288 @@ function behave(s: GameState, h: Hen, dt: number, night: boolean, hour: number) 
   }
 }
 
+// --------------------------------------------------------- Poussinière ----
+// Les poussins vivent dans leur parc, derrière un grillage : ils ne se servent ni de la grille de
+// navigation ni des bâtiments communs. Ils se promènent librement dans le rectangle du parc,
+// mangent et boivent à leurs petites installations (grain et eau pris dans la réserve), rentrent
+// de temps en temps se mettre au chaud et toute la nuit. Quand ils vont bientôt pondre, ils passent
+// le portillon et deviennent des poules comme les autres.
+
+/** Installe un jeune à la poussinière : d'abord à l'intérieur, au chaud, puis il sort dans le parc. */
+export function enterNursery(s: GameState, h: Hen, b: Building) {
+  const plan = nurseryPlan(b.level);
+  h.nursery = true;
+  h.coopId = b.id;
+  [h.x, h.z] = toWorld(b, plan.inside[0], plan.inside[1]);
+  h.tx = h.x;
+  h.tz = h.z;
+  h.act = 'sleep';
+  h.actT = randRange(s, 0.5, 5);
+  h.targetId = -1;
+  const r = rtHen(h);
+  r.goal = '';
+  r.slot = -1;
+  r.path = [];
+  r.pathKey = -1;
+  r.spd = 0;
+}
+
+/** Nouvelle poussinière (ou agrandie) : les jeunes qui courent encore avec les poules s'y installent. */
+export function adoptChicks(s: GameState, b: Building) {
+  let room = lvl(b).capacity - nurseryCount(s, b);
+  for (const h of s.hens) {
+    if (room <= 0) break;
+    if (h.nursery || !h.young || readyToLeave(h) || h.act === 'caught' || h.act === 'stray') continue;
+    enterNursery(s, h, b);
+    room--;
+  }
+}
+
+/** Poussinière démolie : ses jeunes rejoignent la basse-cour tout de suite. */
+export function releaseChicks(s: GameState, b: Building) {
+  for (const h of s.hens) {
+    if (!h.nursery || h.coopId !== b.id) continue;
+    const home = homeForYoung(s, h.breed) ?? s.buildings.find((x) => x.type === 'coop');
+    delete h.nursery;
+    if (home) h.coopId = home.id;
+    [h.x, h.z] = frontOf(b, 0.6 + rand(s) * 0.3, randRange(s, -0.25, 0.25));
+    setAct(h, 'idle', 0.2);
+    rtHen(h).goal = '';
+  }
+}
+
+function inParkOf(s: GameState, h: Hen, x: number, z: number) {
+  const b = getBuilding(s, h.coopId);
+  if (!b) return false;
+  const { park } = nurseryPlan(b.level);
+  const [lx, lz] = toLocal(b, x, z);
+  return lx >= park.x0 && lx <= park.x1 && lz >= park.z0 && lz <= park.z1;
+}
+
+/** Après un déplacement ou un agrandissement de la poussinière, chacun retrouve sa place. */
+function resetInNursery(s: GameState, h: Hen) {
+  const b = getBuilding(s, h.coopId);
+  if (!b) return;
+  const plan = nurseryPlan(b.level);
+  if (h.act === 'sleep') {
+    [h.x, h.z] = toWorld(b, plan.inside[0], plan.inside[1]);
+    return;
+  }
+  if (!inParkOf(s, h, h.x, h.z)) [h.x, h.z] = toWorld(b, randRange(s, plan.park.x0, plan.park.x1), randRange(s, plan.park.z0, plan.park.z1));
+  h.tx = h.x;
+  h.tz = h.z;
+  setAct(h, 'idle', 0.2);
+  const r = rtHen(h);
+  r.goal = '';
+  r.slot = -1;
+}
+
+const gateOpen = new WeakMap<Building, number>();
+/** Le portillon est-il ouvert (un jeune est en train de passer) ? Lu par le rendu. */
+export const nurseryGateOpen = (s: GameState, b: Building) => (gateOpen.get(b) ?? -1) > s.clock.t;
+
+function nurseryWalk(h: Hen, r: HenRt, goal: HenRt['goal'], x: number, z: number) {
+  h.act = 'walk';
+  h.tx = x;
+  h.tz = z;
+  h.actT = 14;
+  h.targetId = -1;
+  r.goal = goal;
+  r.pauseT = 0;
+}
+
+/** Une place libre autour d'une mangeoire ou d'un abreuvoir (slot : installation et rang). */
+function nurseryRingSpot(s: GameState, h: Hen, b: Building, list: Array<[number, number, number]>, base: number): { x: number; z: number; slot: number } | null {
+  const taken = new Set<number>();
+  for (const o of s.hens) if (o.nursery && o.coopId === b.id && o !== h) taken.add(rtHen(o).slot);
+  const start = Math.floor(rand(s) * list.length);
+  for (let i = 0; i < list.length; i++) {
+    const f = (start + i) % list.length;
+    const k0 = Math.floor(rand(s) * NURSERY_RING);
+    for (let j = 0; j < NURSERY_RING; j++) {
+      const k = (k0 + j) % NURSERY_RING;
+      const slot = base + f * NURSERY_RING + k;
+      if (taken.has(slot)) continue;
+      const [cx, cz, rad] = list[f];
+      const a = (k / NURSERY_RING) * Math.PI * 2 + 0.3;
+      const [x, z] = toWorld(b, cx + Math.sin(a) * (rad + NURSERY_REACH), cz + Math.cos(a) * (rad + NURSERY_REACH));
+      return { x, z, slot };
+    }
+  }
+  return null;
+}
+const FEED_BASE = 1000;
+const DRINK_BASE = 2000;
+
+function nurseryFace(h: Hen, b: Building, list: Array<[number, number, number]>) {
+  let best = list[0];
+  let bd = Infinity;
+  const [lx, lz] = toLocal(b, h.x, h.z);
+  for (const f of list) {
+    const d = Math.hypot(f[0] - lx, f[1] - lz);
+    if (d < bd) {
+      bd = d;
+      best = f;
+    }
+  }
+  const [wx, wz] = toWorld(b, best[0], best[1]);
+  h.heading = Math.atan2(wx - h.x, wz - h.z);
+}
+
+function nurseryToDoor(s: GameState, h: Hen, r: HenRt, b: Building) {
+  const plan = nurseryPlan(b.level);
+  const [x, z] = toWorld(b, plan.doorX + randRange(s, -0.08, 0.08), plan.house.z1 + 0.32);
+  nurseryWalk(h, r, 'door', x, z);
+}
+
+function nurseryDecide(s: GameState, h: Hen, r: HenRt, b: Building, night: boolean) {
+  const plan = nurseryPlan(b.level);
+  r.goal = '';
+  r.slot = -1;
+  // la nuit, tout le monde au chaud
+  if (night) return nurseryToDoor(s, h, r, b);
+  // assez grand : direction le portillon, puis le troupeau
+  if (readyToLeave(h)) {
+    const [x, z] = toWorld(b, plan.gate[0] + randRange(s, -0.1, 0.1), plan.park.z1);
+    return nurseryWalk(h, r, 'gate', x, z);
+  }
+  if (h.hydration < NEEDS.thirstyAt && s.water > 0) {
+    const sp = nurseryRingSpot(s, h, b, plan.drinkers, DRINK_BASE);
+    if (sp) {
+      r.slot = sp.slot;
+      return nurseryWalk(h, r, 'drink', sp.x, sp.z);
+    }
+  }
+  if (h.satiety < NEEDS.hungryAt && s.grain > 0) {
+    const sp = nurseryRingSpot(s, h, b, plan.feeders, FEED_BASE);
+    if (sp) {
+      r.slot = sp.slot;
+      return nurseryWalk(h, r, 'feed', sp.x, sp.z);
+    }
+  }
+  const p = rand(s);
+  // les tout-petits rentrent plus souvent se réchauffer
+  if (p < 0.05 + 0.13 * (h.young ?? 0) / BREEDING.growthDays) return nurseryToDoor(s, h, r, b);
+  if (p < 0.6) {
+    const [lx, lz] = toLocal(b, h.x, h.z);
+    const a = rand(s) * Math.PI * 2;
+    const d = 0.5 + rand(s) * 2.2;
+    const { park } = plan;
+    const [x, z] = toWorld(b, clamp(lx + Math.sin(a) * d, park.x0, park.x1), clamp(lz + Math.cos(a) * d, park.z0, park.z1));
+    return nurseryWalk(h, r, '', x, z);
+  }
+  if (p < 0.8) return setAct(h, 'peck', randRange(s, 1.5, 3.5));
+  if (p < 0.9) return setAct(h, 'scratch', randRange(s, 1.5, 3));
+  if (p < 0.96) return setAct(h, 'preen', randRange(s, 1.5, 3));
+  setAct(h, 'idle', randRange(s, 0.8, 2));
+}
+
+function nurseryTick(s: GameState, h: Hen, r: HenRt, b: Building, dt: number, night: boolean, hour: number) {
+  const plan = nurseryPlan(b.level);
+  switch (h.act) {
+    case 'sleep': {
+      const wake = TIME.NIGHT_END + ((h.id * 37) % 60) / 80;
+      if (night || hour < wake || h.actT > 0) return;
+      // réveil, ou fin de la sieste : il ressort dans le parc
+      const [ix, iz] = toWorld(b, plan.inside[0], plan.inside[1]);
+      h.x = ix;
+      h.z = iz;
+      h.heading = facadeHeading(b);
+      const [ox, oz] = toWorld(b, plan.doorX + randRange(s, -0.5, 0.5), plan.house.z1 + 0.5 + rand(s) * 0.5);
+      return move(h, 'exit', ox, oz, 'idle', 0, b.id);
+    }
+    case 'enter':
+    case 'exit': {
+      const res = steer(s, h, r, h.tx, h.tz, speedOf(h, 'go'), dt, true);
+      if (res !== 'arrived' && h.actT > 0) return;
+      h.x = h.tx;
+      h.z = h.tz;
+      if (h.act === 'enter') return setAct(h, 'sleep', r.nextT);
+      return nurseryDecide(s, h, r, b, night);
+    }
+    case 'walk': {
+      if (r.pauseT > 0) {
+        r.pauseT -= dt;
+        r.spd *= Math.max(0, 1 - dt * 10);
+      } else {
+        if (!r.goal && rand(s) < dt * 0.45) r.pauseT = randRange(s, 0.2, 0.6);
+        steer(s, h, r, h.tx, h.tz, r.goal ? speedOf(h, 'go') : speedOf(h, 'wander'), dt, true);
+      }
+      const d = Math.hypot(h.tx - h.x, h.tz - h.z);
+      if (r.goal === 'gate' && d < 1.4) gateOpen.set(b, s.clock.t + 1.5);
+      if (d >= 0.06 && h.actT > 0) {
+        // la nuit tombe : on abandonne la promenade pour rentrer
+        if (night && r.goal !== 'door' && r.goal !== 'gate') return nurseryDecide(s, h, r, b, night);
+        return;
+      }
+      r.spd = 0;
+      switch (r.goal) {
+        case 'door': {
+          const [ix, iz] = toWorld(b, plan.inside[0], plan.inside[1]);
+          r.goal = '';
+          move(h, 'enter', ix, iz, 'sleep', randRange(s, 6, 16), b.id);
+          return;
+        }
+        case 'gate':
+          return leaveNursery(s, h, r, b);
+        case 'feed':
+          nurseryFace(h, b, plan.feeders);
+          return setAct(h, 'eat', randRange(s, 6, 14), b.id);
+        case 'drink':
+          nurseryFace(h, b, plan.drinkers);
+          return setAct(h, 'drink', randRange(s, 4, 9), b.id);
+        default:
+          return setAct(h, rand(s) < 0.6 ? 'peck' : 'scratch', randRange(s, 1.5, 3.5));
+      }
+    }
+    case 'eat': {
+      if (s.grain <= 0 || h.satiety >= NEEDS.fullAt || h.actT <= 0) return nurseryDecide(s, h, r, b, night);
+      nurseryFace(h, b, plan.feeders);
+      const gain = Math.min(NEEDS.eatRate * dt, 100 - h.satiety);
+      const need = gain / NEEDS.pointsPerRation;
+      const used = takeGrain(s, need);
+      recordUse(s, 'grain', used);
+      if (need > 0) h.satiety += gain * (used / need);
+      return;
+    }
+    case 'drink': {
+      if (s.water <= 0 || h.hydration >= NEEDS.fullAt || h.actT <= 0) return nurseryDecide(s, h, r, b, night);
+      nurseryFace(h, b, plan.drinkers);
+      const gain = Math.min(NEEDS.drinkRate * dt, 100 - h.hydration);
+      const need = gain / NEEDS.pointsPerLiter;
+      const used = takeWater(s, need);
+      recordUse(s, 'water', used);
+      if (need > 0) h.hydration += gain * (used / need);
+      return;
+    }
+    default:
+      // picorer, gratter, se lisser les plumes… jusqu'à la prochaine idée (la nuit, on rentre)
+      r.spd = 0;
+      if (h.actT <= 0 || night) nurseryDecide(s, h, r, b, night);
+  }
+}
+
+/** Au portillon : il quitte le parc et devient une poule comme les autres. */
+function leaveNursery(s: GameState, h: Hen, r: HenRt, b: Building) {
+  const home = homeForYoung(s, h.breed) ?? s.buildings.find((x) => x.type === 'coop');
+  if (!home) return nurseryDecide(s, h, r, b, false);
+  delete h.nursery;
+  h.coopId = home.id;
+  r.goal = '';
+  r.slot = -1;
+  gateOpen.set(b, s.clock.t + 1.5);
+  const [fx, fz] = frontOf(b, 0.6 + rand(s) * 0.3, randRange(s, -0.25, 0.25));
+  move(h, 'exit', fx, fz, 'idle', 0, b.id);
+}
+
 /** Replace les poules après une modification du terrain (construction, déplacement…). */
 export function resetHenAfterLayout(s: GameState) {
   const r = rt(s);
   for (const h of s.hens) {
+    if (h.nursery) {
+      resetInNursery(s, h);
+      continue;
+    }
     if (h.act === 'sleep') {
       const coop = getBuilding(s, h.coopId);
       if (coop) [h.x, h.z] = coopInside(coop);

@@ -1,7 +1,9 @@
 // Rendu de la ferme : synchronise l'état de simulation avec la scène three.js.
 import * as THREE from 'three';
 import { FRESHNESS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, NEEDS, TIME, WORLD, clamp, smoothstep } from '../config/balance';
-import { COOP_SCALE, STAND_POS, sizeOf } from '../config/buildings';
+import { COOP_SCALE, STAND_POS, sizeOf, standLayout } from '../config/buildings';
+import { nurseryPlan } from '../sim/nursery';
+import { nurseryGateOpen } from '../sim/hens';
 import { feedPose, type FeedPose } from '../sim/feeding';
 import { vaultOf } from '../sim/vault';
 import { cellIndex, cellX, cellZ, coopDoorCells, currentHour, inGrid, isShelter, parcelCenter, parcelCoords, parcelKeyOfCell, rt, toLocal } from '../sim/core';
@@ -180,7 +182,12 @@ function turnOffset(type: BuildingType, level: number, rot: number): [number, nu
 }
 /** Hauteur de la poule sur la rampe, pente, et si elle est déjà entièrement à l'intérieur. */
 function coopPassage(type: BuildingType, level: number, lz: number) {
-  const d = type === 'goosehouse' ? GOOSE_DOORS[level] ?? GOOSE_DOORS[1] : COOP_DOORS[level] ?? COOP_DOORS[1];
+  let d = type === 'goosehouse' ? GOOSE_DOORS[level] ?? GOOSE_DOORS[1] : COOP_DOORS[level] ?? COOP_DOORS[1];
+  // la trappe de la poussinière donne sur le parc : petite rampe, puis le poussin passe le mur
+  if (type === 'nursery') {
+    const z1 = nurseryPlan(level).house.z1;
+    d = { door: z1, sill: 0.07, foot: z1 + 0.32 };
+  }
   if (lz >= d.foot) return { y: 0, slope: 0, inside: false };
   if (lz >= d.door) {
     const t = (d.foot - lz) / (d.foot - d.door);
@@ -542,7 +549,7 @@ export class FarmRenderer {
     this.camera.top = halfH;
     this.camera.bottom = -halfH;
     this.target.x = clamp(this.target.x, -10, GRID_W + 6);
-    this.target.z = clamp(this.target.z, GRID_Z0 - 4, GRID_Z1 + 20);
+    this.target.z = clamp(this.target.z, GRID_Z0 - 4, GRID_Z1 + 23);
     this.camera.position.copy(this.target).addScaledVector(CAM_DIR, 80);
     this.camera.lookAt(this.target);
     this.camera.updateProjectionMatrix();
@@ -789,7 +796,20 @@ export class FarmRenderer {
     const blocked = rt(s).blocked;
     // devant les trappes, l'herbe est foulée : pas de brins au travers des rampes
     const doorway = new Set<number>();
-    for (const b of s.buildings) if (isShelter(b)) for (const [cx, cz] of coopDoorCells(b)) if (inGrid(cx, cz)) doorway.add(cellIndex(cx, cz));
+    // dans une poussinière, seul le bâtiment est bâti : l'herbe pousse dans le parc et sur les abords
+    const parkLawn = new Set<number>();
+    for (const b of s.buildings) {
+      if (isShelter(b)) for (const [cx, cz] of coopDoorCells(b)) if (inGrid(cx, cz)) doorway.add(cellIndex(cx, cz));
+      if (b.type !== 'nursery') continue;
+      const { house } = nurseryPlan(b.level);
+      const fp = sizeOf(b.type, b.level, b.rot);
+      for (let z = b.z; z < b.z + fp.d; z++)
+        for (let x = b.x; x < b.x + fp.w; x++) {
+          const [lx, lz] = toLocal(b, x + 0.5, z + 0.5);
+          const roofed = lx > house.x0 - 0.35 && lx < house.x1 + 0.35 && lz > house.z0 - 0.35 && lz < house.z1 + 0.35;
+          if (!roofed && inGrid(x, z)) parkLawn.add(cellIndex(x, z));
+        }
+    }
     for (const ch of this.grassChunks.values()) ch.nl = ch.nw = 0;
     let f = 0;
     for (let i = 0; i < N; i++) {
@@ -811,7 +831,7 @@ export class FarmRenderer {
         this.cellCol[i * 3 + 1] = tmpC.g;
         this.cellCol[i * 3 + 2] = tmpC.b;
         // pas d'herbe haute sous un bâtiment (elle traverserait l'eau d'une mare)
-        const under = blocked[i] === 1 || doorway.has(i);
+        const under = (blocked[i] === 1 && !parkLawn.has(i)) || doorway.has(i);
         // teinte des brins : l'herbe broutée jaunit, la saison et la neige s'y ajoutent
         tuftC.setRGB(1, 1, 1).lerp(DRY_BLADE, clamp((0.75 - g) * 1.4, 0, 0.85)).lerp(seasonTint, amt * 0.55);
         if (patch > 0) tuftC.lerp(SNOW, patch * 0.6);
@@ -949,6 +969,12 @@ export class FarmRenderer {
       if (b.type === 'stand') this.syncGoldShowcase(s, v);
       if (b.type === 'incubator') this.syncIncubatorEggs(b, v);
       if (v.autoKit) v.autoKit.visible = !!b.autoDoor;
+      // le magasin porte le nom de la ferme (celle qu'on visite, le cas échéant)
+      v.setSign?.(s.farmName);
+      if (v.gate) {
+        const open = nurseryGateOpen(s, b) ? -1.5 : 0;
+        v.gate.rotation.y += (open - v.gate.rotation.y) * Math.min(1, dt * 6);
+      }
       if (v.door) {
         // la trappe glisse vers le bas quand le commis ferme le poulailler
         const target = b.closed ? 1 : 0;
@@ -1039,12 +1065,13 @@ export class FarmRenderer {
       dome.renderOrder = 4;
       g.add(dome);
       g.userData.eggs = eggs;
-      // devant l'étal, du côté de la file des clients
-      g.position.set(2.45, 0, 1.25);
       v.group.add(g);
       this.goldShowcase = g;
     }
     const g = this.goldShowcase;
+    // devant l'étal, du côté de la file des clients ; au magasin, sur la terrasse, près de la porte
+    if (v.setSign) g.position.set(6.6, 0.09, 3.1);
+    else g.position.set(2.45, 0, 1.25);
     // l'étal est reconstruit à chaque amélioration (et au lancement de la partie) : la vitrine suit
     if (g.parent !== v.group) v.group.add(g);
     g.visible = n > 0;
@@ -1084,7 +1111,7 @@ export class FarmRenderer {
 
   center(b: { type: BuildingType; x: number; z: number; level?: number; rot?: number }) {
     const d = sizeOf(b.type, b.level, b.rot);
-    if (b.type === 'stand') return { x: STAND_POS.x + 1, z: STAND_POS.z + 0.3 };
+    if (b.type === 'stand') return standLayout(b.level).center;
     return { x: b.x + d.w / 2, z: b.z + d.d / 2 };
   }
 
@@ -1182,7 +1209,7 @@ export class FarmRenderer {
     const onNest = target?.type === 'nest' && (h.act === 'lay' || ((h.act === 'enter' || h.act === 'exit') && toLocal(target, h.x, h.z)[1] < 1.02));
     const inBath = target?.type === 'dustbath' && (h.act === 'bathe' || h.act === 'enter' || h.act === 'exit');
     // poulailler : la poule gravit la rampe, passe le seuil de la trappe et disparaît derrière le mur
-    const coopWay = target && isShelter(target) && (h.act === 'enter' || h.act === 'exit') ? coopPassage(target.type, target.level, toLocal(target, x, z)[1]) : null;
+    const coopWay = target && (isShelter(target) || target.type === 'nursery') && (h.act === 'enter' || h.act === 'exit') ? coopPassage(target.type, target.level, toLocal(target, x, z)[1]) : null;
     const yTarget = onNest ? 0.36 : inBath ? GRASS_TOP + 0.02 : coopWay ? GRASS_TOP - 0.02 + coopWay.y : GRASS_TOP;
     v.y += (yTarget - v.y) * Math.min(1, dt * (coopWay ? 30 : 14));
     // petit saut pour monter dans le nid
@@ -2120,7 +2147,8 @@ export class FarmRenderer {
       const gm = new THREE.MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.7, flatShading: true });
       m.group.traverse((o) => {
         if ((o as THREE.Mesh).isMesh) {
-          (o as THREE.Mesh).material = gm;
+          // (le treillis garde sa texture : il n'a pas de couleurs de sommets)
+          if (!((o as THREE.Mesh).material as THREE.MeshLambertMaterial).map) (o as THREE.Mesh).material = gm;
           o.castShadow = false;
         }
       });
@@ -2236,9 +2264,9 @@ export class FarmRenderer {
     this.highlight.update(this.time);
     let halo: { x: number; z: number; w: number; d: number } | null = null;
     if (sb) {
-      const d = sizeOf(sb.type, sb.level, sb.rot);
+      const d = sb.type === 'stand' ? standLayout(sb.level) : sizeOf(sb.type, sb.level, sb.rot);
       const c = this.center(sb);
-      halo = { x: c.x, z: sb.type === 'stand' ? STAND_POS.z + 0.35 : c.z, w: d.w + 1.1, d: d.d + 1.1 };
+      halo = { x: c.x, z: c.z, w: d.w + 1.1, d: d.d + 1.1 };
     } else if (sw) halo = { x: sw.root.position.x, z: sw.root.position.z, w: 1.7, d: 1.7 };
     else if (sr) halo = { x: sr.root.position.x, z: sr.root.position.z, w: 1.3, d: 1.3 };
     else if (sd) halo = { x: sd.root.position.x, z: sd.root.position.z, w: 1.4, d: 1.4 };

@@ -1,7 +1,7 @@
 // Le personnel : des salariés visibles qui se déplacent dans la ferme et font réellement
 // le travail (ramassage, remplissage, nettoyage, soins, arrosage, vente au comptoir).
 import { FRESHNESS, TIME, GRAIN_SACKS, GRID_H, GRID_W, PREDATORS, WORLD, clamp, gradeOf, sackPrice } from '../config/balance';
-import { BUILDINGS, STAND_POS, sizeOf } from '../config/buildings';
+import { BUILDINGS, STAND_POS, sizeOf, standLayout } from '../config/buildings';
 import { ROLES, STAFF, WORKER_NAMES } from '../config/staff';
 import { buildingCenter, canStand, cellIndex, coopDoor, cellX, cellZ, crossesFence, currentDay, facadeHeading, frontOf, toWorld, currentHour, emit, inGrid, isWalkable, nearestWalkable, newId, notify, pick, planPath, rand, randRange, rt, isShelter } from './core';
 import { PREDATOR_INFO, damagePredator, distanceToFarm, predatorAimY } from './predators';
@@ -27,20 +27,31 @@ const TO_GATE: Array<[number, number]> = [HOUSE, [-6.0, 28.6], [-6.0, LANE_Z], [
 const SELLER_GAP = 0.75;
 const SELLERS_PER_ROW = 4;
 export function sellerSpot(s: GameState, w?: Worker): [number, number] {
-  const st = s.buildings.find((b) => b.type === 'stand');
-  const level = st?.level ?? 1;
+  const level = standLevel(s);
+  const i = w ? Math.max(0, workersOf(s, 'seller').indexOf(w)) : 0;
+  // au magasin : côte à côte derrière le long comptoir, en rang centré. Ils y entrent par l'ouest :
+  // le premier arrivé va le plus à l'est, si bien que personne n'a à passer devant un collègue.
+  if (level >= 4) {
+    const { cx, sellerZ } = standLayout(level);
+    const m = Math.max(1, workersOf(s, 'seller').length);
+    return [cx + ((m - 1) / 2 - i) * SELLER_GAP, sellerZ];
+  }
   const [x, z]: [number, number] =
     level === 1 ? [STAND_POS.x + 2.35, STAND_POS.z + 0.4] : level === 2 ? [STAND_POS.x + 2.45, STAND_POS.z + 0.6] : [STAND_POS.x + 2.6, STAND_POS.z + 1.05];
-  const i = w ? Math.max(0, workersOf(s, 'seller').indexOf(w)) : 0;
   return [x + (i % SELLERS_PER_ROW) * SELLER_GAP, z - Math.floor(i / SELLERS_PER_ROW) * SELLER_GAP];
 }
+const standLevel = (s: GameState) => s.buildings.find((b) => b.type === 'stand')?.level ?? 1;
 /** Cap des vendeurs : tous tournés vers les clients qui s'arrêtent devant l'étal. */
 function sellerHeading(s: GameState) {
   const [x, z] = sellerSpot(s);
-  return Math.atan2(STAND_POS.x + 1 - x, STAND_POS.z + 1.25 - z);
+  const { cx, stopZ } = standLayout(standLevel(s));
+  return Math.atan2(cx - x, stopZ - z);
 }
+/** Le magasin barre le passage : on en fait le tour par l'ouest pour passer derrière le comptoir. */
+const SHOP_WEST_X = 15.3;
 function toCounter(s: GameState, w: Worker): Array<[number, number]> {
   const [x, z] = sellerSpot(s, w);
+  if (standLevel(s) >= 4) return [HOUSE, [-6.0, 28.6], [-6.0, LANE_Z], [SHOP_WEST_X, LANE_Z], [SHOP_WEST_X, z], [x, z]];
   return [HOUSE, [-6.0, 28.6], [-6.0, LANE_Z], [x, LANE_Z], [x, z]];
 }
 const flat = (pts: Array<[number, number]>) => pts.flatMap(([x, z]) => [x, z]);
@@ -153,10 +164,12 @@ export function hire(s: GameState, role: WorkerRole): ActionResult {
     w.onSite = true;
     if (role === 'seller') {
       const [x, z] = sellerSpot(s, w);
-      w.x = x;
-      w.z = WORLD.WALK_Z;
+      const shop = standLevel(s) >= 4;
+      w.x = shop ? SHOP_WEST_X : x;
+      // embauchés coup sur coup, ils arrivent l'un derrière l'autre
+      w.z = WORLD.WALK_Z + (shop ? Math.max(0, workersOf(s, 'seller').indexOf(w)) * 0.7 : 0);
       w.heading = Math.PI;
-      w.path = [x, z];
+      w.path = shop ? [SHOP_WEST_X, z, x, z] : [x, z];
       w.job = { kind: 'commuteIn', targetId: -1, tx: x, tz: z, phase: 'walk', t: 0 };
     } else {
       [w.x, w.z] = freeSpot(s, w, 14.5, 29.4);
@@ -548,13 +561,13 @@ function patrol(s: GameState, w: Worker) {
 function chooseCaretakerJob(s: GameState, w: Worker) {
   const taken = reservedBy(s, w);
   const patients = s.hens
-    .filter((h) => (h.sick || h.health < STAFF.healBelow) && h.act !== 'sleep' && h.act !== 'enter' && !taken.has(`heal:${h.id}`))
+    .filter((h) => (h.sick || h.health < STAFF.healBelow) && !h.nursery && h.act !== 'sleep' && h.act !== 'enter' && !taken.has(`heal:${h.id}`))
     .sort((a, b) => a.health - b.health);
   if (patients.length) {
     const h = patients[0];
     if (assign(s, w, 'heal', h.id, h.x, h.z + 0.45, STAFF.healTime)) return;
   }
-  const awake = s.hens.filter((h) => h.act !== 'sleep');
+  const awake = s.hens.filter((h) => h.act !== 'sleep' && !h.nursery);
   if (awake.length) {
     const h = awake[Math.floor(rand(s) * awake.length)];
     return wander(s, w, { x: h.x, z: h.z }, 1.5);
@@ -993,6 +1006,11 @@ export function updateWorkers(s: GameState, dt: number) {
     if (j.kind === 'stand' && j.phase === 'work') {
       const [x, z] = sellerSpot(s, w);
       if (Math.hypot(x - w.x, z - w.z) > 0.25) {
+        // l'étal vient de devenir un magasin : il sort de ses murs et passe derrière le comptoir
+        if (standLevel(s) >= 4 && w.z < z - 0.2) {
+          w.x = SHOP_WEST_X;
+          w.z = z;
+        }
         j.phase = 'walk';
         j.tx = x;
         j.tz = z;
@@ -1115,10 +1133,16 @@ function shove(s: GameState, o: { x: number; z: number }, nx: number, nz: number
   return false;
 }
 
+/** Les murs du magasin et son comptoir, sur la place (hors de la grille de la ferme). */
+function inShop(s: GameState, x: number, z: number) {
+  if (standLevel(s) < 4) return false;
+  return (x > 15.8 && x < 24.2 && z > 31.4 && z < 34.05) || (x > 17.5 && x < 22.5 && z > 34.6 && z < 35.1);
+}
+
 /** Déplace un salarié s'il en a le droit (pas dans un bâtiment, pas à travers le grillage), en glissant au besoin. */
 function bump(s: GameState, w: Worker, dx: number, dz: number) {
   const go = (x: number, z: number) => {
-    if ((inGrid(Math.floor(x), Math.floor(z)) && !canStand(s, x, z, 0.1)) || crossesFence(s, w.x, w.z, x, z, 'human')) return false;
+    if ((inGrid(Math.floor(x), Math.floor(z)) && !canStand(s, x, z, 0.1)) || inShop(s, x, z) || crossesFence(s, w.x, w.z, x, z, 'human')) return false;
     w.x = x;
     w.z = z;
     return true;

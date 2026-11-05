@@ -1,7 +1,7 @@
 // Interface du registre en ligne : nom de ferme unique, classement, visites.
 import { useEffect, useState } from 'preact/hooks';
 import { deserialize } from '../save/save';
-import { NAME_RE, OnlineError, SECRET_MIN, alreadyAsked, claimFarm, identity, loadBoard, markAsked, pushFarm, restoreFarm, setIdentity, type BoardRow, type BoardSort } from '../online/farms';
+import { NAME_RE, OnlineError, SECRET_MIN, claimFarm, identity, lastPushOk, loadBoard, pushFarm, restoreFarm, setIdentity, type BoardRow, type BoardSort } from '../online/farms';
 import type { GameState } from '../sim/types';
 import { Btn, Icon, Tabs, useGame } from './common';
 
@@ -9,27 +9,25 @@ export type FormMode = 'create' | 'join' | 'restore';
 
 interface FormDone {
   name: string;
-  /** Ferme retrouvée en ligne (mode « restore »). */
+  /** Ferme retrouvée en ligne (mode « restore », si elle a déjà été sauvegardée). */
   state?: GameState;
 }
 
 /**
- * Formulaire nom de ferme + code secret. Créer / rejoindre : le nom doit être libre (personne
- * d'autre ne peut le prendre). Retrouver : nom + code redonnent sa ferme sur un autre appareil.
+ * Formulaire nom de ferme + code secret. Créer / inscrire : le nom doit être libre (personne d'autre
+ * ne peut le prendre). Retrouver : nom + code redonnent sa ferme sur n'importe quel appareil.
  */
-export function OnlineForm({ mode, onDone, onOffline, onCancel, cancelLabel = 'Retour' }: { mode: FormMode; onDone: (r: FormDone) => void; onOffline?: () => void; onCancel?: () => void; cancelLabel?: string }) {
-  const [name, setName] = useState('');
+export function OnlineForm({ mode, initialName = '', onDone, onCancel, cancelLabel = 'Retour' }: { mode: FormMode; initialName?: string; onDone: (r: FormDone) => void; onCancel?: () => void; cancelLabel?: string }) {
+  const [name, setName] = useState(initialName);
   const [secret, setSecret] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [offline, setOffline] = useState(false);
   const restore = mode === 'restore';
 
   const submit = async (e: Event) => {
     e.preventDefault();
     const n = name.trim().replace(/\s+/g, ' ');
     setError('');
-    setOffline(false);
     if (!NAME_RE.test(n)) return setError('Le nom de la ferme doit faire 3 à 24 caractères (lettres, chiffres, espaces, - . _ ’).');
     if (secret.length < SECRET_MIN) return setError(`Le code secret doit faire au moins ${SECRET_MIN} caractères.`);
     setBusy(true);
@@ -37,9 +35,10 @@ export function OnlineForm({ mode, onDone, onOffline, onCancel, cancelLabel = 'R
       if (restore) {
         const save = await restoreFarm(n, secret);
         const state = save ? deserialize(save) : null;
-        if (!state) return setError('Cette ferme n’a pas encore de sauvegarde en ligne.');
-        setIdentity({ name: n, secret });
-        onDone({ name: n, state });
+        // le nom tapé peut différer par les majuscules : on garde l'orthographe de la ferme
+        const exact = state && state.farmName.toLowerCase() === n.toLowerCase() ? state.farmName : n;
+        setIdentity({ name: exact, secret });
+        onDone({ name: exact, state: state ?? undefined });
       } else {
         const r = await claimFarm(n, secret);
         if (r === 'taken') return setError('Ce nom de ferme est déjà pris : choisissez-en un autre.');
@@ -51,10 +50,7 @@ export function OnlineForm({ mode, onDone, onOffline, onCancel, cancelLabel = 'R
       const msg = err instanceof OnlineError ? err.message : '';
       if (msg === 'unknown') setError('Aucune ferme à ce nom.');
       else if (msg === 'denied') setError('Code secret incorrect.');
-      else {
-        setError('Pas de connexion au serveur : impossible de vérifier le nom pour l’instant.');
-        setOffline(true);
-      }
+      else setError('Pas de connexion au serveur : impossible de continuer pour l’instant. Vérifiez votre réseau et réessayez.');
     } finally {
       setBusy(false);
     }
@@ -70,17 +66,12 @@ export function OnlineForm({ mode, onDone, onOffline, onCancel, cancelLabel = 'R
         <span>{restore ? 'Votre code secret' : `Code secret (${SECRET_MIN} caractères minimum)`}</span>
         <input type="password" value={secret} maxLength={64} placeholder="••••" autocomplete="off" onInput={(e) => setSecret((e.target as HTMLInputElement).value)} />
       </label>
-      {!restore && <small class="ofarm-hint">Le nom identifie votre ferme dans le classement. Le code secret vous permet de la retrouver sur un autre appareil : notez-le bien.</small>}
+      {!restore && <small class="ofarm-hint">Ce nom et ce code sont vos seuls accès à votre ferme : notez-les bien, sans eux elle est perdue. N’utilisez pas un vrai mot de passe.</small>}
       {error && <p class="ofarm-err">{error}</p>}
       <div class="ofarm-actions">
-        <Btn kind="primary" disabled={busy} onClick={() => undefined} type="submit">
-          {busy ? 'Un instant…' : restore ? 'Retrouver ma ferme' : mode === 'join' ? 'Rejoindre le classement' : 'Créer ma ferme'}
+        <Btn kind="primary" disabled={busy} type="submit">
+          {busy ? 'Un instant…' : restore ? 'Retrouver ma ferme' : mode === 'join' ? 'Inscrire ma ferme' : 'Créer ma ferme'}
         </Btn>
-        {offline && onOffline && (
-          <Btn kind="ghost" onClick={onOffline}>
-            Jouer hors ligne
-          </Btn>
-        )}
         {onCancel && (
           <Btn kind="ghost" onClick={onCancel}>
             {cancelLabel}
@@ -91,81 +82,39 @@ export function OnlineForm({ mode, onDone, onOffline, onCancel, cancelLabel = 'R
   );
 }
 
-/** Rejoint le registre avec la ferme en cours (le nom devient celui de la ferme). */
-export function useJoin() {
-  const game = useGame();
-  return (name: string) => {
-    game.state.farmName = name;
-    markAsked();
-    void pushFarm(game.state, true);
-    game.toast(`Bienvenue dans le classement, ${name} !`, 'good', '🏆');
-    game.changed();
-  };
-}
-
-/** Une seule fois, aux joueurs qui ont déjà une ferme sans être au classement. */
-export function JoinPrompt() {
-  const game = useGame();
-  const join = useJoin();
-  const [hidden, setHidden] = useState(false);
-  if (hidden || !game.persist || game.visiting || identity() || alreadyAsked() || !game.state.tutorial.done) return null;
-  const later = () => {
-    markAsked();
-    setHidden(true);
-  };
-  return (
-    <div class="modal-wrap">
-      <div class="modal card ofarm-modal">
-        <h2>Rejoignez le classement des éleveurs</h2>
-        <p class="sub">Choisissez le nom de votre ferme (personne d’autre ne pourra le prendre) : elle apparaîtra dans le classement et les autres joueurs pourront la visiter.</p>
-        <OnlineForm
-          mode="join"
-          onDone={({ name }) => {
-            join(name);
-            setHidden(true);
-          }}
-          onCancel={later}
-          cancelLabel="Plus tard"
-        />
-      </div>
-    </div>
-  );
-}
-
-/** Réglages : état du profil en ligne, ou formulaire pour le créer. */
+/** Réglages : la sauvegarde en ligne de la ferme. */
 export function OnlineSettings() {
   const game = useGame();
-  const join = useJoin();
   const id = identity();
   const [msg, setMsg] = useState('');
-  if (id) {
-    return (
-      <>
-        <h5>Classement en ligne</h5>
-        <p class="hint">
-          Ferme inscrite sous le nom <b>{id.name}</b>. Elle est envoyée automatiquement au classement toutes les quelques minutes.
-        </p>
-        <div class="actions">
-          <Btn
-            kind="soft"
-            onClick={async () => {
-              setMsg('Envoi…');
-              const r = await pushFarm(game.state, true);
-              setMsg(r === 'ok' ? 'Ferme envoyée !' : r === 'denied' ? 'Code secret refusé.' : r === 'skipped' ? 'Ferme trop volumineuse ou envoi déjà en cours.' : 'Pas de connexion.');
-            }}
-          >
-            <Icon name="trophy" size={15} /> Envoyer ma ferme maintenant
-          </Btn>
-          {msg && <small class="muted">{msg}</small>}
-        </div>
-      </>
-    );
-  }
+  const last = lastPushOk();
+  const ago = last ? Math.round((Date.now() - last) / 60000) : -1;
   return (
     <>
-      <h5>Classement en ligne</h5>
-      <p class="hint">Rejoignez le classement : votre ferme aura un nom unique et les autres joueurs pourront la visiter.</p>
-      <OnlineForm mode="join" onDone={({ name }) => join(name)} />
+      <h5>Sauvegarde</h5>
+      <p class="hint">
+        {id ? (
+          <>
+            Ferme inscrite sous le nom <b>{id.name}</b>.{' '}
+          </>
+        ) : null}
+        Elle se sauvegarde toute seule, dans ce navigateur et en ligne. Pour la retrouver sur un autre appareil : « J’ai déjà une ferme en ligne » sur l’écran d’accueil, avec son nom et son code secret. Sans ce code, impossible de la récupérer : notez-le bien.
+      </p>
+      <div class="actions">
+        <Btn
+          kind="soft"
+          onClick={async () => {
+            if (!game.persist) return setMsg('Partie de démonstration : rien n’est sauvegardé.');
+            setMsg('Sauvegarde…');
+            game.save();
+            const r = await pushFarm(game.state, true);
+            setMsg(r === 'ok' ? 'Ferme sauvegardée en ligne ✓' : r === 'denied' ? 'Code secret refusé par le serveur.' : r === 'skipped' ? 'Sauvegardée sur cet appareil ; l’envoi en ligne repart dans un instant.' : 'Pas de connexion : sauvegardée sur cet appareil, l’envoi en ligne attendra.');
+          }}
+        >
+          Sauvegarder maintenant
+        </Btn>
+        <small class="muted">{msg || (ago < 0 ? 'Prochain envoi en ligne dans un instant.' : ago < 1 ? 'Dernier envoi en ligne : à l’instant.' : `Dernier envoi en ligne : il y a ${ago} min.`)}</small>
+      </div>
     </>
   );
 }

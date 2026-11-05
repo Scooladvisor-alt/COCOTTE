@@ -3,7 +3,7 @@ import { HEALTH, LAYING } from '../config/balance';
 import { BREEDS, BREED_ORDER } from '../config/breeds';
 import * as A from '../sim/actions';
 import { fmtMoney } from '../sim/economy';
-import { ACT_LABELS, eggsPerDayOf, henStatus, henValue, isLayer, productivity } from '../sim/hens';
+import { actLabel, eggsPerDayOf, henStatus, henValue, isLayer, productivity } from '../sim/hens';
 import { birdRole } from './Inspector';
 import { GeneStars } from './Show';
 import { geneTotal, genesOf } from '../sim/genetics';
@@ -264,7 +264,7 @@ export function HenListPanel() {
                   </div>
                   <small>
                     {h.rooster || h.young ? `${birdRole(h)} · ` : ''}
-                    {b.name} · {Math.floor(h.age)} j · {ACT_LABELS[h.act]}
+                    {b.name} · {Math.floor(h.age)} j · {actLabel(h)}
                   </small>
                   <GeneStars h={h} compact />
                   <div class="hc-needs">

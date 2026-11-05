@@ -80,7 +80,7 @@ export class Droppings {
   }
 
   private canDrop(h: Hen) {
-    if (SKIP.has(h.act)) return false;
+    if (SKIP.has(h.act) || h.nursery) return false;
     return inGrid(Math.floor(h.x), Math.floor(h.z));
   }
 

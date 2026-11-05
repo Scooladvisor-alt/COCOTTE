@@ -4,12 +4,12 @@ import { buildingThumb } from '../render/thumbs';
 import { TIME, LEVEL_GATES, levelAt } from '../config/balance';
 import { BUILDINGS } from '../config/buildings';
 import { sound } from '../audio/sound';
-import { deleteSave, hasSave } from '../save/save';
+import { deleteSave, deserialize, hasSave, saveGame } from '../save/save';
 import { currentDay } from '../sim/core';
 import { fmtMoney, fmtSigned } from '../sim/economy';
 import { unlocksAt } from '../sim/progression';
 import { newFarm } from '../sim/starter';
-import { identity, pushFarm } from '../online/farms';
+import { NAME_RE, OnlineError, clearIdentity, identity, onlineIsNewer, pushFarm, restoreFarm } from '../online/farms';
 import { OnlineForm } from './Online';
 import type { GameState } from '../sim/types';
 import { Btn, Icon, useGame } from './common';
@@ -340,59 +340,114 @@ export function OfflineModal() {
  * Page d'accueil : la ferme vivante en 3D isométrique derrière, et devant, juste l'essentiel —
  * le nom du jeu, une phrase, un bouton pour jouer.
  */
-export function TitleScreen({ fromSave }: { fromSave: boolean }) {
+/**
+ * Accueil. L'inscription est obligatoire : chaque ferme a un nom unique et un code secret, et se
+ * sauvegarde en ligne. Quatre cas : déjà inscrit ici (on reprend la sauvegarde la plus récente, celle
+ * de ce navigateur ou celle en ligne si l'on a joué ailleurs), ancienne partie jamais inscrite (on
+ * l'inscrit pour continuer), nouveau joueur (il choisit son nom), ou ferme existante à retrouver.
+ */
+export function TitleScreen() {
   const game = useGame();
   const s = game.state;
   const [confirm, setConfirm] = useState(false);
-  const [saved, setSaved] = useState(fromSave);
-  // 'create' : nom de ferme unique à choisir ; 'restore' : retrouver sa ferme en ligne
-  const [step, setStep] = useState<'home' | 'create' | 'restore'>('home');
+  const [step, setStep] = useState<'home' | 'create' | 'join' | 'restore'>('home');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState('');
   if (game.started) return null;
-  const begin = (name?: string, restored?: GameState) => {
+  // partie de démonstration (?nosave) : ni inscription ni sauvegarde
+  const id = game.persist ? identity() : null;
+  const local = game.persist && hasSave();
+
+  const begin = (name?: string) => {
     sound.unlock();
     if (game.persist) deleteSave();
-    const fresh = restored ?? newFarm();
+    const fresh = newFarm();
     if (name) fresh.farmName = name;
     game.replaceState(fresh);
-    setSaved(false);
     game.start(0);
     game.save();
-    if (identity()) void pushFarm(game.state, true);
+    if (game.persist && identity()) void pushFarm(game.state, true);
+  };
+  /** Reprend une ferme arrivée du serveur, avec le temps écoulé depuis sa dernière sauvegarde. */
+  const resumeOnline = (state: GameState, name: string) => {
+    sound.unlock();
+    state.farmName = name;
+    game.replaceState(state);
+    if (game.persist) saveGame(state);
+    game.start(Math.max(0, (Date.now() - state.savedAt) / 1000));
+  };
+  const resumeLocal = () => game.start(Math.max(0, (Date.now() - s.savedAt) / 1000));
+
+  const play = () => {
+    sound.unlock();
+    if (!game.persist) return begin();
+    setStep('create');
   };
   const startNew = () => {
     sound.unlock();
-    if (saved && !confirm) return setConfirm(true);
-    // déjà inscrit sur cet appareil : la nouvelle ferme garde le même nom au classement
-    const id = identity();
+    if (!confirm) return setConfirm(true);
+    // déjà inscrit : la nouvelle ferme garde son nom (et remplacera l'ancienne en ligne)
     if (id) return begin(id.name);
     setStep('create');
   };
-  const cont = () => {
+  const cont = async () => {
     sound.unlock();
-    const secs = Math.max(0, (Date.now() - s.savedAt) / 1000);
-    game.start(secs);
+    setNote('');
+    if (!id) return setStep('join');
+    setBusy(true);
+    try {
+      const save = await restoreFarm(id.name, id.secret, 7000);
+      const online = save ? deserialize(save) : null;
+      if (online && (!local || onlineIsNewer(online.savedAt, s.savedAt))) resumeOnline(online, id.name);
+      else if (local) resumeLocal();
+      else begin(id.name); // inscrite mais jamais sauvegardée : elle commence ici
+    } catch (e) {
+      const msg = e instanceof OnlineError ? e.message : '';
+      if (msg === 'unknown' || msg === 'denied') {
+        // la ferme n'existe plus en ligne, ou le code a changé : il faut se réinscrire
+        clearIdentity();
+        setNote(msg === 'unknown' ? 'Cette ferme n’existe plus en ligne : inscrivez-la de nouveau.' : 'Le code secret enregistré ici est refusé : entrez le bon.');
+        setStep(msg === 'denied' ? 'restore' : local ? 'join' : 'create');
+      } else if (local) resumeLocal(); // pas de réseau : on joue, la ferme repartira en ligne au retour
+      else setNote('Pas de connexion : impossible de charger votre ferme. Vérifiez votre réseau et réessayez.');
+    } finally {
+      setBusy(false);
+    }
   };
-  const resume = saved && hasSave();
-  if (step !== 'home')
+
+  if (step !== 'home') {
+    const texts = {
+      create: ['Votre ferme', 'Choisissez le nom de votre ferme : il est unique, personne d’autre ne pourra le prendre. C’est lui qui vous identifie dans le classement des éleveurs.'],
+      join: ['Inscrivez votre ferme', 'Pour continuer à jouer, votre ferme a besoin d’un nom unique et d’un code secret : elle sera sauvegardée en ligne et apparaîtra dans le classement.'],
+      restore: ['Retrouver ma ferme', `Entrez le nom de votre ferme et votre code secret.${local ? ' Elle remplacera la partie enregistrée sur cet appareil.' : ''}`],
+    } as const;
     return (
       <div class="landing">
         <div class="ld-veil" />
         <main class="ld-hero ld-form">
-          <h1 class="ld-title small">{step === 'create' ? 'Votre ferme' : 'Retrouver ma ferme'}</h1>
-          <p class="ld-lead">
-            {step === 'create'
-              ? 'Choisissez le nom de votre ferme : il est unique, personne d’autre ne pourra le prendre. C’est lui qui vous identifie dans le classement des éleveurs.'
-              : 'Entrez le nom de votre ferme et votre code secret pour la retrouver sur cet appareil.'}
-          </p>
+          <h1 class="ld-title small">{texts[step][0]}</h1>
+          <p class="ld-lead">{texts[step][1]}</p>
+          {note && <p class="ofarm-err">{note}</p>}
           <OnlineForm
             mode={step}
-            onDone={({ name, state }) => begin(name, state)}
-            onOffline={step === 'create' ? () => begin() : undefined}
-            onCancel={() => setStep('home')}
+            initialName={step === 'join' && NAME_RE.test(s.farmName) ? s.farmName : ''}
+            onDone={({ name, state }) => {
+              if (step === 'create') return begin(name);
+              if (step === 'restore') return state ? resumeOnline(state, name) : begin(name);
+              // ancienne partie : elle prend le nom choisi et continue
+              s.farmName = name;
+              resumeLocal();
+              void pushFarm(s, true);
+            }}
+            onCancel={() => {
+              setNote('');
+              setStep('home');
+            }}
           />
         </main>
       </div>
     );
+  }
   return (
     <div class="landing">
       <div class="ld-veil" />
@@ -402,18 +457,19 @@ export function TitleScreen({ fromSave }: { fromSave: boolean }) {
         </span>
         <h1 class="ld-title">Cocotte</h1>
         <p class="ld-lead">Élevez vos poules, ramassez les œufs, vendez-les au village. Votre ferme vit même quand vous n’êtes pas là.</p>
+        {note && <p class="ofarm-err">{note}</p>}
         <div class="ld-actions">
-          {resume ? (
+          {local || id ? (
             <>
-              <button class="ld-play" onClick={cont}>
-                Continuer
-                <small>
-                  {s.farmName} · jour {currentDay(s)}
-                </small>
+              <button class="ld-play" disabled={busy} onClick={() => void cont()}>
+                {busy ? 'Un instant…' : 'Continuer'}
+                <small>{local ? `${id?.name ?? s.farmName} · jour ${currentDay(s)}` : id?.name}</small>
               </button>
-              <button class={`ld-ghost ${confirm ? 'danger' : ''}`} onClick={startNew}>
-                {confirm ? 'Effacer et recommencer' : 'Nouvelle partie'}
-              </button>
+              {local && (
+                <button class={`ld-ghost ${confirm ? 'danger' : ''}`} onClick={startNew}>
+                  {confirm ? 'Effacer et recommencer' : 'Nouvelle partie'}
+                </button>
+              )}
               {confirm && (
                 <button class="ld-link" onClick={() => setConfirm(false)}>
                   Annuler
@@ -421,14 +477,16 @@ export function TitleScreen({ fromSave }: { fromSave: boolean }) {
               )}
             </>
           ) : (
-            <button class="ld-play" onClick={startNew}>
+            <button class="ld-play" onClick={play}>
               Jouer
             </button>
           )}
         </div>
-        <button class="ld-link" onClick={() => setStep('restore')}>
-          J’ai déjà une ferme en ligne
-        </button>
+        {game.persist && (
+          <button class="ld-link" onClick={() => setStep('restore')}>
+            J’ai déjà une ferme en ligne
+          </button>
+        )}
         <small class="ld-note">Gratuit · dans le navigateur · sauvegarde automatique</small>
       </main>
       <footer class="ld-feats">

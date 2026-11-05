@@ -77,7 +77,7 @@ export function closeDay(s: GameState, day: number) {
   // maladies : seulement quand quelque chose ne va pas (poulailler sale, poule stressée, mal
   // nourrie ou affaiblie). Une poule bien soignée, au propre, nourrie et abreuvée ne tombe pas malade.
   for (const h of s.hens) {
-    if (h.sick) continue;
+    if (h.sick || h.nursery) continue; // à la poussinière, à l'abri des maladies de la basse-cour
     const coop = s.buildings.find((b) => b.id === h.coopId);
     const risk = (coop ? coop.cleanliness < 50 : true) || h.wellbeing < 45 || h.health < 50 || h.satiety < 15 || h.hydration < 15;
     if (!risk) continue;

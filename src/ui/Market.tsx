@@ -225,6 +225,11 @@ function StandCard() {
                 <b>Deux guichets</b> : la file avance deux fois plus vite
               </li>
             )}
+            {b.level + 1 === 4 && (
+              <li>
+                <b>Trois guichets</b> sur un long comptoir : les vendeurs servent côte à côte
+              </li>
+            )}
           </ul>
         ) : (
           <small class="muted">Votre étal est au plus haut niveau.</small>

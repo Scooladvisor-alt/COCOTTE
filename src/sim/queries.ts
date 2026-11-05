@@ -55,6 +55,22 @@ export function flockCapacity(s: GameState) {
 /** Bâtiment où dort chaque espèce : le poulailler pour les poules, l'abri à oies pour les oies. */
 export const shelterType = (breed: BreedId): BuildingType => (isGoose(breed) ? 'goosehouse' : 'coop');
 
+/** Abri où logera un jeune : une place compatible, sinon le moins rempli (il y sera à l'étroit). */
+export function homeForYoung(s: GameState, breed: BreedId): Building | null {
+  const fit = coopFor(s, breed);
+  if (fit) return fit;
+  let best: Building | null = null;
+  let bestFree = -Infinity;
+  for (const c of buildingsOf(s, shelterType(breed))) {
+    const free = lvl(c).capacity - coopOccupancy(s, c.id);
+    if (free > bestFree) {
+      best = c;
+      bestFree = free;
+    }
+  }
+  return best;
+}
+
 /** Abri disposant d'une place compatible avec la race (le moins rempli d'abord). */
 export function coopFor(s: GameState, breed: BreedId): Building | null {
   const need = isGoose(breed) ? 1 : BREEDS[breed].reqCoop;

@@ -10,7 +10,7 @@ import { addXp, breedUnlocked, earn, farmLevel, fmtMoney, levelReached, maxParce
 import { canPlace, cleaningCost, countOfType } from './buildings';
 import { collectEggs, collectNest } from './eggs';
 import { reseedParcel } from './grass';
-import { createHen, henValue, recallHen, resetHenAfterLayout } from './hens';
+import { adoptChicks, createHen, henValue, recallHen, releaseChicks, resetHenAfterLayout } from './hens';
 import { autoEnclose } from './fences';
 import { adultCount, coopFor, coopOccupancy, getBuilding, getHen, landCapacity, lvl, shelterType, storageFree } from './queries';
 import { makeBuilding } from './state';
@@ -222,7 +222,7 @@ export function sellExtraRoosters(s: GameState): ActionResult {
  */
 export function rehouseGeese(s: GameState) {
   for (const h of s.hens) {
-    if (!isGoose(h.breed)) continue;
+    if (!isGoose(h.breed) || h.nursery) continue;
     const cur = getBuilding(s, h.coopId);
     if (cur?.type === 'goosehouse') continue;
     const home = coopFor(s, h.breed);
@@ -461,6 +461,8 @@ export function build(s: GameState, type: BuildingType, x: number, z: number, ro
   addXp(s, 5);
   // un nouvel abri à oies : les oies qui dormaient au poulailler y emménagent
   if (type === 'goosehouse') rehouseGeese(s);
+  // une poussinière : les jeunes qui couraient avec les poules s'y installent
+  if (type === 'nursery') adoptChicks(s, b);
   return OK;
 }
 
@@ -513,6 +515,7 @@ export function upgrade(s: GameState, id: number): ActionResult {
     resetHenAfterLayout(s);
   }
   b.invested += next.cost;
+  if (b.type === 'nursery') adoptChicks(s, b);
   if (isShelter(b)) b.cleanliness = Math.max(b.cleanliness, 90);
   emit(s, { kind: 'upgrade', buildingId: b.id });
   addXp(s, 8 + b.level * 4);
@@ -612,6 +615,8 @@ export function demolish(s: GameState, id: number): ActionResult {
       if (target) h.coopId = target.id;
     }
   }
+  // ses poussins rejoignent la basse-cour
+  if (b.type === 'nursery') releaseChicks(s, b);
   if (b.type === 'nest') {
     // les œufs restés dans le pondoir tombent au sol à côté
     for (const e of s.worldEggs) if (e.nestId === b.id) (e.where = 'ground'), (e.nestId = -1), (e.z += 1);

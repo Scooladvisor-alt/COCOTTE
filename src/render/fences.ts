@@ -7,7 +7,7 @@ import { C, MAT, box, cyl, ico, merge, mesh } from './geo';
 const GROUND = 0.08;
 const tmp = new THREE.Object3D();
 
-function wireTexture(dense: boolean) {
+export function wireTexture(dense: boolean) {
   const c = document.createElement('canvas');
   c.width = 128;
   c.height = 64;

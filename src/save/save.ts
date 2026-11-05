@@ -266,13 +266,17 @@ export function sanitize(input: unknown): GameState | null {
 
   // Poules
   const coops = s.buildings.filter((b) => b.type === 'coop');
+  // chacun garde son logis : poulailler, abri à oies ou, pour un jeune, poussinière
+  const homes = s.buildings.filter((b) => b.type === 'coop' || b.type === 'goosehouse');
+  const nurseries = s.buildings.filter((b) => b.type === 'nursery');
   for (const rh of arr(raw.hens)) {
     const h = obj(rh);
     // l'Isa Brown, d'abord race à part, est devenue un plumage de la Rousse des prés
     const wasIsa = h.breed === 'isa';
     const breed = (wasIsa ? 'rousse' : h.breed) as Hen['breed'];
     if (!BREEDS[breed]) continue;
-    const coopId = coops.some((c) => c.id === h.coopId) ? (h.coopId as number) : coops[0].id;
+    const raising = bool(h.nursery, false) && num(h.young, 0) > 0 && nurseries.some((c) => c.id === h.coopId);
+    const coopId = raising || homes.some((c) => c.id === h.coopId) ? (h.coopId as number) : coops[0].id;
     const hen: Hen = {
       id: int(h.id, 0),
       name: str(h.name, 'Poulette', 18),
@@ -311,6 +315,7 @@ export function sanitize(input: unknown): GameState | null {
     hen.genes = { p: int(g.p, 3, 1, 5), r: int(g.r, 3, 1, 5), b: int(g.b, 3, 1, 5) };
     const young = num(h.young, 0, 0, 365);
     if (young > 0) hen.young = young;
+    if (raising) hen.nursery = true;
     s.hens.push(hen);
   }
 

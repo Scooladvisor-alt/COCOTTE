@@ -1,17 +1,16 @@
 import { useState } from 'preact/hooks';
 import type { Game } from '../game';
-import { hasSave } from '../save/save';
 import { GameCtx, useGame } from './common';
 import { Dock, LeftPanel, TopRight } from './Hud';
 import { Inspector } from './Inspector';
 import { LevelUpModal, NightFade, OfflineModal, PlacementBar, PredatorAlert, TitleScreen, Toasts, Tutorial } from './Overlays';
 import { PanelHost } from './Panels';
 import { ShowResultModal } from './Show';
-import { CloudVeil, JoinPrompt, VisitBar, VisitDock } from './Online';
+import { CloudVeil, VisitBar, VisitDock } from './Online';
 
-function Hud({ fromSave }: { fromSave: boolean }) {
+function Hud() {
   const game = useGame();
-  if (!game.started) return <TitleScreen fromSave={fromSave && game.persist && hasSave()} />;
+  if (!game.started) return <TitleScreen />;
   // visite d'une autre ferme : on regarde, on zoome, on se déplace, rien d'autre
   if (game.visiting)
     return (
@@ -37,7 +36,6 @@ function Hud({ fromSave }: { fromSave: boolean }) {
       <OfflineModal />
       <NightFade />
       <ShowResultModal />
-      <JoinPrompt />
       {game.state.money < 0 && <div class="debt-banner">Compte à découvert : vendez des œufs pour éviter les agios</div>}
     </>
   );
@@ -58,11 +56,11 @@ function RotateHint() {
   );
 }
 
-export function App({ game, fromSave }: { game: Game; fromSave: boolean }) {
+export function App({ game }: { game: Game }) {
   return (
     <GameCtx.Provider value={game}>
       <div class="hud">
-        <Hud fromSave={fromSave} />
+        <Hud />
       </div>
       <CloudVeil />
       <RotateHint />

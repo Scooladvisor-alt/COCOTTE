@@ -6,6 +6,7 @@
 // (planches, colombages, tuiles…) visibles sous l'angle de la caméra (façade +z, côté +x).
 import * as THREE from 'three';
 import { C, GLOW, box, cone, cyl, finalizeExport, ico, merge, prism, sph, type V3 } from './geo';
+import { nurseryPlan } from '../sim/nursery';
 
 export type Parts = THREE.BufferGeometry[];
 
@@ -1542,4 +1543,345 @@ export function compostBin(parts: Parts) {
     [1.93, 1.95, 0xd9534f],
   ] as const)
     parts.push(box(0.08, 0.03, 0.05, c, [x, 0.21, z], [0, x * 7, 0]));
+}
+
+// ============================================================= POUSSINIÈRE ====
+const EARTH = 0xbfa377;
+
+/** Mangeoire à poussins : assiette rouge à fentes sous une petite trémie transparente. */
+function chickFeeder(parts: Parts, x: number, z: number, r: number) {
+  parts.push(cyl(r, r + 0.02, 0.05, 14, 0xc8433a, [x, 0.05, z]));
+  parts.push(cyl(r - 0.03, r - 0.03, 0.012, 14, 0xd9b35a, [x, 0.078, z]));
+  for (let k = 0; k < 6; k++) parts.push(box(0.012, 0.03, r * 0.9, 0xa8352d, [x, 0.09, z], [0, (k / 6) * Math.PI, 0]));
+  parts.push(cyl(r * 0.5, r * 0.62, 0.17, 12, 0xeadfc0, [x, 0.17, z]));
+  parts.push(cyl(r * 0.54, r * 0.54, 0.025, 12, 0xc8433a, [x, 0.265, z]));
+}
+
+/** Abreuvoir à poussins : coupelle bleue et bonbonne retournée. */
+function chickDrinker(parts: Parts, x: number, z: number, r: number) {
+  parts.push(cyl(r, r + 0.02, 0.045, 14, 0x2f7fc1, [x, 0.045, z]));
+  parts.push(cyl(r - 0.025, r - 0.025, 0.01, 14, 0x9fd4f5, [x, 0.07, z]));
+  parts.push(cyl(r * 0.5, r * 0.56, 0.2, 12, 0xcfe6f5, [x, 0.17, z]));
+  parts.push(sph(r * 0.5, 10, 6, 0xcfe6f5, [x, 0.27, z], [1, 0.55, 1]));
+  parts.push(cyl(r * 0.2, r * 0.2, 0.03, 8, 0x2f7fc1, [x, 0.32, z]));
+}
+
+/** Petit abri de bois en bâtière où les poussins se glissent à l'ombre. */
+function aFrame(parts: Parts, x: number, z: number, w: number) {
+  const d = 0.52;
+  for (const s2 of [-1, 1]) parts.push(box(w, 0.03, d, s2 < 0 ? C.wood : 0xc2884d, [x, 0.22, z + (s2 * d) / 2 - s2 * 0.03], [(s2 * Math.PI) / 3.4, 0, 0]));
+  parts.push(box(w + 0.03, 0.03, 0.04, C.woodDark, [x, 0.42, z]));
+  for (const ex of [-1, 1]) parts.push(box(0.03, 0.03, d * 0.9, C.woodDark, [x + (ex * w) / 2, 0.06, z]));
+}
+
+/** Enseigne en bois peinte d'un poussin jaune. */
+function chickSign(parts: Parts, x: number, y: number, z: number) {
+  parts.push(box(0.5, 0.2, 0.025, C.woodDark, [x, y, z]));
+  parts.push(box(0.46, 0.16, 0.012, 0xf6efe0, [x, y, z + 0.016]));
+  for (const k of [-0.13, 0, 0.13]) {
+    parts.push(sph(0.042, 7, 5, 0xf5c542, [x + k, y - 0.012, z + 0.026], [1, 0.95, 0.3]));
+    parts.push(sph(0.026, 6, 4, 0xf5c542, [x + k + 0.03, y + 0.034, z + 0.026], [1, 1, 0.3]));
+    parts.push(box(0.016, 0.01, 0.006, 0xf08a3a, [x + k + 0.058, y + 0.034, z + 0.034]));
+  }
+}
+
+/**
+ * La poussinière (façade et parc vers +z) : un bâtiment de bois chauffé au fond, sa trappe et sa
+ * petite rampe, et devant lui le parc grillagé, en herbe, avec ses mangeoires et abreuvoirs à
+ * poussins. Niveau 2 : plus grand, véranda vitrée, lanternon d'aération, abris et bac à sable. Les
+ * repères (trappe, parc, mangeoires, portillon) viennent de nurseryPlan : la simulation s'en sert aussi.
+ */
+export function nurseryHouse(parts: Parts, windows: THREE.Mesh[], level: number) {
+  const plan = nurseryPlan(level);
+  const big = level >= 2;
+  const { house: h, park, doorX } = plan;
+  const cz = (h.z0 + h.z1) / 2;
+  const cx = (h.x0 + h.x1) / 2;
+  const fz0 = h.z1 + 0.05;
+  const fz1 = plan.gate[1];
+  const fx0 = park.x0 - 0.2;
+  const fx1 = park.x1 + 0.2;
+  // pas de sol dessiné : la vraie herbe de la ferme pousse dans le parc et sur les abords (voir
+  // farmRenderer.updateGrass). Juste la terre battue là où les poussins passent le plus.
+  const worn: Array<[number, number, number]> = [[doorX, h.z1 + 0.5, 0.62]];
+  for (const [x, z, r] of [...plan.feeders, ...plan.drinkers]) worn.push([x, z, r + 0.34]);
+  for (const [x, z, r] of worn) parts.push(cyl(r, r, 0.012, 16, EARTH, [x, 0.024, z], undefined, [1, 1, 0.82]));
+
+  // bâtiment : soubassement de pierre, bardage de bois clair, angles blancs
+  const y0 = 0.18;
+  const y1 = big ? 1.5 : 1.3;
+  parts.push(box(h.x1 - h.x0 + 0.05, y0, h.z1 - h.z0 + 0.05, STONE, [cx, y0 / 2 + 0.02, cz]));
+  parts.push(box(h.x1 - h.x0, y1 - y0, h.z1 - h.z0, 0x8a6a48, [cx, (y0 + y1) / 2, cz]));
+  boardsZ(parts, h.x0, h.x1, y0, y1, h.z1, 0xdcb887, 0xcfa873, 0.17);
+  boardsX(parts, h.z0, h.z1, y0, y1, h.x1, 0xdcb887, 0xcfa873, 0.17);
+  for (const [x, z] of [
+    [h.x0, h.z1],
+    [h.x1, h.z1],
+    [h.x1, h.z0],
+  ])
+    parts.push(box(0.07, y1 - y0, 0.07, TRIM, [x, (y0 + y1) / 2, z]));
+  // toit de tuiles, débord sur le parc
+  const roof = gableRoof(parts, { cx, cz, y: y1, w: h.x1 - h.x0, d: h.z1 - h.z0, h: big ? 0.9 : 0.72, over: 0.2, side: 0.14, a: 0xc96a4a, b: 0xb85c3f, n: 7, ridge: 0x8f4a33, rive: TIMBER, gable: 0xdcb887 });
+  // tuyau du poêle (le bâtiment est chauffé)
+  parts.push(cyl(0.05, 0.05, 0.5, 8, IRON, [h.x1 - 0.7, roof.ridgeY + 0.1, h.z0 + 0.5]));
+  parts.push(cone(0.09, 0.07, 8, IRON, [h.x1 - 0.7, roof.ridgeY + 0.38, h.z0 + 0.5]));
+  // trappe des poussins, sa petite rampe et un auvent ; fenêtres chaudes de part et d'autre
+  henDoor(parts, doorX, 0.06, 0.46, 0.42, h.z1 + 0.012, TIMBER);
+  ramp(parts, doorX, 0.07, h.z1 + 0.01, h.z1 + 0.32, 0.44, 0xcfa873, C.woodDark);
+  parts.push(box(0.72, 0.03, 0.4, 0xb85c3f, [doorX, 0.68, h.z1 + 0.18], [0.35, 0, 0]));
+  for (const s2 of [-1, 1]) parts.push(box(0.03, 0.14, 0.26, TIMBER, [doorX + s2 * 0.33, 0.58, h.z1 + 0.12]));
+  const winY = big ? 0.92 : 0.84;
+  for (const wx of big ? [h.x0 + 0.85, h.x0 + 1.95, h.x1 - 1.95, h.x1 - 0.85] : [h.x0 + 0.72, h.x1 - 0.72]) farmWindow(parts, windows, wx, winY, h.z1 + 0.022, 0.46, 0.42);
+  farmWindow(parts, windows, h.x1 + 0.022, winY, cz, 0.5, 0.42, true);
+  chickSign(parts, doorX, y1 - 0.2 + (big ? 0.04 : 0), h.z1 + 0.03);
+  lantern(parts, windows, doorX + 0.62, 0.92, h.z1 + 0.02);
+  // gouttière et descente, côté caméra
+  const [ey, ez] = roof.at(1, roof.len, 0);
+  parts.push(box(h.x1 - h.x0 + 0.2, 0.05, 0.07, 0xc9ccd1, [cx, ey - 0.04, ez - 0.02]));
+  parts.push(cyl(0.022, 0.022, ey - 0.1, 8, 0xc9ccd1, [h.x1 + 0.05, (ey + 0.05) / 2, h.z1 + 0.06]));
+  if (big) {
+    // lanternon d'aération sur le faîtage et véranda vitrée au bout du bâtiment
+    parts.push(box(0.7, 0.2, 0.34, 0xdcb887, [cx - 0.9, roof.ridgeY + 0.08, cz]));
+    for (let k = 0; k < 3; k++) parts.push(box(0.64, 0.025, 0.04, TRIM, [cx - 0.9, roof.ridgeY + 0.03 + k * 0.06, cz + 0.18], [0.5, 0, 0]));
+    parts.push(prism(0.82, 0.16, 0.46, 0xb85c3f, [cx - 0.9, roof.ridgeY + 0.18, cz]));
+    weathervane(parts, cx + 1.3, roof.ridgeY - 0.02, cz, 0.85);
+  }
+  // abords : bottes de paille, sacs de grain, bûches du poêle
+  const hx = h.x1 + 0.45;
+  parts.push(box(0.55, 0.3, 0.36, C.straw, [hx + 0.1, 0.17, h.z0 + 0.5]));
+  parts.push(box(0.57, 0.03, 0.38, 0xd8b85a, [hx + 0.1, 0.22, h.z0 + 0.5]));
+  parts.push(box(0.5, 0.26, 0.34, C.straw, [hx + 0.1, 0.45, h.z0 + 0.5], [0, 0.3, 0]));
+  for (let k = 0; k < 2; k++) parts.push(box(0.3, 0.16, 0.42, k ? 0xe9dfc8 : 0xf0e6cf, [h.x0 - 0.4, 0.1 + k * 0.15, h.z0 + 0.7], [0, k * 0.4, 0]));
+  for (let k = 0; k < 6; k++) parts.push(cyl(0.055, 0.055, 0.42, 7, k % 2 ? 0x8b6240 : 0x7a5436, [h.x0 - 0.4 + (k % 3) * 0.12 - 0.12, 0.08 + Math.floor(k / 3) * 0.1, h.z1 - 0.45], [Math.PI / 2, 0, 0]));
+
+  // grillage : poteaux de bois et lisses (le treillis et le portillon sont à part, dans models.ts)
+  const post = (x: number, z: number) => parts.push(box(0.07, 0.74, 0.07, C.woodDark, [x, 0.38, z]));
+  const stepsOf = (a: number, b: number) => Math.max(1, Math.round((b - a) / 1.05));
+  for (const z of [fz1]) {
+    const n = stepsOf(fx0, fx1);
+    for (let i = 0; i <= n; i++) post(fx0 + ((fx1 - fx0) * i) / n, z);
+  }
+  for (const x of [fx0, fx1]) {
+    const n = stepsOf(fz0, fz1);
+    for (let i = 0; i < n; i++) post(x, fz0 + ((fz1 - fz0) * i) / n);
+  }
+  for (const [a, b] of [
+    [fx0, h.x0],
+    [h.x1, fx1],
+  ]) {
+    const mid = (a + b) / 2;
+    post(mid, fz0);
+    for (const y of [0.1, 0.68]) parts.push(box(b - a, 0.04, 0.03, C.wood, [mid, y, fz0]));
+  }
+  const gx = plan.gate[0];
+  const gh = 0.42;
+  for (const y of [0.1, 0.68]) {
+    parts.push(box(gx - gh - fx0, 0.04, 0.03, C.wood, [(fx0 + gx - gh) / 2, y, fz1]));
+    parts.push(box(fx1 - gx - gh, 0.04, 0.03, C.wood, [(fx1 + gx + gh) / 2, y, fz1]));
+    for (const x of [fx0, fx1]) parts.push(box(0.03, 0.04, fz1 - fz0, C.wood, [x, y, (fz0 + fz1) / 2]));
+  }
+  for (const s2 of [-1, 1]) parts.push(box(0.09, 0.8, 0.09, C.woodDark, [gx + s2 * gh, 0.4, fz1]));
+
+  // l'intérieur du parc : à manger, à boire, de quoi s'amuser
+  for (const [x, z, r] of plan.feeders) chickFeeder(parts, x, z, r);
+  for (const [x, z, r] of plan.drinkers) chickDrinker(parts, x, z, r);
+  aFrame(parts, park.x1 - 0.55, park.z0 + 0.4, 0.8);
+  parts.push(cyl(0.07, 0.08, 0.9, 7, 0x8b6240, [park.x0 + 0.75, 0.11, park.z1 - 0.35], [0, 0.5, Math.PI / 2]));
+  parts.push(cyl(0.3, 0.42, 0.14, 10, C.straw, [park.x0 + 0.5, 0.08, park.z0 + 0.42]));
+  if (big) {
+    aFrame(parts, park.x0 + 0.65, park.z0 + 1.7, 0.9);
+    // bac à sable pour les bains de poussière
+    parts.push(box(1.2, 0.09, 0.8, C.woodDark, [park.x1 - 1.0, 0.05, park.z1 - 0.6]));
+    parts.push(box(1.08, 0.04, 0.68, 0xe7d3a2, [park.x1 - 1.0, 0.09, park.z1 - 0.6]));
+    // perchoir de branches
+    for (const s2 of [-1, 1]) parts.push(box(0.05, 0.3, 0.05, C.woodDark, [gx + 1.6 + s2 * 0.45, 0.16, park.z1 - 0.5]));
+    parts.push(cyl(0.03, 0.03, 1.05, 7, 0x8b6240, [gx + 1.6, 0.3, park.z1 - 0.5], [0, 0, Math.PI / 2]));
+    // un jeune pommier derrière le grillage, pour l'ombre
+    parts.push(cyl(0.05, 0.07, 0.9, 7, C.trunk, [fx0 + 0.75, 0.46, h.z0 + 0.8]));
+    parts.push(ico(0.48, 1, 0x8cc46e, [fx0 + 0.75, 1.15, h.z0 + 0.8]));
+    parts.push(ico(0.3, 1, 0x9ccf7e, [fx0 + 1.0, 1.38, h.z0 + 0.95]));
+  }
+}
+
+// ==================================================== MAGASIN DE LA FERME ====
+const SHOP_GREEN = 0x2f5d46;
+const SHOP_GREEN_LIGHT = 0x3f7a5c;
+const CARTON = 0xcbb389;
+
+/** Vitrine de façade : cadre vert, vitre qui s'allume le soir, étagères de boîtes d'œufs et de paniers. */
+function shopWindow(parts: Parts, windows: THREE.Mesh[], x: number, y: number, z: number, w: number, h: number) {
+  parts.push(box(w + 0.05, h + 0.05, 0.02, 0x23262d, [x, y, z + 0.012]));
+  windows.push(glassPane(w, h, [x, y, z + 0.028], 0, 0.012));
+  // étagères : la marchandise se voit depuis la rue
+  const shelves = h > 0.8 ? [y - h / 2 + 0.07, y + 0.03] : [y - h / 2 + 0.07];
+  let k = 0;
+  for (const sy of shelves) {
+    parts.push(box(w - 0.05, 0.022, 0.07, 0x8b6240, [x, sy, z + 0.055]));
+    for (let px = x - w / 2 + 0.14; px < x + w / 2 - 0.08; px += 0.3) {
+      const r = rnd(k++ + x * 10);
+      if (r < 0.55) {
+        // boîte de six œufs, couvercle ouvert
+        parts.push(box(0.23, 0.05, 0.07, CARTON, [px, sy + 0.035, z + 0.06]));
+        for (let e = 0; e < 3; e++) parts.push(sph(0.024, 6, 4, e === 1 && r < 0.3 ? 0xd9a873 : 0xf6efe2, [px - 0.06 + e * 0.06, sy + 0.07, z + 0.066], [1, 1.25, 1]));
+      } else if (r < 0.8) {
+        // panier d'osier garni
+        parts.push(cyl(0.085, 0.065, 0.07, 9, 0xb98a50, [px, sy + 0.046, z + 0.06]));
+        for (let e = 0; e < 3; e++) parts.push(sph(0.024, 6, 4, 0xf6efe2, [px - 0.04 + e * 0.04, sy + 0.09, z + 0.06], [1, 1.25, 1]));
+      } else {
+        // pot de confiture à couvercle
+        parts.push(cyl(0.04, 0.04, 0.09, 8, r < 0.9 ? 0xc0392b : 0xe6a23c, [px, sy + 0.055, z + 0.06]));
+        parts.push(cyl(0.043, 0.043, 0.018, 8, 0xf3eee4, [px, sy + 0.108, z + 0.06]));
+      }
+    }
+  }
+  // cadre et petits-bois devant la vitrine
+  parts.push(box(w + 0.14, 0.05, 0.05, SHOP_GREEN, [x, y + h / 2 + 0.025, z + 0.045]));
+  parts.push(box(w + 0.2, 0.06, 0.1, SHOP_GREEN, [x, y - h / 2 - 0.03, z + 0.06]));
+  for (const s2 of [-1, 1]) parts.push(box(0.05, h + 0.08, 0.05, SHOP_GREEN, [x + s2 * (w / 2 + 0.025), y, z + 0.045]));
+  const bars = Math.max(1, Math.round(w / 0.75) - 1);
+  for (let i = 1; i <= bars; i++) parts.push(box(0.022, h, 0.02, SHOP_GREEN, [x - w / 2 + (w * i) / (bars + 1), y, z + 0.1]));
+}
+
+/**
+ * Le dernier niveau de l'étal : un vrai magasin de ferme, large de 8 m, sur sa terrasse de pierre.
+ * Enduit crème sur soubassement de moellons, boiseries vertes, grandes vitrines garnies, porte vitrée
+ * sous auvent, toit de tuiles et lucarne à pignon, et devant la façade le long comptoir où les
+ * vendeurs servent les clients, côte à côte. Repères : l'origine du modèle est celle de l'étal,
+ * le comptoir et la rangée des vendeurs sont calés sur standLayout(4).
+ */
+export function farmShop(parts: Parts, windows: THREE.Mesh[]) {
+  const x0 = -1.3;
+  const x1 = 6.9;
+  const zb = -0.1;
+  const zf = 2.4;
+  const cx = (x0 + x1) / 2;
+  const cz = (zb + zf) / 2;
+  const y1 = 2.3;
+  const plinth = 0.36;
+  // terrasse de pierre et ses joints
+  parts.push(box(x1 - x0 + 0.5, 0.09, 4.0, 0xd9cdb4, [cx, 0.045, 1.85]));
+  for (let x = x0 - 0.1; x < x1 + 0.2; x += 0.62) parts.push(box(0.02, 0.006, 4.0, 0xc4b79d, [x, 0.092, 1.85]));
+  for (let z = -0.1; z < 3.85; z += 0.62) parts.push(box(x1 - x0 + 0.5, 0.006, 0.02, 0xc4b79d, [cx, 0.092, z]));
+  // murs : soubassement et enduit
+  parts.push(box(x1 - x0, y1, zf - zb, PLASTER, [cx, y1 / 2, cz]));
+  parts.push(box(x1 - x0 + 0.04, plinth, zf - zb + 0.04, STONE, [cx, plinth / 2, cz]));
+  stones(parts, x0 - 0.02, x1 + 0.02, zb, zf + 0.02, plinth);
+  for (const [x, z] of [
+    [x0, zf],
+    [x1, zf],
+    [x1, zb],
+  ])
+    parts.push(box(0.1, y1, 0.1, SHOP_GREEN, [x, y1 / 2, z]));
+  // vitrines et petite fenêtre de façade
+  const wy = 1.02;
+  shopWindow(parts, windows, 0.2, wy, zf, 2.3, 1.1);
+  shopWindow(parts, windows, 2.8, wy, zf, 2.3, 1.1);
+  shopWindow(parts, windows, 4.6, wy, zf, 0.76, 1.1);
+  // porte vitrée, imposte, marche et auvent
+  const dx = 5.8;
+  parts.push(box(1.06, 1.62, 0.03, SHOP_GREEN, [dx, 0.85, zf + 0.018]));
+  windows.push(glassPane(0.66, 0.9, [dx, 0.98, zf + 0.04], 0, 0.012));
+  windows.push(glassPane(0.86, 0.18, [dx, 1.56, zf + 0.04], 0, 0.012));
+  parts.push(box(0.05, 0.96, 0.02, SHOP_GREEN_LIGHT, [dx, 0.98, zf + 0.05]));
+  parts.push(box(0.05, 0.05, 0.05, 0xd9b35a, [dx + 0.3, 0.86, zf + 0.06]));
+  parts.push(box(1.2, 0.05, 0.42, 0xbfb29a, [dx, 0.115, zf + 0.21]));
+  parts.push(box(1.32, 0.04, 0.6, SHOP_GREEN, [dx, 1.92, zf + 0.26], [0.22, 0, 0]));
+  for (const s2 of [-1, 1]) parts.push(box(0.03, 0.03, 0.44, IRON, [dx + s2 * 0.56, 1.8, zf + 0.2], [-0.5, 0, 0]));
+  // bandeau de boiserie au-dessus du store
+  parts.push(box(5.9, 0.42, 0.05, SHOP_GREEN, [1.75, 2.02, zf + 0.025]));
+  // store à rayures vertes et crème au-dessus des vitrines, volant festonné
+  const stripes = 22;
+  const awX0 = -1.15;
+  const awX1 = 4.95;
+  const awW = (awX1 - awX0) / stripes;
+  for (let i = 0; i < stripes; i++) {
+    const x = awX0 + awW * (i + 0.5);
+    const c = i % 2 ? 0xf6f1e4 : SHOP_GREEN_LIGHT;
+    parts.push(box(awW + 0.002, 0.025, 0.56, c, [x, 1.7, zf + 0.27], [0.33, 0, 0]));
+    parts.push(box(awW + 0.002, 0.09, 0.015, c, [x, 1.55, zf + 0.53]));
+  }
+  for (const x of [awX0 + 0.1, cx - 0.6, awX1 - 0.1]) parts.push(box(0.02, 0.02, 0.56, IRON, [x, 1.68, zf + 0.26], [0.33, 0, 0]));
+  // côté est : fenêtre à petits carreaux et volets, jardinière, caisses
+  farmWindow(parts, windows, x1 + 0.052, 1.1, cz, 0.74, 0.74, true);
+  for (const s2 of [-1, 1]) parts.push(box(0.03, 0.82, 0.32, SHOP_GREEN, [x1 + 0.07, 1.1, cz + s2 * 0.58]));
+  parts.push(box(0.2, 0.14, 0.9, C.woodDark, [x1 + 0.13, 0.62, cz]));
+  for (let i = 0; i < 7; i++) parts.push(ico(0.08, 0, i % 2 ? 0x7fb35a : 0x6ea84f, [x1 + 0.16, 0.74, cz - 0.36 + i * 0.12]));
+  for (let i = 0; i < 7; i++) parts.push(ico(0.04, 0, GERANIUMS[i % 4], [x1 + 0.22, 0.8, cz - 0.36 + i * 0.12]));
+  // toit de tuiles, lucarne à pignon, cheminée, girouette
+  const roof = gableRoof(parts, { cx, cz, y: y1, w: x1 - x0, d: zf - zb, h: 1.15, over: 0.24, side: 0.2, a: 0xc96a4a, b: 0xb85c3f, n: 9, ridge: 0x8f4a33, rive: TIMBER, gable: PLASTER });
+  const lx = 1.75;
+  const [ly, lz] = roof.at(1, roof.len * 0.55, 0);
+  parts.push(box(1.05, 0.72, 0.9, PLASTER, [lx, ly + 0.24, lz - 0.28]));
+  parts.push(prism(1.25, 0.46, 1.08, 0xb85c3f, [lx, ly + 0.6, lz - 0.28], Math.PI / 2));
+  windows.push(glassPane(0.52, 0.42, [lx, ly + 0.28, lz + 0.18], 0, 0.012));
+  parts.push(box(0.64, 0.05, 0.05, SHOP_GREEN, [lx, ly + 0.52, lz + 0.2]));
+  parts.push(box(0.68, 0.05, 0.08, SHOP_GREEN, [lx, ly + 0.05, lz + 0.21]));
+  for (const s2 of [-1, 1]) parts.push(box(0.05, 0.46, 0.05, SHOP_GREEN, [lx + s2 * 0.3, ly + 0.28, lz + 0.2]));
+  parts.push(box(0.02, 0.42, 0.02, SHOP_GREEN, [lx, ly + 0.28, lz + 0.205]));
+  parts.push(box(0.4, 0.8, 0.4, 0xc9b9a0, [5.6, roof.ridgeY + 0.18, cz - 0.3]));
+  parts.push(box(0.46, 0.06, 0.46, STONE_DARK, [5.6, roof.ridgeY + 0.6, cz - 0.3]));
+  parts.push(cyl(0.07, 0.07, 0.16, 8, 0xa86b4a, [5.6, roof.ridgeY + 0.7, cz - 0.3]));
+  weathervane(parts, -0.2, roof.ridgeY - 0.02, cz, 1.1);
+  // grande enseigne dressée au bord du toit, bien visible de la rue (le nom de la ferme est peint
+  // dessus, dans models.ts) : cadre vert, filet d'or, deux jambes de force
+  parts.push(box(4.7, 0.62, 0.05, SHOP_GREEN, [1.75, 2.62, zf + 0.5]));
+  parts.push(box(4.82, 0.04, 0.08, 0xd9b35a, [1.75, 2.95, zf + 0.5]));
+  parts.push(box(4.82, 0.04, 0.08, 0xd9b35a, [1.75, 2.29, zf + 0.5]));
+  for (const x of [-0.3, 3.8]) parts.push(box(0.05, 0.05, 0.9, IRON, [x, 2.72, zf + 0.1], [0.32, 0, 0]));
+  // gouttière et lanternes
+  const [ey, ez] = roof.at(1, roof.len, 0);
+  parts.push(box(x1 - x0 + 0.34, 0.06, 0.08, 0xc9ccd1, [cx, ey - 0.05, ez - 0.02]));
+  parts.push(cyl(0.028, 0.028, ey - 0.12, 8, 0xc9ccd1, [x1 + 0.1, (ey + 0.06) / 2, zf + 0.1]));
+  lantern(parts, windows, 5.05, 1.5, zf + 0.01);
+  lantern(parts, windows, 6.55, 1.5, zf + 0.01);
+
+  // le long comptoir : façade de planches, plateau, marchandise et balance
+  const c0 = 0.4;
+  const c1 = 5.2;
+  const cc = (c0 + c1) / 2;
+  const cw = c1 - c0;
+  const cZ = 3.25;
+  parts.push(box(cw, 0.72, 0.4, 0x8a6a48, [cc, 0.44, cZ]));
+  const boards = Math.round(cw / 0.2);
+  for (let i = 0; i < boards; i++) parts.push(box(cw / boards - 0.012, 0.68, 0.015, i % 3 === 1 ? 0xb98a55 : C.wood, [c0 + (cw * (i + 0.5)) / boards, 0.44, cZ + 0.205]));
+  parts.push(box(cw + 0.12, 0.05, 0.5, SHOP_GREEN, [cc, 0.815, cZ]));
+  // à chaque guichet : des boîtes d'œufs ouvertes, et un panier entre deux
+  for (let i = 0; i < 4; i++) {
+    const x = cc + (i - 1.5) * 1.1;
+    parts.push(box(0.44, 0.05, 0.22, CARTON, [x, 0.865, cZ - 0.02]));
+    for (let e = 0; e < 8; e++) parts.push(sph(0.024, 6, 4, e % 5 === 2 ? 0xd9a873 : 0xf6efe2, [x - 0.16 + (e % 4) * 0.105, 0.9, cZ - 0.07 + Math.floor(e / 4) * 0.1], [1, 1.25, 1]));
+  }
+  for (const x of [cc - 2.2, cc + 2.2]) {
+    parts.push(cyl(0.12, 0.09, 0.11, 10, 0xb98a50, [x, 0.895, cZ]));
+    for (let e = 0; e < 5; e++) parts.push(sph(0.03, 6, 4, e % 2 ? 0xd9a873 : 0xf6efe2, [x - 0.06 + (e % 3) * 0.06, 0.96, cZ - 0.04 + (e % 2) * 0.07], [1, 1.25, 1]));
+  }
+  // balance et caisse
+  parts.push(box(0.2, 0.05, 0.16, 0xd8dcdf, [cc + 0.55, 0.87, cZ + 0.1]));
+  parts.push(cyl(0.03, 0.03, 0.1, 8, IRON, [cc + 0.55, 0.93, cZ + 0.1]));
+  parts.push(cyl(0.09, 0.08, 0.015, 12, 0xd8dcdf, [cc + 0.55, 0.985, cZ + 0.1]));
+  parts.push(box(0.26, 0.14, 0.2, 0x3a3f4a, [cc - 0.55, 0.91, cZ + 0.1]));
+  parts.push(box(0.2, 0.05, 0.015, 0x48d47a, [cc - 0.55, 0.96, cZ + 0.015]));
+  // ardoise des prix accrochée au comptoir
+  for (const x of [cc - 1.65, cc + 1.65]) {
+    parts.push(box(0.46, 0.34, 0.02, C.woodDark, [x, 0.52, cZ + 0.222]));
+    parts.push(box(0.4, 0.28, 0.012, 0x37443b, [x, 0.52, cZ + 0.232]));
+    for (let k = 0; k < 3; k++) parts.push(box(0.28 - k * 0.04, 0.012, 0.004, 0xf3eee4, [x - k * 0.02, 0.6 - k * 0.07, cZ + 0.24]));
+  }
+  // de chaque côté de la terrasse : caisses d'œufs et paille, arbustes en pot
+  for (const [x, z, r] of [
+    [-0.75, 3.1, 0.15],
+    [-0.62, 3.46, -0.1],
+  ] as const) {
+    parts.push(box(0.5, 0.26, 0.34, 0xc9a26b, [x, 0.22, z], [0, r, 0]));
+    parts.push(box(0.46, 0.03, 0.3, C.straw, [x, 0.36, z], [0, r, 0]));
+    for (let e = 0; e < 4; e++) parts.push(sph(0.03, 6, 4, e % 2 ? 0xd9a873 : 0xf6efe2, [x - 0.12 + e * 0.08, 0.4, z], [1, 1.25, 1]));
+  }
+  // ardoise sur pied, tournée vers le trottoir
+  parts.push(box(0.46, 0.66, 0.03, C.woodDark, [-0.95, 0.44, 3.72], [-0.14, 0.25, 0]));
+  parts.push(box(0.38, 0.56, 0.012, 0x37443b, [-0.945, 0.45, 3.74], [-0.14, 0.25, 0]));
+  for (const px of [5.1, 6.5]) {
+    parts.push(cyl(0.17, 0.12, 0.26, 10, 0xa8613d, [px, 0.22, zf + 0.34]));
+    parts.push(cyl(0.02, 0.03, 0.34, 6, C.trunk, [px, 0.5, zf + 0.34]));
+    parts.push(ico(0.25, 1, 0x7fb35a, [px, 0.82, zf + 0.34]));
+  }
 }

@@ -14,7 +14,8 @@ import * as A from '../sim/actions';
 import { cleaningCost } from '../sim/buildings';
 import { fmtMoney, maxParcelsOf } from '../sim/economy';
 import { parcelGrass } from '../sim/grass';
-import { ACT_LABELS, eggsPerDayOf, henStatus, henValue, productivity } from '../sim/hens';
+import { actLabel, eggsPerDayOf, henStatus, henValue, productivity } from '../sim/hens';
+import { nurseryCount, readyToLeave } from '../sim/nursery';
 import { customersPerDay, lostToday, queueLength, standCounters } from '../sim/market';
 import { buildingsOf, coopOccupancy, getBuilding, getHen, lvl, storageCapacity, storedCount } from '../sim/queries';
 import { GRASS } from '../config/balance';
@@ -295,6 +296,53 @@ function whenLabel(t: number) {
   return `jour ${day}, ${h} h`;
 }
 
+/** Fiche de la poussinière : qui y grandit, et quand ils rejoindront le troupeau. */
+function NurseryInfo({ b }: { b: Building }) {
+  const game = useGame();
+  const s = game.state;
+  const L = lvl(b);
+  const chicks = s.hens.filter((h) => h.nursery && h.coopId === b.id);
+  const speed = L.growth ?? 1;
+  // jours (de jeu) avant la sortie, regroupés : ceux qui sont nés ensemble sortiront ensemble
+  const rows = new Map<number, number>();
+  for (const h of chicks) {
+    const left = readyToLeave(h) ? 0 : Math.ceil(((h.young ?? 0) - BREEDING.nurseryLeaveDays) / speed);
+    rows.set(left, (rows.get(left) ?? 0) + 1);
+  }
+  const sorted = [...rows.entries()].sort((a, c) => a[0] - c[0]);
+  const total = (BREEDING.growthDays - BREEDING.nurseryLeaveDays) / speed;
+  return (
+    <>
+      <div class="kv">
+        <span>Poussins</span>
+        <b>
+          {nurseryCount(s, b)} / {L.capacity}
+        </b>
+      </div>
+      <div class="kv">
+        <span>Croissance</span>
+        <b>+{Math.round((speed - 1) * 100)} %</b>
+      </div>
+      {sorted.length > 0 && (
+        <div class="inc-list">
+          {sorted.map(([left, n]) => (
+            <div class="inc-row" key={left}>
+              <div class="inc-main">
+                <b>{n > 1 ? `${n} poussins` : '1 poussin'}</b>
+                <Bar value={1 - left / total} max={1} tone="blue" thin />
+              </div>
+              <span class="inc-left">{left <= 0 ? 'Sortie imminente' : `Sortie dans ${left} j`}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {!sorted.length && <p class="hint">Aucun poussin pour l’instant. Ceux qui éclosent dans vos couveuses arrivent ici tout seuls.</p>}
+      {(s.grain <= 0 || s.water <= 0) && <p class="hint warn">{s.grain <= 0 ? 'Plus de grain en réserve' : 'Plus d’eau en réserve'} : les poussins ont besoin de la réserve de la ferme.</p>}
+      <p class="hint">Grain et eau sont pris dans la réserve. À l’abri du grillage, ni poules ni prédateurs. Quand il leur reste {BREEDING.nurseryLeaveDays} jours avant de pondre, ils sortent seuls rejoindre le troupeau.</p>
+    </>
+  );
+}
+
 function IncubatorInfo({ b }: { b: Building }) {
   const game = useGame();
   const s = game.state;
@@ -410,7 +458,7 @@ function HenCard({ h }: { h: Hen }) {
         </div>
       </div>
       <div class="activity">
-        <span>{ACT_LABELS[h.act]}</span>
+        <span>{actLabel(h)}</span>
         <FollowBtn />
       </div>
       <Need label="Santé" value={h.health} />
@@ -524,6 +572,7 @@ function levelDiff(type: Building['type'], cur: BuildingLevel, next: BuildingLev
   if (type === 'dustbath') out.push(`Bien-être +${cur.wellbeing} → +${next.wellbeing}`);
   if (type === 'pond') out.push(`Réserve ${cur.capacity} → ${next.capacity} L`, `Pluie +${cur.regen} → +${next.regen} L/jour`, `Bien-être +${cur.wellbeing} → +${next.wellbeing}`);
   if (type === 'incubator') out.push(`Capacité ${cur.capacity} → ${next.capacity} œufs`, `Éclosion +${Math.round((next.quality ?? 0) * 100)} %`);
+  if (type === 'nursery') out.push(`Capacité ${cur.capacity} → ${next.capacity} poussins`, `Croissance +${Math.round(((cur.growth ?? 1) - 1) * 100)} % → +${Math.round(((next.growth ?? 1) - 1) * 100)} %`);
   if (type === 'stand') out.push(`Clients ${cur.flow}/h → ${next.flow}/h`, `Paniers ×${cur.qtyMult} → ×${next.qtyMult}`);
   if (next.perk) out.push(next.perk);
   const w0 = cur.w ?? BUILDINGS[type].w;
@@ -602,6 +651,7 @@ function BuildingCard({ b }: { b: Building }) {
         </>
       )}
       {b.type === 'incubator' && <IncubatorInfo b={b} />}
+      {b.type === 'nursery' && <NurseryInfo b={b} />}
       {b.type === 'compost' && (
         <>
           <div class="kv">

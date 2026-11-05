@@ -2,9 +2,9 @@ import { useEffect, useState } from 'preact/hooks';
 import { ShowPanel } from './Show';
 import { BankPanel } from './Bank';
 import { music } from '../audio/music';
-import { LEGAL, LEVELS, LEVEL_GATES, TIME, levelAt } from '../config/balance';
+import { LEGAL, LEVELS, LEVEL_GATES, levelAt } from '../config/balance';
 import { MISSIONS } from '../config/missions';
-import { deleteSave, deserialize, saveGame, serialize } from '../save/save';
+import { deleteSave, saveGame } from '../save/save';
 import { farmLevel, fmtMoney } from '../sim/economy';
 import { unlocksAt } from '../sim/progression';
 import { newFarm } from '../sim/starter';
@@ -14,7 +14,7 @@ import { ShopPanel } from './Shop';
 import { HenListPanel } from './HenList';
 import { TeamPanel } from './Team';
 import { OnlineSettings, RankingPanel } from './Online';
-import { identity } from '../online/farms';
+import { identity, pushFarm } from '../online/farms';
 
 export function PanelHost() {
   const game = useGame();
@@ -144,8 +144,6 @@ function SettingsPanel() {
   const game = useGame();
   const s = game.state;
   const [confirm, setConfirm] = useState(0);
-  const [io, setIo] = useState('');
-  const [msg, setMsg] = useState('');
   const toggle = (k: 'labels' | 'offline' | 'sound' | 'predators' | 'predatorSlowdown', label: string) => (
     <label class="toggle">
       <input
@@ -176,7 +174,6 @@ function SettingsPanel() {
           }}
         />
       </div>
-      <OnlineSettings />
       <h5>Affichage & son</h5>
       {toggle('labels', 'Étiquettes au-dessus des éléments (sinon : seulement à la sélection)')}
       {toggle('sound', 'Effets sonores')}
@@ -216,74 +213,7 @@ function SettingsPanel() {
         Cliquez sur un prédateur pour lui tirer dessus. Le commis et le jardinier sont armés : ils le traquent d’eux-mêmes. Le soir, des trappes fermées
         protègent les poules endormies. Aucune attaque pendant votre absence.
       </p>
-      <h5>Sauvegarde</h5>
-      <p class="hint">
-        Sauvegarde automatique toutes les 15 secondes et à la fermeture de l’onglet, dans ce navigateur (avec une copie de secours). Pour jouer sur un autre
-        appareil, ou par précaution, téléchargez votre sauvegarde : un fichier à recharger ici à tout moment. En navigation privée, la partie est perdue à la
-        fermeture.
-      </p>
-      <div class="actions">
-        <Btn
-          kind="primary"
-          onClick={() => {
-            const blob = new Blob([serialize(s)], { type: 'application/json' });
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = `cocotte-${s.farmName.replace(/[^\w-]+/g, '-').toLowerCase() || 'ferme'}-jour-${Math.floor(s.clock.t / TIME.DAY) + 1}.json`;
-            a.click();
-            setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-            setMsg('Sauvegarde téléchargée ✓');
-          }}
-        >
-          Télécharger ma sauvegarde
-        </Btn>
-        <label class="btn soft file-btn">
-          Charger un fichier
-          <input
-            type="file"
-            accept=".json,application/json,text/plain"
-            onChange={async (e) => {
-              const f = (e.target as HTMLInputElement).files?.[0];
-              (e.target as HTMLInputElement).value = '';
-              if (!f) return;
-              const st = deserialize(await f.text());
-              if (!st) return setMsg('Fichier invalide : chargement annulé');
-              game.replaceState(st);
-              if (game.persist) saveGame(st);
-              setMsg('Partie chargée ✓');
-            }}
-          />
-        </label>
-      </div>
-      <div class="actions">
-        <Btn
-          kind="soft"
-          onClick={() => {
-            const ok = game.persist && saveGame(s);
-            setMsg(ok ? 'Partie sauvegardée ✓' : 'Échec de la sauvegarde');
-          }}
-        >
-          Sauvegarder maintenant
-        </Btn>
-        <Btn kind="ghost" onClick={() => setIo(serialize(s))}>
-          Exporter
-        </Btn>
-        <Btn
-          kind="ghost"
-          disabled={!io}
-          onClick={() => {
-            const st = deserialize(io);
-            if (!st) return setMsg('Données invalides : import annulé');
-            game.replaceState(st);
-            if (game.persist) saveGame(st);
-            setMsg('Partie importée ✓');
-          }}
-        >
-          Importer le texte
-        </Btn>
-      </div>
-      <textarea class="io" placeholder="Collez ici une sauvegarde exportée pour l’importer…" value={io} onInput={(e) => setIo((e.target as HTMLTextAreaElement).value)} />
-      {msg && <p class="hint good">{msg}</p>}
+      <OnlineSettings />
       <h5>Mentions légales et confidentialité</h5>
       <details class="legal">
         <summary>Afficher</summary>
@@ -294,20 +224,25 @@ function SettingsPanel() {
           <b>Hébergeur.</b> {LEGAL.host}.
         </p>
         <p>
-          <b>Vos données.</b> Aucun compte, aucun cookie, aucune publicité, aucun outil de mesure d’audience. Votre partie est enregistrée uniquement dans votre
-          navigateur (stockage local) et n’est jamais envoyée à un serveur. Les polices de caractères sont fournies avec le jeu. Effacer les données du site dans
-          votre navigateur, ou le bouton « Recommencer » ci-dessous, supprime la partie.
+          <b>Vos données.</b> Aucun cookie, aucune publicité, aucun outil de mesure d’audience, aucune adresse e-mail demandée. Pour jouer, vous choisissez un nom de ferme et un code secret. Votre partie est enregistrée dans votre navigateur et, sous ce nom, dans notre base de données (hébergée par Supabase, supabase.com) où le code est conservé chiffré. Le nom de votre ferme, ses chiffres (niveau, volailles, ponte, bien-être) et la ferme elle-même sont visibles par les autres joueurs (classement et visites). Les polices de caractères sont fournies avec le jeu. Pour faire supprimer votre ferme de la base, écrivez à l’adresse de contact ci-dessus.
         </p>
       </details>
       <h5>Nouvelle partie</h5>
-      <p class="hint">Efface définitivement la partie en cours.</p>
+      <p class="hint">Efface définitivement la partie en cours, sur cet appareil et en ligne. Votre nom de ferme reste à vous.</p>
       <Btn
         kind="danger"
         onClick={() => {
           if (confirm === 0) return setConfirm(1);
           if (game.persist) deleteSave();
           const fresh = newFarm();
+          const id = identity();
+          if (id) fresh.farmName = id.name;
           game.replaceState(fresh);
+          // la nouvelle ferme est aussitôt la sauvegarde de référence, ici et en ligne
+          if (game.persist && id) {
+            saveGame(fresh);
+            void pushFarm(fresh, true);
+          }
           game.started = false;
           game.openPanel(null);
           setConfirm(0);

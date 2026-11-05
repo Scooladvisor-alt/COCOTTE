@@ -1,7 +1,7 @@
-// Le registre en ligne des fermes (Supabase) : nom de ferme unique, classements, visites.
-// Tout passe par des fonctions SQL (supabase/schema.sql) : la table n'est jamais lisible
-// directement, et le code secret du joueur n'est jamais renvoyé. Le jeu reste jouable hors ligne :
-// toute erreur réseau est ignorée en silence (sauf à la création du nom de ferme).
+// Le registre en ligne des fermes (Supabase) : inscription obligatoire (nom de ferme unique et code
+// secret), sauvegarde de la partie, classements, visites. Tout passe par des fonctions SQL
+// (supabase/schema.sql) : la table n'est jamais lisible directement, et le code secret n'est jamais
+// renvoyé. Une fois inscrit, on peut jouer sans réseau : la ferme repartira en ligne au retour.
 import { serialize } from '../save/save';
 import { farmLevel } from '../sim/economy';
 import { currentDay } from '../sim/core';
@@ -16,7 +16,6 @@ export const NAME_RE = /^[A-Za-zÀ-ÿ0-9 _'’.-]{3,24}$/;
 export const SECRET_MIN = 4;
 
 const ID_KEY = 'cocotte.online';
-const ASKED_KEY = 'cocotte.online.asked';
 
 export interface Identity {
   name: string;
@@ -86,21 +85,19 @@ export function setIdentity(id: Identity) {
     /* stockage indisponible */
   }
 }
-/** A-t-on déjà proposé au joueur de rejoindre le classement (sur cet appareil) ? */
-export const alreadyAsked = () => {
+export function clearIdentity() {
   try {
-    return localStorage.getItem(ASKED_KEY) === '1';
-  } catch {
-    return true;
-  }
-};
-export const markAsked = () => {
-  try {
-    localStorage.setItem(ASKED_KEY, '1');
+    localStorage.removeItem(ID_KEY);
   } catch {
     /* ignore */
   }
-};
+}
+
+/**
+ * Laquelle des deux sauvegardes reprendre ? Celle en ligne si elle est franchement plus récente
+ * (on a joué sur un autre appareil depuis) ; sinon celle de ce navigateur, toujours la plus à jour.
+ */
+export const onlineIsNewer = (onlineSavedAt: number, localSavedAt: number) => onlineSavedAt > localSavedAt + 5000;
 
 // ------------------------------------------------------------- Registre ----
 export const farmAvailable = (name: string) => rpc<boolean>('farm_available', { p_name: name });
@@ -109,7 +106,7 @@ export const farmAvailable = (name: string) => rpc<boolean>('farm_available', { 
 export const claimFarm = (name: string, secret: string) => rpc<'ok' | 'taken' | 'invalid'>('claim_farm', { p_name: name, p_secret: secret });
 
 /** Retrouve sa ferme (sauvegarde) avec le nom et le code ; erreur 'unknown' ou 'denied'. */
-export const restoreFarm = (name: string, secret: string) => rpc<string | null>('restore_farm', { p_name: name, p_secret: secret });
+export const restoreFarm = (name: string, secret: string, timeoutMs?: number) => rpc<string | null>('restore_farm', { p_name: name, p_secret: secret }, timeoutMs);
 
 export const loadBoard = (sort: BoardSort, limit = 50) => rpc<BoardRow[]>('get_board', { p_sort: sort, p_limit: limit });
 
@@ -128,8 +125,12 @@ export function farmStats(s: GameState) {
 }
 
 let lastPush = 0;
+let lastOk = 0;
 let pushing = false;
 let retry = 0;
+let latest: GameState | null = null;
+/** Instant de la dernière sauvegarde en ligne réussie (0 : pas encore dans cette session). */
+export const lastPushOk = () => lastOk;
 /** Envoyé au plus toutes les 90 s ; une sauvegarde énorme (> 5,5 Mo) n'est pas envoyée. */
 const PUSH_EVERY_MS = 90_000;
 const MAX_SAVE_CHARS = 5_500_000;
@@ -137,6 +138,7 @@ const MAX_SAVE_CHARS = 5_500_000;
 /** Envoie l'état de la ferme au registre (sans bloquer le jeu, erreurs ignorées). */
 export async function pushFarm(s: GameState, force = false): Promise<'ok' | 'denied' | 'skipped' | 'error'> {
   const id = identity();
+  latest = s;
   if (!id || pushing) return 'skipped';
   const now = Date.now();
   if (!force && now - lastPush < PUSH_EVERY_MS) return 'skipped';
@@ -155,9 +157,10 @@ export async function pushFarm(s: GameState, force = false): Promise<'ok' | 'den
     if (r === 'wait' && !retry) {
       retry = setTimeout(() => {
         retry = 0;
-        void pushFarm(s, true);
+        if (latest) void pushFarm(latest, true);
       }, 21_000) as unknown as number;
     }
+    if (r === 'ok') lastOk = Date.now();
     return r === 'ok' ? 'ok' : r === 'denied' ? 'denied' : 'skipped';
   } catch {
     lastPush = 0;

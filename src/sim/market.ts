@@ -19,7 +19,7 @@ import {
   tradeAt,
 } from '../config/balance';
 import { BREEDS } from '../config/breeds';
-import { STAND_POS } from '../config/buildings';
+import { standLayout } from '../config/buildings';
 import { currentDay, currentHour, emit, isShopOpen, newId, notify, pick, rand, randInt, randNormal, randRange } from './core';
 import { addXp, earn, farmLevel, fmtMoney, spend } from './economy';
 import { oldestLot, takeFromStorage } from './eggs';
@@ -59,7 +59,13 @@ export function customersPerHour(s: GameState) {
 export function customersPerDay(s: GameState) {
   return customersPerHour(s) * (TIME.SHOP_CLOSE - TIME.SHOP_OPEN);
 }
-const STAND_STOP_Z = STAND_POS.z + 1.25;
+/** Où se passe la vente aujourd'hui (l'étal, ou le long comptoir du magasin). */
+const sale = (s: GameState) => standLayout(stand(s)?.level ?? 1);
+/** Point de la place où apparaissent les pièces gagnées. */
+const saleSpot = (s: GameState) => {
+  const c = sale(s).center;
+  return { x: c.x, z: c.z };
+};
 
 function spawnCustomer(s: GameState) {
   const dir: 1 | -1 = rand(s) < 0.5 ? 1 : -1;
@@ -69,7 +75,7 @@ function spawnCustomer(s: GameState) {
     want: pick(s, MARKET.wantChoices),
     wtp: Math.exp(MARKET.wtpSigma * randNormal(s)),
     state: 'toStand',
-    x: STAND_POS.x + 1 - dir * MARKET.spawnDistance,
+    x: sale(s).cx - dir * MARKET.spawnDistance,
     z: laneZ(dir) + randRange(s, -0.06, 0.06),
     dir,
     t: 0,
@@ -85,11 +91,11 @@ function spawnCustomer(s: GameState) {
   s.customers.push(c);
 }
 
-/** Guichets ouverts à l'étal : un seul au départ, deux à la boutique de la ferme, un de plus avec un vendeur. */
+/** Guichets ouverts à l'étal : un seul au départ, deux à la boutique, trois au magasin, un de plus avec un vendeur. */
 export function standCounters(s: GameState) {
   const st = stand(s);
   if (!st) return 0;
-  return (st.level >= 3 ? 2 : 1) + (sellerAtStand(s) ? 1 : 0);
+  return (st.level >= 4 ? 3 : st.level >= 3 ? 2 : 1) + (sellerAtStand(s) ? 1 : 0);
 }
 /** Durée de service d'un client (le vendeur va plus vite). */
 export const serveTime = (s: GameState, c?: Pick<Customer, 'want'>) => MARKET.shopTime * (0.7 + 0.05 * (c?.want ?? 6)) * (sellerAtStand(s) ? MARKET.sellerServe : 1);
@@ -140,9 +146,9 @@ export function setGoldPrice(s: GameState, cents: number) {
 }
 
 /** Position du guichet i (sur n) devant l'étal. */
-const counterX = (i: number, n: number) => STAND_POS.x + 1 + (i - (n - 1) / 2) * 0.62;
+const counterX = (s: GameState, i: number, n: number) => sale(s).cx + (i - (n - 1) / 2) * sale(s).gap;
 /** Place k dans la file, le long du trottoir, à droite des guichets. */
-const queueSpot = (k: number, n: number): [number, number] => [STAND_POS.x + 1 + n * 0.31 + 0.5 + k * 0.5, STAND_STOP_Z + 0.24];
+const queueSpot = (s: GameState, k: number, n: number): [number, number] => [sale(s).cx + (n * sale(s).gap) / 2 + 0.5 + k * 0.5, sale(s).stopZ + 0.24];
 
 interface Choice {
   type: EggType;
@@ -196,7 +202,7 @@ function serveCustomer(s: GameState, c: Customer) {
       addXp(s, Math.floor(qty / 2) * XP.perTwoSold + (qty % 2 && rand(s) < 0.5 ? 1 : 0));
       c.mood = 'happy';
       c.bought = qty;
-      emit(s, { kind: 'sale', amount, qty, x: STAND_POS.x + 1, z: STAND_POS.z, channel: 'etal' });
+      emit(s, { kind: 'sale', amount, qty, ...saleSpot(s), channel: 'etal' });
     }
   }
   // l'œuf d'or exposé sur l'étal : un client sur quelques dizaines craque, d'autant plus que le prix est doux
@@ -208,7 +214,7 @@ function serveCustomer(s: GameState, c: Customer) {
     addXp(s, 5);
     c.mood = 'happy';
     c.bought = (c.bought ?? 0) + 1;
-    emit(s, { kind: 'sale', amount: price, qty: 1, x: STAND_POS.x + 1, z: STAND_POS.z, channel: 'etal' });
+    emit(s, { kind: 'sale', amount: price, qty: 1, ...saleSpot(s), channel: 'etal' });
     notify(s, `Un client repart avec un œuf d’or : +${fmtMoney(price)} !`, 'good', '✨');
   }
   emit(s, { kind: 'customerMood', customerId: c.id, mood: c.mood });
@@ -248,7 +254,7 @@ export function updateCustomers(s: GameState, dt: number) {
     c.t += dt;
     if (c.state === 'toStand') {
       // il longe le trottoir jusqu'à l'étal ; en arrivant, il regarde la file
-      const ex = STAND_POS.x + 1;
+      const ex = sale(s).cx;
       if (Math.abs(c.x - ex) > 3) {
         c.x += Math.sign(ex - c.x) * Math.min(Math.abs(ex - c.x), speed * dt);
         c.z += (laneZ(c.dir) - c.z) * Math.min(1, dt * 2);
@@ -262,7 +268,7 @@ export function updateCustomers(s: GameState, dt: number) {
       }
     } else if (c.state === 'queue') {
       if ((c.counter ?? -1) >= 0) {
-        if (walkTo(c, counterX(c.counter!, n), STAND_STOP_Z)) {
+        if (walkTo(c, counterX(s, c.counter!, n), sale(s).stopZ)) {
           c.state = 'shopping';
           c.t = 0;
           serveCustomer(s, c);
@@ -274,7 +280,7 @@ export function updateCustomers(s: GameState, dt: number) {
           continue;
         }
         const k = waiting.indexOf(c);
-        const [qx, qz] = queueSpot(Math.max(0, k), n);
+        const [qx, qz] = queueSpot(s, Math.max(0, k), n);
         walkTo(c, qx, qz);
       }
     } else if (c.state === 'shopping') {
@@ -289,7 +295,7 @@ export function updateCustomers(s: GameState, dt: number) {
       else c.x += c.dir * speed * dt;
     }
   }
-  s.customers = s.customers.filter((c) => Math.abs(c.x - STAND_POS.x - 1) <= MARKET.spawnDistance + 1 && c.t < 120);
+  s.customers = s.customers.filter((c) => Math.abs(c.x - sale(s).cx) <= MARKET.spawnDistance + 1 && c.t < 120);
 }
 
 // ----------------------------------------------------- Estimations UI ----
@@ -376,7 +382,7 @@ export function sellWholesale(s: GameState, type: EggType, qty: number, factor =
   s.stats.eggsSold += qty;
   s.stats.soldByType[type] = (s.stats.soldByType[type] ?? 0) + qty;
   addXp(s, Math.floor(qty / 4));
-  emit(s, { kind: 'sale', amount: total, qty, x: STAND_POS.x + 1, z: STAND_POS.z, channel: 'cooperative' });
+  emit(s, { kind: 'sale', amount: total, qty, ...saleSpot(s), channel: 'cooperative' });
   return total;
 }
 
@@ -514,7 +520,7 @@ export function deliverOrder(s: GameState, id: number) {
   s.stats.ordersDelivered++;
   rep(s, REPUTATION.orderDone);
   addXp(s, XP.orderDelivered + Math.floor(o.qty / 10));
-  emit(s, { kind: 'sale', amount, qty: o.qty, x: STAND_POS.x + 1, z: STAND_POS.z, channel: 'commandes' });
+  emit(s, { kind: 'sale', amount, qty: o.qty, ...saleSpot(s), channel: 'commandes' });
   return { ok: true };
 }
 
@@ -604,7 +610,7 @@ function deliverContractDay(s: GameState, c: Contract) {
     s.stats.soldByType[c.type] = (s.stats.soldByType[c.type] ?? 0) + n;
     c.delivered += n;
     addXp(s, CONTRACTS.xpPerDay);
-    emit(s, { kind: 'sale', amount, qty: n, x: STAND_POS.x + 1, z: STAND_POS.z, channel: 'contrats' });
+    emit(s, { kind: 'sale', amount, qty: n, ...saleSpot(s), channel: 'contrats' });
   }
   return n;
 }
@@ -692,7 +698,7 @@ export function sellGoldEggs(s: GameState, n = s.goldEggs ?? 0): { ok: boolean; 
   s.stats.goldEggsSold = (s.stats.goldEggsSold ?? 0) + n;
   const amount = n * RARE.goldCollectorPrice;
   earn(s, amount, 'reventes', n > 1 ? `${n} œufs d’or (collectionneur)` : 'Œuf d’or (collectionneur)');
-  emit(s, { kind: 'sale', amount, qty: n, x: STAND_POS.x + 1, z: STAND_POS.z, channel: 'reventes' });
+  emit(s, { kind: 'sale', amount, qty: n, ...saleSpot(s), channel: 'reventes' });
   addXp(s, 5 * n);
   notify(s, `Le collectionneur vous achète ${n > 1 ? `${n} œufs d’or` : 'un œuf d’or'} : +${fmtMoney(amount)} !`, 'good', '✨');
   return { ok: true };

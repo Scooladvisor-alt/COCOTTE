@@ -1711,17 +1711,6 @@ h5 {
 }
 
 /* Réglages */
-.settings .io {
-  width: 100%;
-  min-height: 70px;
-  border: 1px solid var(--line2);
-  border-radius: 10px;
-  padding: 8px;
-  font-family: ui-monospace, monospace;
-  font-size: 11px;
-  resize: vertical;
-  user-select: text;
-}
 .keys {
   margin: 0;
   padding-left: 18px;
@@ -6722,18 +6711,6 @@ img.pi {
   font-size: 12.5px;
 }
 
-/* charger une sauvegarde : un bouton qui ouvre le sélecteur de fichier */
-.file-btn {
-  position: relative;
-  overflow: hidden;
-  cursor: pointer;
-}
-.file-btn input[type='file'] {
-  position: absolute;
-  inset: 0;
-  opacity: 0;
-  cursor: pointer;
-}
 .settings details.legal {
   font-size: 12.5px;
   line-height: 1.5;
@@ -7591,4 +7568,9 @@ body {
   .cloud {
     transition-duration: 0.01s;
   }
+}
+
+.ld-play:disabled {
+  opacity: 0.7;
+  cursor: wait;
 }

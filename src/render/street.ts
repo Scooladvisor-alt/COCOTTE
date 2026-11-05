@@ -1,6 +1,6 @@
-// La rue devant la ferme. Entre la clôture et la chaussée : la place pavée de l'étal (enseigne,
-// bancs, jardinières, tilleul), le parking des clients et le trottoir où marchent les clients de
-// la simulation. La chaussée a deux voies, un passage piéton face à la ruelle du village et un
+// La rue devant la ferme. Entre la clôture et la chaussée : la grande place pavée de l'étal (et du
+// magasin qu'il deviendra), bordée de bancs, de jardinières et d'un tilleul et largement dégagée au
+// milieu, le parking des clients et le trottoir où marchent les clients de la simulation. La chaussée a deux voies, un passage piéton face à la ruelle du village et un
 // arrêt de car côté village. Tout cela vit : voitures, camionnettes, vélos, tracteur et car du
 // village circulent (phares la nuit), des clients se garent puis repartent, des passants flânent
 // et traversent. (Décor seul : rien ici n'influence la simulation.)
@@ -23,8 +23,8 @@ const laneZ = (dir: 1 | -1) => (dir > 0 ? LANE_E : LANE_W);
 const X0 = -26;
 const X1 = GRID_W + 10;
 /** Place de l'étal puis parking des clients, entre la clôture et le trottoir. */
-const PLACE = { x0: 11.2, x1: 26.6, z0: GRID_Z1 + 0.15, z1: WZ - WALK / 2 };
-const PARK = { x0: 27, x1: 35.8 };
+const PLACE = { x0: 11.2, x1: 32.6, z0: GRID_Z1 + 0.15, z1: WZ - WALK / 2 };
+const PARK = { x0: 33, x1: 41.8 };
 const BAY_W = (PARK.x1 - PARK.x0) / 3;
 const BAYS = [0, 1, 2].map((i) => PARK.x0 + BAY_W * (i + 0.5));
 const BAY_Z = GRID_Z1 + 1.95;
@@ -107,19 +107,20 @@ function streetGeometry() {
       g.push(ico(0.055, 0, FLOWERS[(i + seed) % 5], [x + Math.cos(a) * 0.2, 0.55, z + Math.sin(a) * 0.2]));
     }
   };
-  planter(11.75, 33.8, 0);
-  planter(26.05, 33.8, 2);
-  planter(16.3, 31.0, 4);
+  // le long du trottoir, pour laisser le milieu de la place libre
+  planter(11.75, WZ - 1.1, 0);
+  planter(PLACE.x1 - 0.55, WZ - 1.1, 2);
   // range-vélos et deux vélos garés
-  g.push(box(0.05, 0.05, 1.3, 0x8e939b, [25.5, 0.36, 32.3]));
-  for (const dz of [-0.62, 0.62]) g.push(box(0.05, 0.36, 0.05, 0x8e939b, [25.5, 0.18, 32.3 + dz]));
+  const rackX = PLACE.x1 - 1.1;
+  g.push(box(0.05, 0.05, 1.3, 0x8e939b, [rackX, 0.36, 32.3]));
+  for (const dz of [-0.62, 0.62]) g.push(box(0.05, 0.36, 0.05, 0x8e939b, [rackX, 0.18, 32.3 + dz]));
   for (const [dz, col] of [
     [-0.3, 0x3bb2c9],
     [0.3, 0xe85d75],
   ] as const) {
     const b = bikeFrame(col);
     b.rotateY(-Math.PI / 2);
-    b.translate(25.75, 0, 32.3 + dz);
+    b.translate(rackX + 0.25, 0, 32.3 + dz);
     g.push(b);
   }
   // haie basse entre la place et le parking
@@ -335,9 +336,10 @@ function walkerRate(h: number) {
 
 export function buildStreet(scene: THREE.Scene): Street {
   scene.add(mesh(merge(streetGeometry()), true, true));
+  // bancs au bord du trottoir, de part et d'autre de la place (les clients passent entre eux)
   for (const [x, z] of [
-    [22.4, 31.5],
-    [24.2, 31.5],
+    [16.1, WZ - 1.2],
+    [PLACE.x1 - 1.6, WZ - 1.2],
   ]) {
     const b = mesh(bench());
     b.position.set(x, 0.06, z);
@@ -347,7 +349,7 @@ export function buildStreet(scene: THREE.Scene): Street {
   // enseigne de la ferme, face à la rue
   {
     const x = 13.6;
-    const z = 33.95;
+    const z = WZ - 0.95;
     scene.add(mesh(merge([box(0.08, 1.4, 0.08, C.woodDark, [x - 0.72, 0.7, z]), box(0.08, 1.4, 0.08, C.woodDark, [x + 0.72, 0.7, z]), box(1.62, 0.78, 0.07, C.woodDark, [x, 1.0, z]), box(1.8, 0.05, 0.28, C.roof, [x, 1.43, z])])));
     const tex = paint(512, 248, (g) => {
       g.fillStyle = '#f6efe0';

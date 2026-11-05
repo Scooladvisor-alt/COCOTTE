@@ -29,7 +29,8 @@ export function predatorAimY(p: Predator) {
 /** Poules hors d'atteinte : couchées au poulailler, au nid, au bain ou déjà saisies. */
 const SHELTERED = new Set<HenAct>(['sleep', 'enter', 'exit', 'lay', 'bathe', 'caught']);
 export function catchable(h: Hen) {
-  return !SHELTERED.has(h.act);
+  // à la poussinière, le grillage et le toit protègent les poussins
+  return !SHELTERED.has(h.act) && !h.nursery;
 }
 
 /** Distance (en cases) entre un point et le terrain possédé. */

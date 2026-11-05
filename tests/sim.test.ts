@@ -3,11 +3,13 @@ import { AUTO_DOOR, BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, GRID_W, GRID_Z0, H
 import { GATE_EDGE, farmEnclosed, perimeter } from '../src/sim/fences';
 import { waterCapacity } from '../src/sim/stocks';
 import { BREEDS, BREED_ORDER, GOOSE_NAMES } from '../src/config/breeds';
-import { BUILDINGS, COOP_SCALE, STAND_POS, sizeOf } from '../src/config/buildings';
+import { BUILDINGS, COOP_SCALE, STAND_POS, sizeOf, standLayout } from '../src/config/buildings';
 import { BACKUP_KEY, SAVE_KEY, deserialize, loadGame, saveGame, serialize, type Storage } from '../src/save/save';
 import * as A from '../src/sim/actions';
 import { canPlace } from '../src/sim/buildings';
-import { accessCells, coopDoor, coopDoorCells, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable } from '../src/sim/core';
+import { accessCells, coopDoor, coopDoorCells, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable, toLocal } from '../src/sim/core';
+import { nurseryCount, nurseryPlan, nurseryWithRoom, readyToLeave } from '../src/sim/nursery';
+import { onlineIsNewer } from '../src/online/farms';
 import { canAfford, farmLevel, spend } from '../src/sim/economy';
 import { addToStorage, collectNest, layEgg, takeFromStorage } from '../src/sim/eggs';
 import {
@@ -47,7 +49,8 @@ import { creditLimit, dailyDue, loanRate, pauseLoan, quoteLoan, repayLoan, takeL
 import type { GameState } from '../src/sim/types';
 import { goodPlayer, guard, lazyPlayer } from '../scripts/bot';
 import { fire, hire, sellerSpot } from '../src/sim/workers';
-import { distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
+import { enterNursery } from '../src/sim/hens';
+import { catchable, distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
 import { buyDog } from '../src/sim/dog';
 import { buyRobot, dockOf } from '../src/sim/robots';
 import { crowdedChicks, eggHatchIn, fertileStock, fertility, fertilize, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
@@ -3057,5 +3060,333 @@ describe('Le personnel se répartit et ne se traverse pas', () => {
     expect(back.clock.lastHourTick).toBe(s.clock.lastHourTick);
     // et une sauvegarde récente n'est pas étirée une seconde fois
     expect(deserialize(serialize(back))!.clock.t).toBeCloseTo(back.clock.t, 3);
+  });
+});
+
+describe('Poussinière', () => {
+  /** Ferme avec une poussinière posée à la première place libre (orientation au choix). */
+  const nurseryFarm = (seed: number, rot = 0) => {
+    const s = newFarm(seed);
+    morning(s);
+    s.money = 1e7;
+    s.xp = 99999;
+    s.settings.predators = false;
+    let ok = false;
+    for (let z = -10; z < 28 && !ok; z++) for (let x = 0; x < 30 && !ok; x++) if (canPlace(s, 'nursery', x, z, -1, 1, rot).ok) ok = A.build(s, 'nursery', x, z, rot).ok;
+    expect(ok).toBe(true);
+    return { s, b: buildingsOf(s, 'nursery')[0] };
+  };
+  /** Un œuf fécondé mûr dans une couveuse : il éclot au pas suivant. */
+  const hatch = (s: GameState, n: number) => {
+    const inc = buildingsOf(s, 'incubator')[0] ?? (A.build(s, 'incubator', 2, 26), buildingsOf(s, 'incubator')[0]);
+    inc.hatch = Array.from({ length: n }, () => ({ breed: 'rousse' as const, t: s.clock.t - BREEDING.incubationDays * TIME.DAY, ok: true }));
+    inc.level = 3;
+    step(s, TIME.STEP);
+    drainEvents(s);
+  };
+  const raised = (s: GameState) => s.hens.filter((h) => h.nursery);
+  /** Poussins dehors, dans le parc (position locale dans le rectangle, à un souffle près). */
+  const inPark = (b: ReturnType<typeof buildingsOf>[number], h: GameState['hens'][number]) => {
+    const { park } = nurseryPlan(b.level);
+    const [x, z] = toLocal(b, h.x, h.z);
+    return x >= park.x0 - 0.05 && x <= park.x1 + 0.05 && z >= park.z0 - 0.5 && z <= park.z1 + 0.05;
+  };
+
+  it('les poussins éclos arrivent à la poussinière et y vivent à part, dans leur parc', () => {
+    const { s, b } = nurseryFarm(961);
+    const before = s.hens.length;
+    // les jeunes de la ferme de départ s'y sont installés dès la construction
+    const base = nurseryCount(s, b);
+    expect(base).toBe(s.hens.filter((h) => h.young && !readyToLeave(h)).length);
+    hatch(s, 5);
+    expect(s.hens.length).toBe(before + 5);
+    expect(nurseryCount(s, b)).toBe(base + 5);
+    const chicks = raised(s);
+    for (const h of chicks) expect(h.coopId).toBe(b.id);
+    // tout l'enclos est dans l'emprise : aucune poule adulte ne peut y mettre la patte
+    const fp = footprint(b);
+    let out = 0;
+    let insideFp = 0;
+    let awake = 0;
+    run(
+      s,
+      8 * HOUR,
+      () => {
+        for (const h of s.hens) {
+          if (h.nursery) {
+            if (h.act === 'sleep') continue;
+            awake++;
+            if (h.act !== 'enter' && h.act !== 'exit' && !inPark(b, h)) out++;
+          } else if (h.act !== 'exit' && h.x > fp.x && h.x < fp.x + fp.w && h.z > fp.z && h.z < fp.z + fp.d) insideFp++;
+        }
+      },
+      0.5,
+    );
+    expect(awake).toBeGreaterThan(100);
+    expect(out).toBe(0);
+    expect(insideFp).toBe(0);
+    // ils ne se sont pas enfuis ni n'ont quitté la poussinière
+    expect(raised(s).length).toBe(base + 5);
+    expect(chicks.every((h) => h.nursery)).toBe(true);
+  });
+
+  it('ils dorment au chaud la nuit, ressortent le matin, et mangent et boivent à la réserve', () => {
+    const { s, b } = nurseryFarm(962);
+    const base = nurseryCount(s, b);
+    hatch(s, 6);
+    s.grain = 400;
+    s.water = 400;
+    for (const h of raised(s)) {
+      h.satiety = 20;
+      h.hydration = 20;
+    }
+    const grain = s.grain;
+    const water = s.water;
+    run(s, 4 * HOUR);
+    expect(s.grain).toBeLessThan(grain);
+    expect(s.water).toBeLessThan(water);
+    for (const h of raised(s)) {
+      expect(h.satiety).toBeGreaterThan(30);
+      expect(h.hydration).toBeGreaterThan(30);
+    }
+    // la nuit : tout le monde dedans
+    const day = Math.floor(s.clock.t / TIME.DAY);
+    s.clock.t = day * TIME.DAY + 19 * HOUR;
+    s.clock.lastHourTick = Math.floor(s.clock.t / HOUR);
+    run(s, 3.5 * HOUR);
+    for (const h of raised(s)) expect(h.act).toBe('sleep');
+    // au matin : dehors
+    run(s, 10 * HOUR);
+    expect(raised(s).filter((h) => h.act !== 'sleep').length).toBeGreaterThan(3);
+    expect(nurseryCount(s, b)).toBe(base + 6);
+  });
+
+  it('presque adultes, ils passent le portillon et rejoignent le troupeau', () => {
+    const { s, b } = nurseryFarm(963);
+    hatch(s, 4);
+    const chicks = raised(s);
+    // la croissance va plus vite à la poussinière
+    const y0 = chicks[0].young!;
+    run(s, TIME.DAY);
+    expect(y0 - chicks[0].young!).toBeGreaterThan(1.05);
+    for (const h of chicks) h.young = BREEDING.nurseryLeaveDays + 0.002;
+    morning(s);
+    const events = runEvents(s, 6 * HOUR);
+    expect(events.some((e) => e.kind === 'notify' && /quittent la poussinière/.test(e.text))).toBe(true);
+    for (const h of chicks) {
+      expect(h.nursery).toBeUndefined();
+      expect(readyToLeave(h)).toBe(true);
+      expect(buildingsOf(s, 'coop').some((c) => c.id === h.coopId)).toBe(true);
+    }
+    expect(nurseryCount(s, b)).toBe(0);
+    // une fois sortis, ils vivent avec les autres, sur les cases praticables
+    run(s, 2 * HOUR);
+    for (const h of chicks) if (!['enter', 'exit', 'lay', 'sleep'].includes(h.act)) expect(isWalkable(s, h.x, h.z)).toBe(true);
+  });
+
+  it('pleine, elle laisse les suivants grandir avec les poules ; les jeunes déjà là s’y installent', () => {
+    const { s, b } = nurseryFarm(964);
+    const cap = BUILDINGS.nursery.levels[0].capacity;
+    hatch(s, cap + 3);
+    expect(nurseryCount(s, b)).toBe(cap);
+    expect(s.hens.filter((h) => h.young && !h.nursery && !readyToLeave(h)).length).toBeGreaterThanOrEqual(3);
+    expect(nurseryWithRoom(s)).toBeNull();
+    // on l'agrandit : ceux qui couraient dehors entrent
+    expect(A.upgrade(s, b.id).ok).toBe(true);
+    expect(sizeOf('nursery', 2)).toEqual({ w: 10, d: 8 });
+    expect(s.hens.filter((h) => h.young && !h.nursery && !readyToLeave(h)).length).toBe(0);
+  });
+
+  it('fonctionne dans les quatre orientations, et le portillon donne dehors', () => {
+    for (const rot of [0, 1, 2, 3]) {
+      const { s, b } = nurseryFarm(970 + rot, rot);
+      expect(b.rot ?? 0).toBe(rot);
+      hatch(s, 3);
+      run(s, 3 * HOUR);
+      let out = 0;
+      run(s, 2 * HOUR, () => {
+        for (const h of raised(s)) if (h.act !== 'sleep' && h.act !== 'enter' && h.act !== 'exit' && !inPark(b, h)) out++;
+      }, 0.5);
+      expect(out).toBe(0);
+      for (const h of raised(s)) h.young = BREEDING.nurseryLeaveDays - 0.1;
+      morning(s);
+      run(s, 5 * HOUR);
+      expect(raised(s).length).toBe(0);
+      run(s, 1 * HOUR);
+      for (const h of s.hens) if (!['enter', 'exit', 'lay', 'sleep'].includes(h.act)) expect(isWalkable(s, h.x, h.z)).toBe(true);
+    }
+  });
+
+  it('on peut la déplacer, la pivoter ou la démonter sans perdre un poussin', () => {
+    const { s, b } = nurseryFarm(975);
+    hatch(s, 4);
+    run(s, HOUR);
+    expect(A.rotate(s, b.id).ok).toBe(true);
+    run(s, HOUR);
+    for (const h of raised(s)) if (h.act !== 'sleep' && h.act !== 'enter' && h.act !== 'exit') expect(inPark(b, h)).toBe(true);
+    const n = s.hens.length;
+    expect(A.demolish(s, b.id).ok).toBe(true);
+    expect(s.hens.length).toBe(n);
+    expect(raised(s).length).toBe(0);
+    for (const h of s.hens) expect(s.buildings.some((c) => c.id === h.coopId)).toBe(true);
+    run(s, HOUR);
+    for (const h of s.hens) if (!['enter', 'exit', 'lay', 'sleep'].includes(h.act)) expect(isWalkable(s, h.x, h.z)).toBe(true);
+  });
+
+  it('le renard ne touche pas aux poussins de la poussinière', () => {
+    const { s } = nurseryFarm(976);
+    hatch(s, 3);
+    expect(raised(s).every((h) => !catchable(h))).toBe(true);
+  });
+
+  it('la sauvegarde garde les poussins à la poussinière, et les oies à leur abri', () => {
+    const { s, b } = nurseryFarm(977);
+    hatch(s, 3);
+    const count = raised(s).length;
+    expect(count).toBeGreaterThanOrEqual(3);
+    let built = false;
+    for (let z = -10; z < 28 && !built; z++) for (let x = 0; x < 30 && !built; x++) if (canPlace(s, 'goosehouse', x, z).ok) built = A.build(s, 'goosehouse', x, z).ok;
+    expect(built).toBe(true);
+    const house = buildingsOf(s, 'goosehouse')[0];
+    expect(A.buyHen(s, 'oie').ok).toBe(true);
+    const goose = s.hens.find((h) => h.breed === 'oie')!;
+    expect(goose.coopId).toBe(house.id);
+    const back = deserialize(serialize(s))!;
+    expect(back.hens.filter((h) => h.nursery).length).toBe(count);
+    for (const h of back.hens.filter((x) => x.nursery)) expect(h.coopId).toBe(b.id);
+    // (régression) une oie gardait son abri à oies seulement jusqu'au rechargement
+    expect(back.hens.find((h) => h.id === goose.id)!.coopId).toBe(house.id);
+    // la poussinière et son orientation reviennent aussi, et la vie reprend
+    run(back, HOUR);
+    expect(back.hens.filter((h) => h.nursery).length).toBe(count);
+  });
+
+  it('sans poussinière, rien ne change : les poussins grandissent avec les poules', () => {
+    const s = newFarm(978);
+    morning(s);
+    s.money = 1e7;
+    hatch(s, 2);
+    const young = s.hens.filter((h) => h.young);
+    expect(young.length).toBeGreaterThanOrEqual(2);
+    expect(raised(s).length).toBe(0);
+  });
+
+  it('enterNursery place le poussin à l’intérieur, invisible, avant qu’il ne sorte', () => {
+    const { s, b } = nurseryFarm(979);
+    const h = createHen(s, 'rousse', buildingsOf(s, 'coop')[0], false, { young: BREEDING.growthDays });
+    s.hens.push(h);
+    enterNursery(s, h, b);
+    expect(h.act).toBe('sleep');
+    const [x, z] = toLocal(b, h.x, h.z);
+    expect(x).toBeCloseTo(nurseryPlan(1).inside[0], 6);
+    expect(z).toBeCloseTo(nurseryPlan(1).inside[1], 6);
+    run(s, 8);
+    expect(h.act).not.toBe('sleep');
+  });
+});
+
+describe('Magasin de la ferme', () => {
+  const shopFarm = (seed: number) => {
+    const s = newFarm(seed);
+    morning(s);
+    s.money = 1e7;
+    s.xp = 99999;
+    const st = s.buildings.find((b) => b.type === 'stand')!;
+    while (st.level < 4) expect(A.upgrade(s, st.id).ok).toBe(true);
+    return { s, st };
+  };
+
+  it('l’étal a un quatrième niveau : plus de clients, plus de guichets', () => {
+    const { s, st } = shopFarm(981);
+    expect(BUILDINGS.stand.levels.length).toBe(4);
+    expect(st.level).toBe(4);
+    expect(standCounters(s)).toBe(3);
+    hire(s, 'seller');
+    run(s, HOUR);
+    expect(standCounters(s)).toBe(4);
+    expect(BUILDINGS.stand.levels[3].flow!).toBeGreaterThan(BUILDINGS.stand.levels[2].flow!);
+  });
+
+  it('les clients viennent au long comptoir, devant le magasin, sans traverser ses murs', () => {
+    const { s } = shopFarm(982);
+    s.reputation = 100;
+    addToStorage(s, 'roux', 'A', 90, 200);
+    const lay = standLayout(4);
+    let served = 0;
+    let inWalls = 0;
+    run(
+      s,
+      5 * HOUR,
+      () => {
+        for (const c of s.customers) {
+          if (c.x > lay.center.x - 4.1 && c.x < lay.center.x + 4.1 && c.z < lay.stopZ - 0.05) inWalls++;
+          if (c.state === 'shopping') {
+            served++;
+            expect(c.z).toBeCloseTo(lay.stopZ, 1);
+            expect(Math.abs(c.x - lay.cx)).toBeLessThan(2.5);
+          }
+        }
+      },
+      0.25,
+    );
+    expect(served).toBeGreaterThan(0);
+    expect(inWalls).toBe(0);
+  });
+
+  it('les vendeurs se tiennent côte à côte derrière le comptoir, et y arrivent par le côté', () => {
+    const { s } = shopFarm(983);
+    const lay = standLayout(4);
+    for (let i = 0; i < 3; i++) expect(hire(s, 'seller').ok).toBe(true);
+    let minZ = Infinity;
+    run(s, 2 * HOUR, () => {
+      for (const w of s.workers) if (w.x > 15.9 && w.x < 24.1) minZ = Math.min(minZ, w.z);
+    }, 0.1);
+    // jamais dans le bâtiment
+    expect(minZ).toBeGreaterThan(34.0);
+    const sellers = s.workers.filter((w) => w.role === 'seller');
+    expect(sellers.every((w) => w.job?.kind === 'stand' && w.job.phase === 'work')).toBe(true);
+    for (const w of sellers) expect(w.z).toBeCloseTo(lay.sellerZ, 1);
+    const xs = sellers.map((w) => w.x).sort((a, b) => a - b);
+    for (let i = 1; i < xs.length; i++) expect(xs[i] - xs[i - 1]).toBeGreaterThanOrEqual(0.6);
+    // fin de journée : ils repartent et reviennent le lendemain par le même chemin
+    run(s, TIME.DAY);
+    for (const w of s.workers) if (w.onSite && w.x > 15.9 && w.x < 24.1) expect(w.z).toBeGreaterThan(34.0);
+  });
+
+  it('la route a reculé : la place est dégagée et les camions livrent toujours', () => {
+    expect(WORLD.WALK_Z - WORLD.ROAD_Z).toBeLessThan(0);
+    // la place fait au moins 7 m entre la clôture et le trottoir
+    expect(WORLD.WALK_Z - 0.6 - 30).toBeGreaterThanOrEqual(7);
+    const s = newFarm(984);
+    morning(s);
+    s.money = 1e7;
+    const n = s.hens.length;
+    expect(A.buyHenPack(s, 'rousse', 6).ok).toBe(true);
+    run(s, 6 * HOUR);
+    expect(s.hens.length).toBe(n + 6);
+  });
+});
+
+describe('Inscription et sauvegarde en ligne', () => {
+  it('on reprend la sauvegarde en ligne seulement si elle est plus récente que celle de l’appareil', () => {
+    const now = 1_800_000_000_000;
+    expect(onlineIsNewer(now, now)).toBe(false);
+    expect(onlineIsNewer(now - 60_000, now)).toBe(false);
+    expect(onlineIsNewer(now + 60_000, now)).toBe(true);
+    // à quelques secondes près (envoi en cours), on garde celle de l'appareil
+    expect(onlineIsNewer(now + 3000, now)).toBe(false);
+  });
+
+  it('la sauvegarde contient tout pour reprendre ailleurs : orientation, trappe, poussinière', () => {
+    const s = newFarm(991);
+    const coop = buildingsOf(s, 'coop')[0];
+    expect(A.rotate(s, coop.id).ok).toBe(true);
+    coop.autoDoor = true;
+    s.farmName = 'Ferme du Test';
+    const back = deserialize(serialize(s))!;
+    expect(back.farmName).toBe('Ferme du Test');
+    expect(back.buildings.find((b) => b.id === coop.id)!.rot).toBe(1);
+    expect(back.buildings.find((b) => b.id === coop.id)!.autoDoor).toBe(true);
+    expect(back.savedAt).toBeGreaterThan(0);
   });
 });

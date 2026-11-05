@@ -46,14 +46,14 @@ export const WORLD = {
   Z0: -30,
   START_PARCEL: '0,2',
   /**
-   * Axe de la route (z) devant les parcelles. Entre la clôture (z = 30) et la route : la petite
-   * place pavée de l'étal, puis le trottoir où marchent les passants.
+   * Axe de la route (z) devant les parcelles. Entre la clôture (z = 30) et la route : la grande
+   * place pavée de l'étal et du magasin (7 m de profondeur), puis le trottoir où marchent les passants.
    */
-  ROAD_Z: 37.3,
+  ROAD_Z: 40.3,
   /** Demi-largeur de la chaussée (deux voies). */
   ROAD_HALF: 1.7,
   /** Axe du trottoir côté ferme (1,2 m de large). */
-  WALK_Z: 34.9,
+  WALK_Z: 37.9,
   /** La route traverse tout le paysage, d'un horizon à l'autre. */
   ROAD_MIN_X: -230,
   ROAD_MAX_X: 310,
@@ -540,6 +540,8 @@ export const BREEDING = {
   incubationDays: 15,
   /** Jours de croissance avant l'âge adulte (ponte) ; le jeune change d'aspect par petites étapes. */
   growthDays: 30,
+  /** Quand il ne reste que ces jours de croissance, les jeunes quittent la poussinière pour le troupeau. */
+  nurseryLeaveDays: 6,
   /** Part de mâles à l'éclosion : un poussin sur deux, comme dans la nature. */
   roosterShare: 0.5,
   /** Taux d'éclosion : base + bonus de fraîcheur de l'œuf (+ bonus de la couveuse). */
@@ -739,7 +741,7 @@ export function parcelPrice(owned: number): number {
 }
 
 export const AUTOSAVE_SECONDS = 15;
-export const SAVE_VERSION = 10;
+export const SAVE_VERSION = 11;
 
 /**
  * Mentions légales (obligatoires en France, même pour un site personnel non commercial).

@@ -183,7 +183,7 @@ export function buildDecor(scene: THREE.Scene): Decor {
   const lampGlow = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0, depthWrite: false });
   const lampPositions: Array<[number, number]> = [];
   // au bord du trottoir côté ferme, la crosse penchée au-dessus des passants (pas sur le parking)
-  for (let x = -12; x <= GRID_W + 12; x += 9) if (x < 26.5 || x > 36.5) lampPositions.push([x, WORLD.WALK_Z - 0.75]);
+  for (let x = -12; x <= GRID_W + 12; x += 9) if (x < 32.5 || x > 42.5) lampPositions.push([x, WORLD.WALK_Z - 0.75]);
   for (const [x, z] of lampPositions) {
     statics.push(cyl(0.05, 0.07, 2.2, 6, 0x4a4f58, [x, 1.1, z]));
     statics.push(box(0.05, 0.05, 0.5, 0x4a4f58, [x, 2.18, z + 0.22]));

@@ -33,6 +33,8 @@ export interface BuildingLevel {
   wellbeing?: number;
   /** Compost : vers et insectes produits par jour (portions). */
   regen?: number;
+  /** Poussinière : vitesse de croissance des poussins (1 = normale). */
+  growth?: number;
   perk?: string;
   /** Emprise propre à ce niveau (sinon celle du bâtiment) : les grandes auges s'allongent selon x. */
   w?: number;
@@ -240,7 +242,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   incubator: {
     type: 'incubator',
     name: 'Couveuse',
-    description: 'Garde les œufs fécondés au chaud et les retourne : au bout de 15 jours, ils éclosent. Les poussins grandissent avec les poules et deviennent pondeuses à 30 jours.',
+    description: 'Garde les œufs fécondés au chaud et les retourne : au bout de 15 jours, ils éclosent. Les poussins vont à la poussinière s’il y en a une (sinon ils grandissent avec les poules) et deviennent pondeuses à 30 jours.',
     w: 2,
     d: 1,
     access: 'none',
@@ -252,6 +254,22 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Petite couveuse', cost: 9000, reqLevel: 2, upkeep: 15, capacity: 12, quality: 0 },
       { name: 'Couveuse automatique', cost: 26000, reqLevel: 4, upkeep: 30, capacity: 30, quality: 0.08, perk: 'Retournement automatique : plus d’éclosions' },
       { name: 'Incubateur professionnel', cost: 65000, reqLevel: 6, upkeep: 60, capacity: 72, quality: 0.15, perk: 'Hygrométrie régulée : éclosions quasi certaines' },
+    ],
+  },
+  nursery: {
+    type: 'nursery',
+    name: 'Poussinière',
+    description: 'Les poussins éclos dans vos couveuses y grandissent à part : un bâtiment chauffé pour dormir et un petit parc grillagé pour se promener, loin des poules et des prédateurs. Grain et eau sont pris dans la réserve. Quand ils vont bientôt pondre, ils sortent seuls rejoindre le troupeau.',
+    w: 7,
+    d: 6,
+    access: 'front',
+    unique: false,
+    buildable: true,
+    movable: true,
+    icon: '🐤',
+    levels: [
+      { name: 'Poussinière', cost: 15000, reqLevel: 3, upkeep: 25, capacity: 24, comfort: 1, growth: 1.1, perk: 'Parc grillagé pour 24 poussins, croissance +10 %' },
+      { name: 'Grande poussinière', cost: 50000, reqLevel: 6, upkeep: 60, capacity: 60, comfort: 1, growth: 1.25, w: 10, d: 8, perk: 'Grand parc de 10 × 8 cases pour 60 poussins, croissance +25 %' },
     ],
   },
   stand: {
@@ -269,6 +287,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Étal en bois', cost: 0, reqLevel: 1, upkeep: 10, capacity: 0, flow: 0.9, qtyMult: 1 },
       { name: 'Échoppe', cost: 15000, reqLevel: 3, upkeep: 30, capacity: 0, flow: 1.6, qtyMult: 1.25, perk: 'Vente en boîtes : paniers plus gros' },
       { name: 'Boutique de la ferme', cost: 55000, reqLevel: 6, upkeep: 80, capacity: 0, flow: 2.8, qtyMult: 1.5, perk: 'Clientèle fidèle' },
+      { name: 'Magasin de la ferme', cost: 240000, reqLevel: 9, upkeep: 180, capacity: 0, flow: 4.2, qtyMult: 1.8, perk: 'Un vrai magasin à votre nom : long comptoir, trois guichets, vitrines et terrasse' },
     ],
   },
 };
@@ -285,7 +304,17 @@ export function sizeOf(type: BuildingType, level = 1, rot = 0): { w: number; d: 
   return rot % 2 ? { w: d, d: w } : { w, d };
 }
 
-export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'incubator'];
+export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'incubator', 'nursery'];
 
 /** Position fixe de l'étal (hors parcelles, sur la place pavée qui donne sur le trottoir). */
 export const STAND_POS = { x: 17.2, z: 31.8 };
+
+/**
+ * Où se passe la vente selon le niveau de l'étal. cx, stopZ, gap : milieu des guichets, où s'arrêtent
+ * les clients, écart entre guichets ; sellerZ : rangée des vendeurs (au magasin : derrière le long
+ * comptoir) ; center, w, d : le bâtiment, pour la caméra et le halo de sélection.
+ */
+export function standLayout(level = 1) {
+  if (level >= 4) return { cx: 20, stopZ: 35.35, gap: 1.1, sellerZ: 34.4, center: { x: 20, z: 33.4 }, w: 8.6, d: 4.2 };
+  return { cx: STAND_POS.x + 1, stopZ: STAND_POS.z + 1.25, gap: 0.62, sellerZ: 0, center: { x: STAND_POS.x + 1, z: STAND_POS.z + 0.3 }, w: 2, d: 1 };
+}

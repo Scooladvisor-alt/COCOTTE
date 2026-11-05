@@ -2,10 +2,12 @@
 import * as THREE from 'three';
 import { EGG_TYPES } from '../config/balance';
 import { BREEDS } from '../config/breeds';
-import { COOP_SCALE, STORAGE_SCALE } from '../config/buildings';
+import { COOP_SCALE, STORAGE_SCALE, sizeOf } from '../config/buildings';
 import { HEN_MAT, HEN_PIVOT, type HenGeo } from './henModel';
 import type { BreedId, BuildingType, EggType } from '../sim/types';
 import { C, CREATURE_MAT, GLOW, MAT, box, cone, cyl, finalizeExport, ico, merge, mesh, prism, sph } from './geo';
+import { wireTexture } from './fences';
+import { nurseryPlan } from '../sim/nursery';
 import { armParts, headParts, legParts, lookOf, strip, torsoParts, type Outfit } from './people';
 import {
   compostBin,
@@ -16,6 +18,8 @@ import {
   coopModern,
   coopFarm,
   gooseHouse,
+  farmShop,
+  nurseryHouse,
   coopAviary,
   coopNormand,
   dustbathShelter,
@@ -213,6 +217,12 @@ export interface BuildingView {
   door?: THREE.Object3D;
   /** Kit de trappe automatique (affiché une fois posé). */
   autoKit?: THREE.Object3D;
+  /** Portillon du parc de la poussinière (pivot sur son montant). */
+  gate?: THREE.Object3D;
+  /** Pelouse dessinée pour la seule vignette (dans le jeu, c'est la vraie herbe de la ferme). */
+  thumbOnly?: THREE.Object3D;
+  /** Magasin : peint le nom de la ferme sur l'enseigne. */
+  setSign?: (name: string) => void;
   key: string;
 }
 
@@ -333,6 +343,99 @@ function gooseHouseModel(level: number): BuildingView {
   const autoKitG = autoKit(...at, 1.6);
   g.add(door, autoKitG);
   return { group: g, eggSlots: [], eggMeshes: [], key: `goosehouse${level}`, door, autoKit: autoKitG };
+}
+
+// Grillage de la poussinière : le même treillis à poules que la clôture de la ferme.
+let wireMat: THREE.MeshLambertMaterial | null = null;
+function wireMaterial() {
+  if (!wireMat) {
+    const t = wireTexture(true);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    wireMat = new THREE.MeshLambertMaterial({ map: t, transparent: true, alphaTest: 0.35, side: THREE.DoubleSide, color: 0xe2e8e0 });
+  }
+  return wireMat;
+}
+/** Panneaux de treillis [x0, z0, x1, z1] entre y0 et y1 (mailles à l'échelle, quelle que soit la longueur). */
+function wirePanels(list: Array<[number, number, number, number]>, y0: number, y1: number) {
+  // deux triangles par panneau, sans index : le contour de sélection lit les sommets à la suite
+  const pos: number[] = [];
+  const uv: number[] = [];
+  const nor: number[] = [];
+  for (const [ax, az, bx, bz] of list) {
+    const len = Math.hypot(bx - ax, bz - az);
+    pos.push(ax, y0, az, bx, y0, bz, bx, y1, bz, ax, y0, az, bx, y1, bz, ax, y1, az);
+    const u = len * 1.6;
+    const v = (y1 - y0) * 3.2;
+    uv.push(0, 0, u, 0, u, v, 0, 0, u, v, 0, v);
+    const nx = (bz - az) / (len || 1);
+    const nz = -(bx - ax) / (len || 1);
+    for (let k = 0; k < 6; k++) nor.push(nx, 0, nz);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  const m = new THREE.Mesh(g, wireMaterial());
+  m.renderOrder = 1;
+  return m;
+}
+
+/** Poussinière : bâtiment chauffé et parc grillagé (dessinés à l'échelle 1), portillon qui s'ouvre. */
+function nurseryModel(level: number): BuildingView {
+  const parts: THREE.BufferGeometry[] = [];
+  const windows: THREE.Mesh[] = [];
+  nurseryHouse(parts, windows, level);
+  const g = groupOf(parts, ...windows);
+  const plan = nurseryPlan(level);
+  const { park, house, gate } = plan;
+  const fx0 = park.x0 - 0.2;
+  const fx1 = park.x1 + 0.2;
+  const fz0 = house.z1 + 0.05;
+  const fz1 = gate[1];
+  const gh = 0.42;
+  g.add(
+    wirePanels(
+      [
+        [fx0, fz0, fx0, fz1],
+        [fx1, fz1, fx1, fz0],
+        [fx0, fz1, gate[0] - gh, fz1],
+        [gate[0] + gh, fz1, fx1, fz1],
+        [fx0, fz0, house.x0, fz0],
+        [house.x1, fz0, fx1, fz0],
+      ],
+      0.08,
+      0.68,
+    ),
+  );
+  // portillon : cadre de bois et treillis, ferré sur son montant de gauche
+  const leaf = new THREE.Group();
+  leaf.position.set(gate[0] - gh + 0.04, 0, fz1);
+  const w = gh * 2 - 0.08;
+  leaf.add(
+    mesh(
+      merge([
+        box(w, 0.045, 0.03, C.wood, [w / 2, 0.1, 0]),
+        box(w, 0.045, 0.03, C.wood, [w / 2, 0.66, 0]),
+        box(0.045, 0.6, 0.03, C.wood, [0.02, 0.38, 0]),
+        box(0.045, 0.6, 0.03, C.wood, [w - 0.02, 0.38, 0]),
+        box(w * 1.1, 0.03, 0.025, C.woodDark, [w / 2, 0.38, 0], [0, 0, 0.72]),
+        box(0.06, 0.05, 0.05, 0x3a3f4a, [w - 0.02, 0.5, 0.02]),
+      ]),
+      false,
+      false,
+    ),
+  );
+  leaf.add(wirePanels([[0.03, 0, w - 0.03, 0]], 0.12, 0.64));
+  g.add(leaf);
+  // la lampe chauffante rougeoie derrière la trappe
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.075, 10, 7), INC_LAMP);
+  lamp.position.set(plan.doorX, 0.36, house.z1 + 0.02);
+  g.add(lamp);
+  const { w: pw, d: pd } = sizeOf('nursery', level);
+  const lawn = mesh(box(pw, 0.03, pd, 0x9ccc65, [pw / 2, -0.005, pd / 2]), false, false);
+  lawn.visible = false;
+  g.add(lawn);
+  return { group: g, eggSlots: [], eggMeshes: [], key: `nursery${level}`, gate: leaf, thumbOnly: lawn };
 }
 
 function nestModel(level: number): BuildingView {
@@ -817,7 +920,54 @@ function compostModel(level: number): BuildingView {
   return { group: g, fill, fillBase: 0.04, fillHeight: level === 1 ? 0.5 : 0.62, fillMode: 'heap', eggSlots: [], eggMeshes: [], key: `compost${level}` };
 }
 
+/** Enseigne peinte du magasin : le nom de la ferme, en lettres d'or sur fond vert. */
+function shopSign() {
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 128;
+  const g = c.getContext('2d')!;
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  let current = 'La ferme';
+  const draw = () => {
+    g.fillStyle = '#2f5d46';
+    g.fillRect(0, 0, c.width, c.height);
+    g.strokeStyle = '#d9b35a';
+    g.lineWidth = 3;
+    g.strokeRect(6, 6, c.width - 12, c.height - 12);
+    g.fillStyle = '#f6e7b5';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = "600 84px 'Fredoka', 'Nunito', system-ui, sans-serif";
+    g.fillText(current, c.width / 2, c.height / 2 + 4, c.width - 70);
+    tex.needsUpdate = true;
+  };
+  draw();
+  // la police arrive parfois après le premier dessin
+  document.fonts?.ready.then(draw);
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(4.5, 0.56).toNonIndexed(), new THREE.MeshLambertMaterial({ map: tex }));
+  return {
+    mesh: m,
+    set(name: string) {
+      if (name === current) return;
+      current = name;
+      draw();
+    },
+  };
+}
+
 function standModel(level: number): BuildingView {
+  if (level >= 4) {
+    const parts: THREE.BufferGeometry[] = [];
+    const windows: THREE.Mesh[] = [];
+    farmShop(parts, windows);
+    const g = groupOf(parts, ...windows);
+    const sign = shopSign();
+    sign.mesh.position.set(1.75, 2.62, 2.928);
+    g.add(sign.mesh);
+    return { group: g, eggSlots: [], eggMeshes: [], key: `stand${level}`, setSign: sign.set };
+  }
   const parts: THREE.BufferGeometry[] = [];
   const stripe = (x0: number, x1: number, y: number, z0: number, z1: number, tilt: number) => {
     const n = 8;
@@ -1045,6 +1195,8 @@ export function buildingModel(type: BuildingType, level: number): BuildingView {
       return compostModel(level);
     case 'incubator':
       return incubatorModel(level);
+    case 'nursery':
+      return nurseryModel(level);
   }
 }
 

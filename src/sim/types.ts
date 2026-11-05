@@ -4,7 +4,7 @@
 export type BreedId = 'rousse' | 'leghorn' | 'sussex' | 'soie' | 'araucana' | 'marans' | 'oie';
 export type EggType = 'roux' | 'blanc' | 'creme' | 'mini' | 'bleu' | 'chocolat' | 'oie' | 'or';
 export type Grade = 'extra' | 'A' | 'B';
-export type BuildingType = 'coop' | 'goosehouse' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'pond' | 'tree';
+export type BuildingType = 'coop' | 'goosehouse' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'pond' | 'tree' | 'nursery';
 
 export type HenAct =
   | 'idle'
@@ -78,6 +78,8 @@ export interface Hen {
   rooster?: boolean;
   /** Jeune né à la ferme : jours restants avant l'âge adulte (poussin puis poulette). */
   young?: number;
+  /** Jeune élevé à la poussinière (coopId désigne alors cette poussinière) : il vit dans son parc. */
+  nursery?: boolean;
   /** Qualités héréditaires (1 à 5 étoiles) : ponte, robustesse, beauté. */
   genes?: Genes;
   /** Coq entièrement noir (rarissime, se revend très cher). */

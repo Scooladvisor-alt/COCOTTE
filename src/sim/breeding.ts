@@ -1,11 +1,13 @@
 // Reproduction : les coqs fécondent une partie des œufs ; mis en couveuse, ces œufs éclosent
-// au bout de 15 jours ; les poussins grandissent avec les poules et pondent à 30 jours.
+// au bout de 15 jours ; les poussins grandissent à la poussinière (ou avec les poules s'il n'y a
+// pas de place) et pondent à 30 jours.
 import { BREEDING, TIME } from '../config/balance';
 import { BREEDS, isGoose } from '../config/breeds';
 import { buildingCenter, currentHour, emit, notify, rand, randRange, toWorld } from './core';
-import { createHen } from './hens';
+import { createHen, enterNursery } from './hens';
+import { nurseryWithRoom } from './nursery';
 import { GENE_INFO, decodeGenes, encodeGenes, genesOf, inherit } from './genetics';
-import { buildingsOf, coopCapacity, coopFor, coopOccupancy, landCapacity, lvl, shelterType } from './queries';
+import { buildingsOf, coopCapacity, homeForYoung, landCapacity, lvl } from './queries';
 import type { ActionResult, BreedId, Building, GameState, Hen } from './types';
 
 export const isRooster = (h: Hen) => !!h.rooster && !h.young;
@@ -154,22 +156,6 @@ export function toggleIncubatorAuto(s: GameState, b: Building): ActionResult {
   return { ok: true };
 }
 
-/** Poulailler qui accueillera le poussin (une place compatible, sinon le moins rempli). */
-function nurseryCoop(s: GameState, breed: BreedId) {
-  const fit = coopFor(s, breed);
-  if (fit) return fit;
-  let best: Building | null = null;
-  let bestFree = -Infinity;
-  for (const c of buildingsOf(s, shelterType(breed))) {
-    const free = lvl(c).capacity - coopOccupancy(s, c.id);
-    if (free > bestFree) {
-      best = c;
-      bestFree = free;
-    }
-  }
-  return best;
-}
-
 function hatchOut(s: GameState, b: Building) {
   const list = b.hatch;
   if (!list?.length) return;
@@ -178,14 +164,21 @@ function hatchOut(s: GameState, b: Building) {
   b.hatch = list.filter((e) => !due.includes(e));
   const c = buildingCenter(b);
   let born = 0;
+  let raised = 0;
   const promising: string[] = [];
   for (const e of due) {
     if (!e.ok) continue;
-    const coop = nurseryCoop(s, e.breed);
+    // à la poussinière s'il y a de la place, sinon dans la basse-cour avec les poules
+    const room = nurseryWithRoom(s);
+    const coop = room ?? homeForYoung(s, e.breed);
     if (!coop) continue;
     const at = toWorld(b, 1 + randRange(s, -0.7, 0.7), 1.35 + randRange(s, 0, 0.5));
     const h = createHen(s, e.breed, coop, false, { young: BREEDING.growthDays, rooster: rand(s) < BREEDING.roosterShare, at, genes: decodeGenes(e.genes) });
     s.hens.push(h);
+    if (room) {
+      enterNursery(s, h, room);
+      raised++;
+    }
     born++;
     const g = genesOf(h);
     const top = Math.max(g.p, g.r, g.b);
@@ -196,7 +189,8 @@ function hatchOut(s: GameState, b: Building) {
   if (born > 0) {
     emit(s, { kind: 'hatch', count: born, x: c.x, z: c.z });
     const breeds = [...new Set(due.filter((e) => e.ok).map((e) => BREEDS[e.breed].name))].join(', ');
-    notify(s, `${born} poussin${born > 1 ? 's sont nés' : ' est né'} (${breeds})${lost ? ` · ${lost} œuf${lost > 1 ? 's' : ''} n’${lost > 1 ? 'ont' : 'a'} pas éclos` : ''}. Pondeuses dans ${BREEDING.growthDays} jours !`, 'good', '🐣');
+    const where = raised === born ? ' Direction la poussinière !' : raised ? ` ${raised} vont à la poussinière (pleine), les autres grandissent avec les poules.` : buildingsOf(s, 'nursery').length ? ' Poussinière pleine : ils grandissent avec les poules.' : '';
+    notify(s, `${born} poussin${born > 1 ? 's sont nés' : ' est né'} (${breeds})${lost ? ` · ${lost} œuf${lost > 1 ? 's' : ''} n’${lost > 1 ? 'ont' : 'a'} pas éclos` : ''}. Pondeuses dans ${BREEDING.growthDays} jours !${where}`, 'good', '🐣');
     if (promising.length) notify(s, `Poussin${promising.length > 1 ? 's' : ''} prometteur${promising.length > 1 ? 's' : ''} : ${promising.join(', ')}. Gardez-le${promising.length > 1 ? 's' : ''} pour la reproduction !`, 'good', '🌟');
   } else notify(s, `Aucun des ${due.length} œuf${due.length > 1 ? 's' : ''} de la couveuse n’a éclos. Des œufs plus frais éclosent mieux.`, 'warn', '🥚');
 }

@@ -64,7 +64,7 @@ function nav(s: GameState) {
       // museau ou la queue (le berger fait près d'un mètre) traversent la clôture
       for (let dz = -1; dz <= 1 && ok; dz++) for (let dx = -1; dx <= 1 && ok; dx++) if (fenced(x + dx, z + dz)) ok = false;
       if (cx > -9.6 && cx < -3.2 && cz > 22 && cz < 27.3) ok = false; // la maison
-      if (cx > STAND_POS.x - 0.8 && cx < STAND_POS.x + 2.8 && cz > STAND_POS.z - 1.2) ok = false; // l'étal
+      if (cx > 15.4 && cx < 24.6 && cz > STAND_POS.z - 1.2) ok = false; // l'étal, ou le magasin qu'il deviendra
       if (cz > GRID_Z1 + 1.8) ok = false; // pas sur la route
       free[j * NW + i] = ok ? 1 : 0;
     }

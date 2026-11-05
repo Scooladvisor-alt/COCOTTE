@@ -23,7 +23,7 @@ const game = new Game(world, state);
 game.persist = !noSave;
 if (loaded?.source === 'backup') game.toast('Sauvegarde principale illisible : la copie de secours a été restaurée.', 'warn', '💾');
 
-render(h(App, { game, fromSave: !!loaded }), document.getElementById('ui')!);
+render(h(App, { game }), document.getElementById('ui')!);
 
 // le navigateur ne zoome pas la page (double appui, pincement sur iPhone et iPad, qui ignorent
 // user-scalable=no) : seul le jeu zoome, avec ses propres gestes

@@ -40,6 +40,7 @@ export function canPlace(s: GameState, type: BuildingType, x: number, z: number,
   for (const b of s.buildings) {
     if (b.id === ignoreId) continue;
     if (isShelter(b) && coopDoorCells(b).some(([cx, cz]) => fp.has(cellIndex(cx, cz)))) return { ok: false, reason: b.type === 'goosehouse' ? 'Devant la porte d’un abri à oies' : 'Devant la porte d’un poulailler' };
+    if (b.type === 'nursery' && coopDoorCells(b).some(([cx, cz]) => fp.has(cellIndex(cx, cz)))) return { ok: false, reason: 'Devant le portillon de la poussinière' };
     if (b.type === 'nest' && accessCells(b).some(([cx, cz]) => fp.has(cellIndex(cx, cz)))) return { ok: false, reason: 'Devant un pondoir' };
   }
 
@@ -56,7 +57,7 @@ export function canPlace(s: GameState, type: BuildingType, x: number, z: number,
   const ownAccess = accessCells({ type, x, z, level, rot }).filter(([ax, az]) => walk[cellIndex(ax, az)]);
   if (def.access !== 'none' && ownAccess.length === 0) return { ok: false, reason: 'Accès bloqué' };
   if (type === 'nest' && ownAccess.length < (rot % 2 ? def.d : def.w)) return { ok: false, reason: 'L’avant du pondoir doit rester libre' };
-  if (isShelterType(type) && coopDoorCells({ x, z, level, type, rot }).some(([cx, cz]) => inGrid(cx, cz) && !walk[cellIndex(cx, cz)])) return { ok: false, reason: 'La porte doit rester dégagée' };
+  if ((isShelterType(type) || type === 'nursery') && coopDoorCells({ x, z, level, type, rot }).some(([cx, cz]) => inGrid(cx, cz) && !walk[cellIndex(cx, cz)])) return { ok: false, reason: 'La porte doit rester dégagée' };
 
   // connexité : toutes les installations doivent rester accessibles depuis l'entrée
   const seen = new Uint8Array(GRID_W * GRID_H);

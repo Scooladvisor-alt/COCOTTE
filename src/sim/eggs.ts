@@ -3,10 +3,13 @@
 import { COMPOST, FRESHNESS, GRADE_RANK, RARE, TIME, XP, clamp, gradeOf } from '../config/balance';
 import { BREEDS } from '../config/breeds';
 import { currentDay, emit, newId, buildingCenter, notify } from './core';
-import { addXp, fmtMoney, today } from './economy';
+import { addXp, earn, fmtMoney, today } from './economy';
 import { getBuilding, lvl, storage, storageFree } from './queries';
 import type { BreedId, Building, EggType, GameState, Grade, Hen, WorldEgg } from './types';
 import { fertilize } from './breeding';
+
+/** Œuf d'or ou de phénix : il ne s'abîme pas et ne passe ni par le stockage ni par le marché. */
+export const isTreasure = (type: EggType) => type === 'or' || type === 'phenix';
 
 export function eggQuality(s: GameState, h: Hen, nest: Building | null): number {
   const coop = getBuilding(s, h.coopId);
@@ -26,7 +29,7 @@ export function eggQuality(s: GameState, h: Hen, nest: Building | null): number 
 }
 
 export function layEgg(s: GameState, h: Hen, nest: Building | null): WorldEgg {
-  const type: EggType = h.golden ? 'or' : BREEDS[h.breed].egg;
+  const type: EggType = h.legendary ? 'phenix' : h.golden ? 'or' : BREEDS[h.breed].egg;
   const egg: WorldEgg = {
     id: newId(s),
     type,
@@ -38,8 +41,8 @@ export function layEgg(s: GameState, h: Hen, nest: Building | null): WorldEgg {
     z: h.z,
     laidAt: s.clock.t,
   };
-  // un coq dans la basse-cour : l'œuf peut être fécondé (pas un œuf d'or)
-  const chick = h.golden ? null : fertilize(s, h);
+  // un coq dans la basse-cour : l'œuf peut être fécondé (pas un œuf d'or ni de phénix)
+  const chick = h.golden || h.legendary ? null : fertilize(s, h);
   if (chick) {
     egg.fertile = chick.breed;
     egg.genes = chick.genes;
@@ -56,11 +59,21 @@ export function layEgg(s: GameState, h: Hen, nest: Building | null): WorldEgg {
   const day = today(s);
   day.eggs = (day.eggs ?? 0) + 1;
   emit(s, { kind: 'eggLaid', eggId: egg.id, x: egg.x, z: egg.z, ground: !nest });
+  if (type === 'phenix') emit(s, { kind: 'phoenix', x: egg.x, z: egg.z, big: false });
   return egg;
 }
 
 /** Ajoute des œufs au stockage (fusion par type / catégorie / jour / fécondation). Retourne le nombre réellement stocké. */
 export function addToStorage(s: GameState, type: EggType, grade: Grade, freshness: number, count: number, fertile?: BreedId, genes?: string): number {
+  if (type === 'phenix') {
+    // le collectionneur guette ces œufs : il l'achète à l'instant où on le ramasse
+    s.stats.phoenixEggs = (s.stats.phoenixEggs ?? 0) + count;
+    const amount = RARE.phoenixEggPrice * count;
+    earn(s, amount, 'reventes', count > 1 ? `${count} œufs de phénix (collectionneur)` : 'Œuf de phénix (collectionneur)');
+    addXp(s, 25 * count);
+    notify(s, `Un œuf de phénix ! Le collectionneur accourt et vous l’achète ${fmtMoney(amount)} !`, 'good', '🔥');
+    return count;
+  }
   if (type === 'or') {
     // l'or ne se périme pas et ne prend pas de place : il rejoint le coffre, en attendant le collectionneur
     s.goldEggs = (s.goldEggs ?? 0) + count;
@@ -99,7 +112,8 @@ export function collectEggs(s: GameState, eggs: WorldEgg[], silent = false): num
   let collected = 0;
   for (const egg of [...eggs]) {
     if (!s.worldEggs.includes(egg)) continue; // déjà ramassé : jamais deux fois
-    if (storageFree(s) <= 0) break;
+    // l'or et le phénix ne prennent pas de place au stockage
+    if (storageFree(s) <= 0 && !isTreasure(egg.type)) continue;
     removeWorldEgg(s, egg);
     collected += addToStorage(s, egg.type, gradeOf(egg.quality), egg.freshness, 1, egg.fertile, egg.genes);
   }
@@ -178,7 +192,7 @@ export function ageEggs(s: GameState, dtDays: number) {
   for (const e of [...s.worldEggs]) {
     e.freshness -= (e.where === 'ground' ? FRESHNESS.groundDecayPerDay : FRESHNESS.nestDecayPerDay) * dtDays;
     // pondu par terre et oublié un jour entier : il pourrit, invendable (l'œuf d'or, lui, attend)
-    if (e.type === 'or') e.freshness = 100;
+    if (isTreasure(e.type)) e.freshness = 100;
     else if (e.where === 'ground' && s.clock.t - e.laidAt >= FRESHNESS.groundRotDays * TIME.DAY) {
       removeWorldEgg(s, e);
       rotten++;

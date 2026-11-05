@@ -6,7 +6,7 @@ import { Inspector } from './Inspector';
 import { LevelUpModal, NightFade, OfflineModal, PlacementBar, PredatorAlert, TitleScreen, Toasts, Tutorial } from './Overlays';
 import { PanelHost } from './Panels';
 import { ShowResultModal } from './Show';
-import { CloudVeil, VisitBar, VisitDock } from './Online';
+import { CloudVeil, GreetingsCard, VisitBar, VisitDock, VisitStats } from './Online';
 
 function Hud() {
   const game = useGame();
@@ -16,6 +16,7 @@ function Hud() {
     return (
       <>
         <VisitBar />
+        <VisitStats />
         <VisitDock />
         <PanelHost />
         <Toasts />
@@ -31,6 +32,7 @@ function Hud() {
       <Tutorial />
       <PanelHost />
       <PredatorAlert />
+      <GreetingsCard />
       <Toasts />
       <LevelUpModal />
       <OfflineModal />

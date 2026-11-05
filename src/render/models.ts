@@ -5,7 +5,7 @@ import { BREEDS } from '../config/breeds';
 import { COOP_SCALE, STORAGE_SCALE, sizeOf } from '../config/buildings';
 import { HEN_MAT, HEN_PIVOT, type HenGeo } from './henModel';
 import type { BreedId, BuildingType, EggType } from '../sim/types';
-import { C, CREATURE_MAT, GLOW, MAT, box, cone, cyl, finalizeExport, ico, merge, mesh, prism, sph } from './geo';
+import { C, CREATURE_MAT, MAT, box, cone, cyl, finalizeExport, ico, merge, mesh, prism, sph } from './geo';
 import { wireTexture } from './fences';
 import { nurseryPlan } from '../sim/nursery';
 import { armParts, headParts, legParts, lookOf, strip, torsoParts, type Outfit } from './people';
@@ -37,7 +37,7 @@ import {
 
 // ================================================================ POULES ====
 // Le modèle des volailles (poules, coqs, jeunes, poussins) est dans henModel.ts.
-export { ADULT_STAGE, GOLD_HEN_MAT, HEN_MAT, HEN_PIVOT, HEN_RIM, henGeometry, type HenGeo, type HenKind } from './henModel';
+export { ADULT_STAGE, GOLD_HEN_MAT, LEGEND_HEN_MAT, LEGEND_TIME, HEN_MAT, HEN_PIVOT, HEN_RIM, henGeometry, type HenGeo, type HenKind } from './henModel';
 
 /**
  * Squelette d'animation d'une poule (sans maillage) : ses matrices sont recopiées
@@ -181,11 +181,19 @@ export function eggGeometry(type: EggType) {
     const lathe = new THREE.LatheGeometry(pts, 8);
     // l'œuf d'oie est bien plus gros que celui de la poule
     if (type === 'oie') lathe.scale(1.45, 1.5, 1.45);
+    if (type === 'phenix') lathe.scale(1.2, 1.25, 1.2);
     g = merge([lathe].map((l) => {
       const c = new THREE.Color(EGG_TYPES[type].color);
       const n = l.attributes.position.count;
       const arr = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) (arr[i * 3] = c.r), (arr[i * 3 + 1] = c.g), (arr[i * 3 + 2] = c.b);
+      // l'œuf de phénix est un dégradé de braise : cramoisi en bas, doré en haut
+      if (type === 'phenix') {
+        const low = new THREE.Color(0xb3160f);
+        const high = new THREE.Color(0xffc93a);
+        const pos = l.attributes.position;
+        for (let i = 0; i < n; i++) low.clone().lerp(high, Math.min(1, pos.getY(i) / 0.22)).toArray(arr, i * 3);
+      }
       l.setAttribute('color', new THREE.BufferAttribute(arr, 3));
       l.deleteAttribute('uv');
       return l;
@@ -197,6 +205,8 @@ export function eggGeometry(type: EggType) {
 export const EGG_MAT = new THREE.MeshLambertMaterial({ vertexColors: true });
 /** Œuf d'or : métal poli, reflets éclatants et légère lueur. */
 export const GOLD_EGG_MAT = new THREE.MeshPhongMaterial({ vertexColors: true, specular: 0xfff4c0, shininess: 110, emissive: 0x5a3c00 });
+/** Œuf de phénix : il rougeoie, comme une braise. */
+export const PHOENIX_EGG_MAT = new THREE.MeshPhongMaterial({ vertexColors: true, specular: 0xffe0a0, shininess: 80, emissive: 0x9c2c00 });
 /** Œufs oubliés au sol : ils ternissent puis verdissent avant de pourrir. */
 export const EGG_STALE_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, color: 0xc9bf98 });
 export const EGG_ROT_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, color: 0x8f9a5c });
@@ -281,13 +291,6 @@ function autoKit(w: number, h: number, x: number, top: number, z: number, k = 1)
 
 function slab(w: number, d: number, color = 0xe6d9bf, h = 0.05) {
   return box(w - 0.08, h, d - 0.08, color, [w / 2, h / 2, d / 2]);
-}
-
-function windowPane(w: number, h: number, p: [number, number, number], ry = 0) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.03), GLOW);
-  m.position.set(...p);
-  m.rotation.y = ry;
-  return m;
 }
 
 function coopModel(level: number): BuildingView {
@@ -1081,6 +1084,108 @@ function incubatorModel(level: number): BuildingView {
   return { group: groupOf(parts, ...extra), eggSlots: slots, eggMeshes: [], key: `incubator${level}` };
 }
 
+/**
+ * Couveuse à oies : grand coffre de planches paillé sous un châssis vitré à deux pentes, chauffé
+ * par des lampes (les gros œufs se voient à travers le verre). Les oisons sortent par une petite
+ * porte et descendent leur rampe. Plus grand à chaque niveau, puis poêle et double sortie.
+ */
+function gooseIncubatorModel(level: number): BuildingView {
+  const { w, d } = sizeOf('gooseincubator', level);
+  const parts: THREE.BufferGeometry[] = [slab(w, d, 0xe2d3b5)];
+  const extra: THREE.Object3D[] = [];
+  const x0 = 0.14;
+  const x1 = w - 0.14;
+  const z0 = 0.14;
+  const z1 = d - 0.5;
+  const cx = (x0 + x1) / 2;
+  const cz = (z0 + z1) / 2;
+  const lenX = x1 - x0;
+  const lenZ = z1 - z0;
+  // planches du coffre, poteaux d'angle
+  for (let i = 0; i < 3; i++) {
+    const y = 0.13 + i * 0.125;
+    const tone = i % 2 ? C.plank : C.wood;
+    parts.push(box(lenX, 0.11, 0.06, tone, [cx, y, z1]));
+    parts.push(box(lenX, 0.11, 0.06, tone, [cx, y, z0]));
+    parts.push(box(0.06, 0.11, lenZ, tone, [x0, y, cz]));
+    parts.push(box(0.06, 0.11, lenZ, tone, [x1, y, cz]));
+  }
+  for (const x of [x0, x1]) for (const z of [z0, z1]) parts.push(box(0.1, 0.5, 0.1, C.woodDark, [x, 0.26, z]));
+  // lit de paille et ses brins
+  parts.push(box(lenX - 0.08, 0.26, lenZ - 0.08, 0xc9a24f, [cx, 0.2, cz]));
+  parts.push(box(lenX - 0.08, 0.02, lenZ - 0.08, C.straw, [cx, 0.34, cz]));
+  for (let i = 0; i < 26 * level; i++) {
+    const a = Math.sin(i * 12.9) * 43758.5;
+    const b = Math.sin(i * 78.2) * 12543.1;
+    const fx = a - Math.floor(a);
+    const fz = b - Math.floor(b);
+    parts.push(box(0.14, 0.012, 0.018, i % 3 ? 0xe9d078 : 0xcfae5a, [x0 + 0.1 + fx * (lenX - 0.2), 0.355, z0 + 0.1 + fz * (lenZ - 0.2)], [0, fx * 6, 0]));
+  }
+  // emplacements des œufs
+  const cols = level === 1 ? 3 : level === 2 ? 4 : 6;
+  const rows = level === 1 ? 2 : level === 2 ? 3 : 4;
+  const slots: THREE.Vector3[] = [];
+  const mx = lenX - 0.5;
+  const mz = lenZ - 0.34;
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) slots.push(new THREE.Vector3(cx - mx / 2 + (mx * c) / Math.max(1, cols - 1), 0.355, cz - mz / 2 + (mz * r) / Math.max(1, rows - 1)));
+  // châssis vitré à deux pentes
+  const eave = 0.5;
+  const ridge = 0.5 + Math.min(0.5, lenZ * 0.4);
+  const rise = ridge - eave;
+  const run = lenZ / 2;
+  const slope = Math.atan2(rise, run);
+  const pane = Math.hypot(rise, run);
+  for (const s of [-1, 1]) {
+    const glass = new THREE.Mesh(new THREE.BoxGeometry(lenX - 0.04, 0.012, pane).toNonIndexed(), INC_GLASS);
+    glass.position.set(cx, (eave + ridge) / 2, cz + (s * run) / 2);
+    glass.rotation.x = s * slope;
+    glass.renderOrder = 4;
+    extra.push(glass);
+  }
+  const bays = Math.max(2, Math.round(lenX / 0.9));
+  for (let i = 0; i <= bays; i++) {
+    const x = x0 + (lenX * i) / bays;
+    for (const s of [-1, 1]) parts.push(box(0.045, 0.045, pane + 0.04, C.woodDark, [x, (eave + ridge) / 2 + 0.012, cz + (s * run) / 2], [s * slope, 0, 0]));
+  }
+  parts.push(box(lenX + 0.1, 0.06, 0.07, C.woodDark, [cx, ridge + 0.02, cz]));
+  parts.push(box(lenX + 0.06, 0.04, 0.06, C.woodDark, [cx, eave, z1]));
+  parts.push(box(lenX + 0.06, 0.04, 0.06, C.woodDark, [cx, eave, z0]));
+  for (const x of [x0, x1]) parts.push(prism(0.035, rise, lenZ, C.plank, [x, eave, cz]));
+  // lampes chauffantes sous le faîte
+  const lamps = level === 1 ? 1 : 2;
+  for (let i = 0; i < lamps; i++) {
+    const lamp = new THREE.Mesh(new THREE.BoxGeometry(lenX * 0.32, 0.02, 0.06), INC_LAMP);
+    lamp.position.set(x0 + (lenX * (i + 0.5)) / lamps, ridge - 0.06, cz);
+    extra.push(lamp);
+  }
+  // sortie des oisons : porte, rampe à tasseaux
+  for (const x of level >= 3 ? [w * 0.3, w * 0.7] : [w / 2]) {
+    const z = z1 + 0.035;
+    parts.push(box(0.46, 0.3, 0.02, 0x3a2c20, [x, 0.27, z]));
+    parts.push(box(0.56, 0.05, 0.05, C.woodDark, [x, 0.44, z]));
+    for (const s of [-1, 1]) parts.push(box(0.05, 0.34, 0.05, C.woodDark, [x + s * 0.26, 0.26, z]));
+    const foot = d - 0.05;
+    const dz = foot - z;
+    const tilt = Math.atan2(0.3, dz);
+    const midZ = (z + foot) / 2;
+    parts.push(box(0.46, 0.03, Math.hypot(0.3, dz), C.woodLight, [x, 0.17, midZ], [tilt, 0, 0]));
+    for (let k = 0; k < 3; k++) {
+      const t = (k + 0.7) / 3.2;
+      parts.push(box(0.42, 0.02, 0.03, C.woodDark, [x, 0.32 - 0.3 * t + 0.022, z + dz * t]));
+    }
+  }
+  // poêle et son tuyau
+  if (level >= 2) {
+    parts.push(cyl(0.035, 0.035, 0.9, 8, 0x565b63, [x1 - 0.28, 0.75, z0 + 0.06]));
+    parts.push(cone(0.08, 0.08, 8, 0x4a4f57, [x1 - 0.28, 1.24, z0 + 0.06]));
+  }
+  // thermomètre sur le coffre
+  parts.push(box(0.1, 0.24, 0.015, C.white, [x0 + 0.26, 0.28, z1 + 0.035]));
+  parts.push(box(0.018, 0.18, 0.018, 0xd9534f, [x0 + 0.26, 0.27, z1 + 0.046]));
+  return { group: groupOf(parts, ...extra), eggSlots: slots, eggMeshes: [], key: `gooseincubator${level}` };
+}
+
 const POND_WATER = new THREE.MeshLambertMaterial({ color: 0x7fc0e2 });
 
 /** Mare : berge de terre et de galets, roseaux, nénuphars ; l'eau monte et baisse avec le niveau. */
@@ -1195,6 +1300,8 @@ export function buildingModel(type: BuildingType, level: number): BuildingView {
       return compostModel(level);
     case 'incubator':
       return incubatorModel(level);
+    case 'gooseincubator':
+      return gooseIncubatorModel(level);
     case 'nursery':
       return nurseryModel(level);
   }
@@ -1392,32 +1499,6 @@ export function grassPatchGeometry(wild = false, seed = 1, dense = true) {
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
   g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
   g.computeBoundingSphere();
-  return g;
-}
-
-export function farmhouse() {
-  const parts: THREE.BufferGeometry[] = [];
-  parts.push(box(5.4, 0.08, 4.4, 0xe6dccb, [2.7, 0.04, 2.2]));
-  parts.push(box(4.2, 2.0, 3.0, 0xf6ead6, [2.4, 1.05, 1.8]));
-  parts.push(box(4.26, 0.16, 3.06, 0xb98d66, [2.4, 0.08, 1.8]));
-  parts.push(prism(4.7, 1.4, 3.5, 0xc96a4a, [2.4, 2.05, 1.8]));
-  parts.push(box(4.8, 0.08, 0.1, 0xa4523a, [2.4, 3.45, 1.8]));
-  parts.push(box(0.4, 0.9, 0.4, 0xd9cfc2, [3.5, 3.0, 1.2]));
-  parts.push(box(0.7, 1.25, 0.06, C.blue, [2.4, 0.7, 3.32]));
-  parts.push(box(0.8, 1.35, 0.04, C.white, [2.4, 0.72, 3.3]));
-  parts.push(box(1.8, 0.08, 1.0, C.woodLight, [2.4, 0.08, 3.8]));
-  for (const x of [1.6, 3.2]) parts.push(box(0.08, 1.6, 0.08, C.woodDark, [x, 0.85, 4.25]));
-  parts.push(box(1.9, 0.07, 1.2, C.roof, [2.4, 1.65, 3.85], [0.25, 0, 0]));
-  for (const x of [1.0, 3.8]) {
-    parts.push(box(0.75, 0.65, 0.05, C.white, [x, 1.2, 3.3]));
-    parts.push(box(0.75, 0.14, 0.18, 0x9b6b47, [x, 0.82, 3.38]));
-    parts.push(ico(0.08, 0, 0xe85d75, [x - 0.2, 0.92, 3.4]));
-    parts.push(ico(0.08, 0, 0xf5c542, [x + 0.15, 0.92, 3.42]));
-  }
-  const g = new THREE.Group();
-  g.add(mesh(merge(parts)));
-  for (const x of [1.0, 3.8]) g.add(windowPane(0.6, 0.5, [x, 1.2, 3.33]));
-  g.add(windowPane(0.6, 0.5, [0.25, 1.3, 1.8], Math.PI / 2));
   return g;
 }
 

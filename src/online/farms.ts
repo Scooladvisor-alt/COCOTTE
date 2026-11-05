@@ -115,6 +115,28 @@ export async function fetchFarm(name: string) {
   return rows[0] ?? null;
 }
 
+// -------------------------------------------------------------- Coucou ----
+export type GreetResult = 'ok' | 'wait' | 'denied' | 'unknown' | 'self';
+
+/** Passe le coucou à une ferme, au nom de la nôtre. */
+export function sendGreeting(to: string): Promise<GreetResult> {
+  const id = identity();
+  if (!id) return Promise.resolve('denied');
+  return rpc<GreetResult>('send_greeting', { p_from: id.name, p_secret: id.secret, p_to: to });
+}
+
+export interface Greeting {
+  from_name: string;
+  sent_at: string;
+}
+
+/** Les coucous reçus depuis la dernière fois (ils sont marqués comme vus). */
+export function readGreetings(): Promise<Greeting[]> {
+  const id = identity();
+  if (!id) return Promise.resolve([]);
+  return rpc<Greeting[]>('read_greetings', { p_name: id.name, p_secret: id.secret }, 8000);
+}
+
 // ------------------------------------------------------------- Envoi ----
 /** Chiffres du classement : niveau, volailles, taux de ponte moyen (0 à 1) et bien-être moyen. */
 export function farmStats(s: GameState) {

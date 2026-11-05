@@ -1,7 +1,7 @@
 // Le personnel : des salariés visibles qui se déplacent dans la ferme et font réellement
 // le travail (ramassage, remplissage, nettoyage, soins, arrosage, vente au comptoir).
 import { FRESHNESS, TIME, GRAIN_SACKS, GRID_H, GRID_W, PREDATORS, WORLD, clamp, gradeOf, sackPrice } from '../config/balance';
-import { BUILDINGS, STAND_POS, sizeOf, standLayout } from '../config/buildings';
+import { BUILDINGS, STAND_POS, sizeOf, standLayout, HALL_DOOR } from '../config/buildings';
 import { ROLES, STAFF, WORKER_NAMES } from '../config/staff';
 import { buildingCenter, canStand, cellIndex, coopDoor, cellX, cellZ, crossesFence, currentDay, facadeHeading, frontOf, toWorld, currentHour, emit, inGrid, isWalkable, nearestWalkable, newId, notify, pick, planPath, rand, randRange, rt, isShelter } from './core';
 import { PREDATOR_INFO, damagePredator, distanceToFarm, predatorAimY } from './predators';
@@ -15,7 +15,7 @@ import { getBuilding, lvl, storage, storageFree } from './queries';
 import type { ActionResult, Building, GameState, Predator, Worker, WorkerJob, WorkerJobKind, WorkerRole } from './types';
 
 // Trajets extérieurs : maison → allée → chemin le long de la clôture → portail (ou arrière de l'étal)
-const HOUSE: [number, number] = [-6.6, 26.3];
+const HOUSE = HALL_DOOR;
 const LANE_Z = 31.35;
 const TO_GATE: Array<[number, number]> = [HOUSE, [-6.0, 28.6], [-6.0, LANE_Z], [14.5, LANE_Z], [14.5, 30.4], [14.5, 29.5]];
 

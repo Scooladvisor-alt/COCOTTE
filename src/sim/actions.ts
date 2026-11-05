@@ -8,7 +8,7 @@ import { buildingCenter, emit, invalidateLayout, isShelter, isWalkable, nearestW
 import { GATE_IN, arriveAt, scheduleTruck, syncWaveLeave } from './deliveries';
 import { addXp, breedUnlocked, earn, farmLevel, fmtMoney, levelReached, maxParcelsOf, spend } from './economy';
 import { canPlace, cleaningCost, countOfType } from './buildings';
-import { collectEggs, collectNest } from './eggs';
+import { collectEggs, collectNest, isTreasure } from './eggs';
 import { reseedParcel } from './grass';
 import { adoptChicks, createHen, henValue, recallHen, releaseChicks, resetHenAfterLayout } from './hens';
 import { autoEnclose } from './fences';
@@ -406,7 +406,7 @@ export function collectFromNest(s: GameState, id: number): ActionResult {
   const b = getBuilding(s, id);
   if (!b || b.type !== 'nest') return fail('Pondoir introuvable');
   if (b.eggIds.length === 0) return fail('Aucun œuf à ramasser');
-  if (storageFree(s) <= 0) return fail('Stockage plein : vendez des œufs ou agrandissez-le');
+  if (storageFree(s) <= 0 && !b.eggIds.some((id) => isTreasure(s.worldEggs.find((e) => e.id === id)?.type ?? 'roux'))) return fail('Stockage plein : vendez des œufs ou agrandissez-le');
   const n = collectNest(s, b);
   return n > 0 ? OK : fail('Stockage plein');
 }
@@ -414,13 +414,13 @@ export function collectFromNest(s: GameState, id: number): ActionResult {
 export function collectGroundEgg(s: GameState, eggId: number): ActionResult {
   const e = s.worldEggs.find((x) => x.id === eggId);
   if (!e) return fail('Œuf déjà ramassé');
-  if (storageFree(s) <= 0) return fail('Stockage plein');
+  if (storageFree(s) <= 0 && !isTreasure(e.type)) return fail('Stockage plein');
   return collectEggs(s, [e]) > 0 ? OK : fail('Stockage plein');
 }
 
 export function collectAll(s: GameState): ActionResult {
   if (s.worldEggs.length === 0) return fail('Aucun œuf à ramasser');
-  if (storageFree(s) <= 0) return fail('Stockage plein');
+  if (storageFree(s) <= 0 && !s.worldEggs.some((e) => isTreasure(e.type))) return fail('Stockage plein');
   const n = collectEggs(s, [...s.worldEggs]);
   return n > 0 ? OK : fail('Stockage plein');
 }

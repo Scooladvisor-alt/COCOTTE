@@ -1,7 +1,7 @@
 // Vignettes de la boutique et des listes : photos des vrais modèles 3D du jeu (rendu hors
 // écran une seule fois, puis mis en cache sous forme d'image).
 import * as THREE from 'three';
-import { BLACK_SKIN, BREEDS, GOLD_SKIN } from '../config/breeds';
+import { BLACK_SKIN, BREEDS, GOLD_SKIN, LEGEND_SKIN } from '../config/breeds';
 import type { BreedId, BuildingType, EggType, Hen, WorkerRole } from '../sim/types';
 import { C, SNOW_UNIFORM, box, cyl, merge, mesh, sph } from './geo';
 import { ADULT_STAGE, EGG_MAT, HEN_MAT, HEN_PIVOT, buildingModel, createWorkerView, eggGeometry, henGeometry, type HenKind } from './models';
@@ -82,10 +82,10 @@ function henModel(breed: BreedId, kind: HenKind = 'hen', stage = ADULT_STAGE, sk
 export const henThumb = (breed: BreedId, skin = 0) => snapshot(`hen:${breed}:${skin}`, () => henModel(breed, 'hen', ADULT_STAGE, skin), { yaw: 0.75, elev: 0.28, pad: 1.0 });
 export const roosterThumb = (breed: BreedId, skin = 0) => snapshot(`rooster:${breed}:${skin}`, () => henModel(breed, 'rooster', ADULT_STAGE, skin), { yaw: 0.75, elev: 0.22, pad: 1.0 });
 /** Vignette d'un oiseau de la ferme : poule, coq, ou jeune à son stade de croissance, avec son plumage. */
-export const birdThumb = (h: { breed: BreedId; rooster?: boolean; young?: number; skin?: number; black?: boolean; golden?: boolean }) => {
+export const birdThumb = (h: { breed: BreedId; rooster?: boolean; young?: number; skin?: number; black?: boolean; golden?: boolean; legendary?: boolean }) => {
   const kind: HenKind = h.rooster ? 'rooster' : 'hen';
   const stage = growthStage(h as Hen);
-  const skin = h.golden ? GOLD_SKIN : h.black ? BLACK_SKIN : h.skin ?? 0;
+  const skin = h.legendary ? LEGEND_SKIN : h.golden ? GOLD_SKIN : h.black ? BLACK_SKIN : h.skin ?? 0;
   if (stage >= ADULT_STAGE) return kind === 'rooster' ? roosterThumb(h.breed, skin) : henThumb(h.breed, skin);
   return snapshot(`young:${h.breed}:${kind}:${stage}:${skin}`, () => henModel(h.breed, kind, stage, skin), { yaw: 0.75, elev: 0.28, pad: 1.0 });
 };

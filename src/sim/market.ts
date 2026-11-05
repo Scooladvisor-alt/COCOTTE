@@ -332,7 +332,7 @@ export function estimatedDemand(s: GameState, type: EggType, price: number) {
 
 export function dailyProduction(s: GameState, type?: EggType) {
   let n = 0;
-  for (const h of s.hens) if (!h.golden && (!type || BREEDS[h.breed].egg === type)) n += eggsPerDayOf(h);
+  for (const h of s.hens) if (!h.golden && !h.legendary && (!type || BREEDS[h.breed].egg === type)) n += eggsPerDayOf(h);
   return n;
 }
 

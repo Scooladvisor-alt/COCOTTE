@@ -5,7 +5,7 @@
 // réfrigéré à quai de chargement. Volumes simples fusionnés, détails en légère saillie
 // (planches, colombages, tuiles…) visibles sous l'angle de la caméra (façade +z, côté +x).
 import * as THREE from 'three';
-import { C, GLOW, box, cone, cyl, finalizeExport, ico, merge, prism, sph, type V3 } from './geo';
+import { C, GLOW, box, cone, cyl, finalizeExport, ico, merge, mesh, prism, sph, type V3 } from './geo';
 import { nurseryPlan } from '../sim/nursery';
 
 export type Parts = THREE.BufferGeometry[];
@@ -1885,3 +1885,388 @@ export function farmShop(parts: Parts, windows: THREE.Mesh[]) {
     parts.push(ico(0.25, 1, 0x7fb35a, [px, 0.82, zf + 0.34]));
   }
 }
+
+// ======================================================== HÔTEL DE VILLE ====
+/** Tronc de pyramide à base rectangulaire : les deux pentes d'un toit à la Mansart. */
+function frustum(w0: number, d0: number, w1: number, d1: number, h: number, color: number, p: V3) {
+  const g = new THREE.BoxGeometry(1, h, 1);
+  const a = g.attributes.position;
+  for (let i = 0; i < a.count; i++) {
+    const top = a.getY(i) > 0;
+    a.setXYZ(i, a.getX(i) * (top ? w1 : w0), a.getY(i), a.getZ(i) * (top ? d1 : d0));
+  }
+  const out = finalizeExport(g, color, p);
+  out.computeVertexNormals();
+  return out;
+}
+
+/** Plaque gravée au fronton. */
+function hallPlaque(w: number, h: number) {
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = Math.round((1024 * h) / w);
+  const g = c.getContext('2d')!;
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  const draw = () => {
+    g.fillStyle = '#20364d';
+    g.fillRect(0, 0, c.width, c.height);
+    g.strokeStyle = '#e3b23c';
+    g.lineWidth = 7;
+    g.strokeRect(10, 10, c.width - 20, c.height - 20);
+    g.fillStyle = '#f7e6b2';
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.font = "700 88px Georgia, 'Times New Roman', serif";
+    g.fillText('HÔTEL DE VILLE', c.width / 2, c.height / 2 + 5, c.width - 70);
+    tex.needsUpdate = true;
+  };
+  draw();
+  return new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: tex }));
+}
+
+/** Drapeau tricolore qui flotte au vent : on déforme ses sommets à chaque image. */
+function hallFlag(w: number, h: number) {
+  const n = 15;
+  const geo = new THREE.PlaneGeometry(w, h, n, 4).toNonIndexed();
+  geo.translate(w / 2, 0, 0);
+  const pos = geo.attributes.position;
+  const colors = new Float32Array(pos.count * 3);
+  const stripes = [new THREE.Color(0x24439c), new THREE.Color(0xf7f7f2), new THREE.Color(0xd9303a)];
+  for (let i = 0; i < pos.count; i += 3) {
+    const mid = (pos.getX(i) + pos.getX(i + 1) + pos.getX(i + 2)) / 3;
+    const col = stripes[Math.min(2, Math.floor((mid / w) * 3))];
+    for (let k = 0; k < 3; k++) col.toArray(colors, (i + k) * 3);
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  const base = Float32Array.from(pos.array as Float32Array);
+  const m = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  m.castShadow = true;
+  return {
+    mesh: m,
+    wave(t: number) {
+      for (let i = 0; i < pos.count; i++) {
+        const x = base[i * 3];
+        const k = x / w;
+        pos.setXYZ(i, x * (1 - 0.03 * Math.sin(t * 2.1)), base[i * 3 + 1] + Math.sin(x * 4.2 - t * 3.1) * 0.035 * k, Math.sin(x * 6.5 - t * 5.2) * 0.075 * k + Math.sin(x * 2.4 - t * 1.9) * 0.05 * k);
+      }
+      pos.needsUpdate = true;
+      geo.computeVertexNormals();
+    },
+  };
+}
+
+export interface TownHall {
+  group: THREE.Group;
+  /** Heure de jeu (0 à 24) et temps qui passe : l'horloge donne l'heure de la ferme, le drapeau flotte. */
+  tick(hours: number, time: number): void;
+}
+
+/**
+ * Hôtel de ville à la française, où logent les salariés de la ferme : rez-de-chaussée en pierre de
+ * taille, étage enduit aux chaînages clairs, hautes fenêtres à volets et jardinières, toit à la
+ * Mansart en ardoise et ses lucarnes, pavillon central à fronton, perron, colonnes et balcon de fer
+ * forgé, beffroi à horloge, cloche dorée et drapeau. Origine : milieu de la façade, au sol.
+ */
+export function townHall(): TownHall {
+  const parts: Parts = [];
+  const windows: THREE.Mesh[] = [];
+  const group = new THREE.Group();
+
+  const CREAM = 0xf3e7cf;
+  const ASHLAR = 0xdfd3bb;
+  const ASHLAR_J = 0xc9bca3;
+  const TUFFEAU = 0xfaf3e4;
+  const PLINTH = 0xa99d8a;
+  const SLATE = 0x56636f;
+  const SLATE_D = 0x47535f;
+  const ZINC = 0xa4afb9;
+  const SHUTTER = 0x4f7f9c;
+  const GOLD = 0xe3b23c;
+  const DOOR = 0x23435a;
+  const HEDGE = 0x5a8a45;
+
+  const W = 4.5; // demi-largeur
+  const D = 4.3; // profondeur
+  const PW = 1.65; // demi-largeur du pavillon central
+  const PZ = 0.42; // saillie du pavillon
+  const H1 = 1.75; // haut du rez-de-chaussée
+  const H2 = 3.25; // haut de l'étage
+  const PH = 3.6; // haut du pavillon
+  const cz = -D / 2;
+  const pcz = (PZ - D) / 2;
+  const pd = D + PZ;
+
+  /** Un volume à deux niveaux : soubassement, pierre de taille à joints creux, bandeau, corniche. */
+  const shell = (w: number, d: number, z: number, top: number) => {
+    parts.push(box(w, top, d, CREAM, [0, top / 2, z]));
+    parts.push(box(w + 0.12, 0.24, d + 0.12, PLINTH, [0, 0.12, z]));
+    parts.push(box(w + 0.04, H1 - 0.24, d + 0.04, ASHLAR, [0, 0.24 + (H1 - 0.24) / 2, z]));
+    for (let y = 0.44; y < H1 - 0.08; y += 0.22) parts.push(box(w + 0.06, 0.016, d + 0.06, ASHLAR_J, [0, y, z]));
+    parts.push(box(w + 0.14, 0.09, d + 0.14, TUFFEAU, [0, H1 + 0.02, z]));
+    parts.push(box(w + 0.16, 0.09, d + 0.16, TUFFEAU, [0, top - 0.02, z]));
+    parts.push(box(w + 0.32, 0.07, d + 0.32, TUFFEAU, [0, top + 0.06, z]));
+  };
+  shell(W * 2, D, cz, H2);
+  shell(PW * 2, pd, pcz, PH);
+
+  // chaînages d'angle de l'étage, en harpe sur la façade et le côté
+  let i = 0;
+  for (let y = H1 + 0.16; y < H2 - 0.1; y += 0.2, i++) {
+    const s = i % 2 ? 0.12 : 0.18;
+    for (const sx of [-1, 1]) parts.push(box(s, 0.16, 0.03, TUFFEAU, [sx * (W - s / 2), y, 0.015]));
+    parts.push(box(0.03, 0.16, s, TUFFEAU, [W + 0.015, y, -s / 2]));
+    parts.push(box(0.03, 0.16, s, TUFFEAU, [W + 0.015, y, -D + s / 2]));
+  }
+  // pilastres du pavillon
+  for (const sx of [-1, 1]) parts.push(box(0.16, PH - H1 - 0.1, 0.05, TUFFEAU, [sx * (PW - 0.08), (PH + H1) / 2, PZ + 0.025]));
+
+  // ------------------------------------------------------------- Fenêtres ----
+  const archWindow = (x: number, z: number, w: number, h: number) => {
+    const y = 0.26 + 0.1 + h / 2;
+    parts.push(cyl(w / 2 + 0.07, w / 2 + 0.07, 0.03, 14, TUFFEAU, [x, y + h / 2, z + 0.012], [Math.PI / 2, 0, 0]));
+    const fan = new THREE.Mesh(new THREE.CircleGeometry(w / 2 - 0.01, 12, 0, Math.PI), GLOW);
+    fan.position.set(x, y + h / 2 + 0.01, z + 0.03);
+    windows.push(fan);
+    parts.push(box(0.09, 0.13, 0.05, TUFFEAU, [x, y + h / 2 + w / 2 + 0.05, z + 0.03]));
+    windowZ(parts, windows, x, y, z, w, h, TUFFEAU);
+  };
+  for (const sx of [-1, 1]) {
+    for (const x of [2.15, 3.03, 3.91]) {
+      archWindow(sx * x, 0, 0.4, 0.84);
+      windowZ(parts, windows, sx * x, H1 + 0.72, 0, 0.32, 0.98, TUFFEAU, { shutters: SHUTTER, flowers: true });
+    }
+    archWindow(sx * 1.2, PZ, 0.38, 0.84);
+    windowZ(parts, windows, sx * 1.16, H1 + 0.72, PZ, 0.38, 0.98, TUFFEAU);
+    // fronton triangulaire au-dessus des fenêtres du pavillon
+    parts.push(prism(0.08, 0.13, 0.62, TUFFEAU, [sx * 1.16, H1 + 1.27, PZ + 0.04], Math.PI / 2));
+  }
+  // côté tourné vers la caméra
+  for (const z of [-0.8, -2.15, -3.5]) {
+    windowX(parts, windows, W, 0.86, z, 0.42, 0.86, TUFFEAU);
+    windowX(parts, windows, W, H1 + 0.72, z, 0.4, 0.98, TUFFEAU);
+  }
+
+  // ---------------------------------------------------- Porte, perron, balcon ----
+  [
+    [2.5, 0.7, 0.03],
+    [2.2, 0.48, 0.09],
+    [1.9, 0.26, 0.15],
+  ].forEach(([w, d, y]) => parts.push(box(w, 0.06, d, 0xcfc5b2, [0, y, PZ + d / 2])));
+  const doorW = 0.96;
+  const doorH = 1.22;
+  const sill = 0.18;
+  parts.push(cyl(0.56, 0.56, 0.05, 18, TUFFEAU, [0, sill + doorH, PZ + 0.02], [Math.PI / 2, 0, 0]));
+  parts.push(box(doorW + 0.22, doorH + 0.06, 0.06, TUFFEAU, [0, sill + (doorH + 0.06) / 2, PZ + 0.024]));
+  for (const s of [-1, 1]) {
+    parts.push(box(doorW / 2 - 0.012, doorH, 0.03, DOOR, [(s * doorW) / 4, sill + doorH / 2, PZ + 0.058]));
+    for (const y of [0.34, 0.86]) parts.push(box(doorW / 2 - 0.13, 0.38, 0.012, shade(DOOR, 1.35), [(s * doorW) / 4, sill + y, PZ + 0.078]));
+    parts.push(ico(0.024, 0, GOLD, [s * 0.05, sill + 0.6, PZ + 0.085]));
+  }
+  const fan = new THREE.Mesh(new THREE.CircleGeometry(0.47, 16, 0, Math.PI), GLOW);
+  fan.position.set(0, sill + doorH + 0.02, PZ + 0.052);
+  windows.push(fan);
+  for (let k = -1; k <= 1; k++) parts.push(box(0.018, 0.46, 0.012, TUFFEAU, [k * 0.2, sill + doorH + 0.24, PZ + 0.058], [0, 0, -k * 0.5]));
+  parts.push(box(0.13, 0.17, 0.08, TUFFEAU, [0, sill + doorH + 0.5, PZ + 0.05]));
+  // colonnes de part et d'autre de la porte
+  for (const s of [-1, 1]) {
+    const cx = s * 0.74;
+    parts.push(box(0.24, 0.1, 0.24, TUFFEAU, [cx, sill + 0.05, PZ + 0.2]));
+    parts.push(cyl(0.07, 0.085, H1 - sill - 0.2, 10, TUFFEAU, [cx, (H1 + sill) / 2, PZ + 0.2]));
+    parts.push(box(0.22, 0.09, 0.22, TUFFEAU, [cx, H1 - 0.1, PZ + 0.2]));
+  }
+  // balcon en fer forgé, sur les colonnes
+  const by = H1 + 0.04;
+  parts.push(box(1.9, 0.09, 0.6, TUFFEAU, [0, by, PZ + 0.28]));
+  for (let x = -0.9; x <= 0.901; x += 0.1) parts.push(box(0.016, 0.38, 0.016, IRON, [x, by + 0.23, PZ + 0.55]));
+  for (let z = 0.08; z < 0.54; z += 0.1) for (const s of [-1, 1]) parts.push(box(0.016, 0.38, 0.016, IRON, [s * 0.9, by + 0.23, PZ + z]));
+  parts.push(box(1.86, 0.03, 0.03, IRON, [0, by + 0.42, PZ + 0.55]));
+  for (const s of [-1, 1]) parts.push(box(0.03, 0.03, 0.5, IRON, [s * 0.9, by + 0.42, PZ + 0.3]));
+  parts.push(box(1.84, 0.02, 0.02, GOLD, [0, by + 0.09, PZ + 0.55]));
+  // porte-fenêtre du balcon
+  windowZ(parts, windows, 0, H1 + 0.68, PZ, 0.56, 1.1, TUFFEAU);
+  parts.push(prism(0.08, 0.15, 0.82, TUFFEAU, [0, H1 + 1.28, PZ + 0.04], Math.PI / 2));
+
+  // plaque gravée, sous le fronton
+  parts.push(box(2.54, 0.36, 0.04, TUFFEAU, [0, H1 + 1.62, PZ + 0.02]));
+  const plaque = hallPlaque(2.42, 0.28);
+  plaque.position.set(0, H1 + 1.62, PZ + 0.045);
+  group.add(plaque);
+
+  // ----------------------------------------------------------------- Toits ----
+  const r0 = H2 + 0.1;
+  parts.push(frustum(W * 2 + 0.22, D + 0.22, W * 2 - 0.9, D - 0.95, 1.0, SLATE, [0, r0 + 0.5, cz]));
+  parts.push(frustum(W * 2 - 0.9, D - 0.95, W * 2 - 2.6, 1.1, 0.4, SLATE_D, [0, r0 + 1.2, cz]));
+  for (const t of [0.2, 0.4, 0.6, 0.8]) parts.push(box(W * 2 + 0.22 - 1.12 * t + 0.01, 0.014, D + 0.22 - 1.17 * t + 0.01, SLATE_D, [0, r0 + t, cz]));
+  parts.push(box(W * 2 - 0.86, 0.045, D - 0.91, ZINC, [0, r0 + 1.0, cz]));
+  parts.push(box(W * 2 - 2.56, 0.04, 1.14, SLATE_D, [0, r0 + 1.42, cz]));
+  parts.push(box(W * 2 - 2.5, 0.03, 0.06, ZINC, [0, r0 + 1.45, cz]));
+  // crête de fer forgé et épis dorés sur le faîtage
+  for (let x = -W + 1.4; x <= W - 1.399; x += 0.34) parts.push(box(0.018, 0.12, 0.018, IRON, [x, r0 + 1.5, cz]));
+  parts.push(box(W * 2 - 2.8, 0.018, 0.018, IRON, [0, r0 + 1.55, cz]));
+  for (const s of [-1, 1]) {
+    parts.push(cyl(0.012, 0.022, 0.36, 6, IRON, [s * (W - 1.35), r0 + 1.6, cz]));
+    parts.push(ico(0.042, 0, GOLD, [s * (W - 1.35), r0 + 1.8, cz]));
+  }
+  // lucarnes de la façade et du côté
+  const dormerZ = (x: number) => {
+    parts.push(box(0.52, 0.56, 0.52, CREAM, [x, r0 + 0.38, -0.26]));
+    parts.push(prism(0.68, 0.22, 0.68, SLATE, [x, r0 + 0.66, -0.3], Math.PI / 2));
+    parts.push(prism(0.04, 0.17, 0.56, TUFFEAU, [x, r0 + 0.66, 0.01], Math.PI / 2));
+    windowZ(parts, windows, x, r0 + 0.37, 0, 0.26, 0.36, TUFFEAU);
+  };
+  for (const x of [2.59, 3.47]) for (const s of [-1, 1]) dormerZ(s * x);
+  for (const z of [-1.35, -2.95]) {
+    parts.push(box(0.52, 0.56, 0.52, CREAM, [W - 0.26, r0 + 0.38, z]));
+    parts.push(prism(0.68, 0.22, 0.68, SLATE, [W - 0.3, r0 + 0.66, z]));
+    windowX(parts, windows, W, r0 + 0.37, z, 0.26, 0.36, TUFFEAU);
+  }
+
+  // pavillon : toit à deux pans et fronton sculpté, médaillon doré
+  parts.push(prism(pd - 0.1, 0.62, PW * 2 + 0.14, SLATE, [0, PH + 0.09, pcz], Math.PI / 2));
+  parts.push(prism(0.16, 0.7, PW * 2 + 0.42, TUFFEAU, [0, PH + 0.08, PZ + 0.02], Math.PI / 2));
+  parts.push(prism(0.04, 0.48, PW * 2 - 0.3, 0xe9dcc2, [0, PH + 0.16, PZ + 0.1], Math.PI / 2));
+  parts.push(cyl(0.15, 0.15, 0.03, 18, GOLD, [0, PH + 0.34, PZ + 0.12], [Math.PI / 2, 0, 0]));
+  parts.push(cyl(0.1, 0.1, 0.03, 18, 0xf6e5a8, [0, PH + 0.34, PZ + 0.13], [Math.PI / 2, 0, 0]));
+
+  // --------------------------------------------------------------- Beffroi ----
+  const tz = -1.75;
+  const TS = 1.5; // côté de la tour
+  const T0 = 3.5;
+  const T1 = 5.2; // haut de l'étage de l'horloge
+  const half = TS / 2;
+  parts.push(box(TS, T1 - T0, TS, CREAM, [0, (T0 + T1) / 2, tz]));
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) parts.push(box(0.18, T1 - T0, 0.18, TUFFEAU, [sx * (half - 0.05), (T0 + T1) / 2, tz + sz * (half - 0.05)]));
+  parts.push(box(TS + 0.2, 0.08, TS + 0.2, TUFFEAU, [0, T1, tz]));
+  parts.push(box(TS + 0.36, 0.06, TS + 0.36, TUFFEAU, [0, T1 + 0.07, tz]));
+  // cadrans (façade et côté)
+  const dialY = 4.72;
+  const R = 0.43;
+  const face = half + 0.012;
+  parts.push(cyl(R + 0.05, R + 0.05, 0.03, 28, GOLD, [0, dialY, tz + face], [Math.PI / 2, 0, 0]));
+  parts.push(cyl(R + 0.05, R + 0.05, 0.03, 28, GOLD, [face, dialY, tz], [0, 0, Math.PI / 2]));
+  const dialMat = new THREE.MeshBasicMaterial({ color: 0xfdf8ea });
+  const dials: THREE.BufferGeometry[] = [
+    new THREE.CircleGeometry(R, 28).translate(0, dialY, tz + face + 0.018),
+    new THREE.CircleGeometry(R, 28).rotateY(Math.PI / 2).translate(face + 0.018, dialY, tz),
+  ];
+  group.add(new THREE.Mesh(merge(dials), dialMat));
+  for (let k = 0; k < 12; k++) {
+    const a = (k / 12) * Math.PI * 2;
+    const len = k % 3 ? 0.05 : 0.09;
+    const r = R - 0.03 - len / 2;
+    parts.push(box(0.022, len, 0.008, 0x22262e, [Math.sin(a) * r, dialY + Math.cos(a) * r, tz + face + 0.022], [0, 0, -a]));
+    parts.push(box(0.008, len, 0.022, 0x22262e, [face + 0.022, dialY + Math.cos(a) * r, tz - Math.sin(a) * r], [-a, 0, 0]));
+  }
+  const hands: Array<[THREE.Object3D, THREE.Object3D]> = [];
+  const clockPivot = (x: number, z: number, ry: number) => {
+    const p = new THREE.Group();
+    p.position.set(x, dialY, z);
+    p.rotation.y = ry;
+    const hour = new THREE.Mesh(merge([box(0.036, 0.25, 0.012, 0x20242c, [0, 0.09, 0])]), MAT_HANDS);
+    const minute = new THREE.Mesh(merge([box(0.024, 0.37, 0.012, 0x20242c, [0, 0.145, 0.012])]), MAT_HANDS);
+    const cap = new THREE.Mesh(merge([ico(0.028, 0, GOLD, [0, 0, 0.02])]), MAT_HANDS);
+    p.add(hour, minute, cap);
+    group.add(p);
+    hands.push([hour, minute]);
+  };
+  clockPivot(0, tz + face + 0.032, 0);
+  clockPivot(face + 0.032, tz, Math.PI / 2);
+
+  // étage de la cloche, ajouré : quatre piliers, une cloche dorée
+  const B0 = T1 + 0.1;
+  const B1 = B0 + 0.66;
+  parts.push(box(1.16, 0.05, 1.16, TUFFEAU, [0, B0 + 0.02, tz]));
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) parts.push(box(0.15, B1 - B0, 0.15, TUFFEAU, [sx * 0.46, (B0 + B1) / 2, tz + sz * 0.46]));
+  parts.push(box(1.2, 0.07, 1.2, TUFFEAU, [0, B1, tz]));
+  parts.push(box(0.05, 0.05, 0.86, TIMBER, [0, B1 - 0.09, tz]));
+  parts.push(cone(0.17, 0.26, 10, GOLD, [0, B1 - 0.26, tz]));
+  parts.push(ico(0.05, 0, GOLD, [0, B1 - 0.13, tz]));
+  parts.push(ico(0.035, 0, 0x8a6a1c, [0, B1 - 0.4, tz]));
+  // dôme d'ardoise à côtes de zinc, lanternon, épi doré
+  const dome = new THREE.SphereGeometry(0.6, 16, 7, 0, Math.PI * 2, 0, Math.PI / 2);
+  parts.push(finalizeExport(dome, SLATE, [0, B1 + 0.03, tz], [0, 0, 0], [1, 1.05, 1]));
+  for (let k = 0; k < 4; k++) {
+    const a = (k / 4) * Math.PI * 2 + Math.PI / 4;
+    for (let t = 0.12; t < 1.45; t += 0.22) {
+      parts.push(box(0.022, 0.13, 0.022, ZINC, [Math.sin(a) * Math.cos(t) * 0.605, B1 + 0.03 + Math.sin(t) * 0.63, tz + Math.cos(a) * Math.cos(t) * 0.605], [Math.cos(a) * -(t - 0.1), 0, Math.sin(a) * (t - 0.1)]));
+    }
+  }
+  const L0 = B1 + 0.62;
+  parts.push(cyl(0.12, 0.15, 0.22, 8, TUFFEAU, [0, L0 + 0.11, tz]));
+  parts.push(cyl(0.16, 0.16, 0.03, 8, TUFFEAU, [0, L0 + 0.23, tz]));
+  parts.push(cone(0.15, 0.2, 8, SLATE, [0, L0 + 0.34, tz]));
+  parts.push(ico(0.045, 1, GOLD, [0, L0 + 0.46, tz]));
+  // mât et drapeau
+  const M1 = L0 + 1.32;
+  parts.push(cyl(0.012, 0.02, M1 - L0 - 0.46, 6, IRON, [0, (M1 + L0 + 0.46) / 2, tz]));
+  parts.push(ico(0.03, 0, GOLD, [0, M1 + 0.02, tz]));
+  const flag = hallFlag(0.92, 0.58);
+  flag.mesh.position.set(0, M1 - 0.32, tz);
+  group.add(flag.mesh);
+
+  // -------------------------------------------------- Parvis, massifs, lampadaires ----
+  // massifs de buis fleuris au pied de la façade
+  let seed = 3;
+  for (const s of [-1, 1]) {
+    const cx = s * (PW + 0.1 + 1.33);
+    parts.push(box(2.66, 0.2, 0.42, HEDGE, [cx, 0.14, 0.27]));
+    parts.push(box(2.72, 0.1, 0.48, 0xd8ccb4, [cx, 0.09, 0.27]));
+    for (let k = 0; k < 16; k++) {
+      const fx = cx - 1.24 + (k * 2.48) / 15;
+      parts.push(ico(0.05, 0, GERANIUMS[seed++ % GERANIUMS.length], [fx, 0.27, 0.2 + rnd(seed) * 0.15]));
+    }
+    // buis taillé en boule dans son pot
+    const bx = s * 1.55;
+    const bz = 0.82;
+    parts.push(cyl(0.15, 0.11, 0.22, 10, 0xc99a74, [bx, 0.13, bz]));
+    parts.push(cyl(0.025, 0.03, 0.36, 6, TIMBER, [bx, 0.42, bz]));
+    parts.push(ico(0.23, 1, HEDGE, [bx, 0.68, bz]));
+    // lampadaire de ville
+    const lx = s * 1.45;
+    const lz = 1.55;
+    parts.push(cyl(0.05, 0.08, 0.14, 8, IRON, [lx, 0.11, lz]));
+    parts.push(cyl(0.022, 0.03, 1.28, 8, IRON, [lx, 0.8, lz]));
+    parts.push(box(0.16, 0.02, 0.16, IRON, [lx, 1.44, lz]));
+    parts.push(cone(0.13, 0.11, 4, IRON, [lx, 1.67, lz], [0, Math.PI / 4, 0]));
+    parts.push(ico(0.02, 0, GOLD, [lx, 1.74, lz]));
+    for (const a of [-1, 1]) for (const b of [-1, 1]) parts.push(box(0.012, 0.17, 0.012, IRON, [lx + a * 0.065, 1.53, lz + b * 0.065]));
+    windows.push(glassPane(0.11, 0.16, [lx, 1.53, lz], 0, 0.11));
+  }
+  // allée de dalles jusqu'au chemin
+  for (let z = PZ + 0.74, r = 0; z < 3.1; z += 0.34, r++) {
+    for (let k = -1; k <= 1; k++) {
+      const off = r % 2 ? 0.16 : 0;
+      parts.push(box(0.6, 0.02, 0.3, (k + r) % 2 ? 0xd9ccb2 : 0xcbbda2, [k * 0.64 + off - 0.08, 0.054, z]));
+    }
+  }
+
+  group.add(mesh(merge(parts)));
+  // toutes les vitres en un seul maillage : elles s'allument ensemble le soir
+  const glass = windows.map((m) => {
+    m.updateMatrix();
+    const g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry;
+    g.deleteAttribute('uv');
+    g.applyMatrix4(m.matrix);
+    return g;
+  });
+  group.add(new THREE.Mesh(merge(glass), GLOW));
+
+  let lastFlag = -1;
+  return {
+    group,
+    tick(hours, time) {
+      for (const [hour, minute] of hands) {
+        hour.rotation.z = -((hours % 12) / 12) * Math.PI * 2;
+        minute.rotation.z = -(hours % 1) * Math.PI * 2;
+      }
+      if (time - lastFlag > 0.04) {
+        lastFlag = time;
+        flag.wave(time);
+      }
+    },
+  };
+}
+
+const MAT_HANDS = new THREE.MeshLambertMaterial({ vertexColors: true });

@@ -30,7 +30,8 @@ export function predatorAimY(p: Predator) {
 const SHELTERED = new Set<HenAct>(['sleep', 'enter', 'exit', 'lay', 'bathe', 'caught']);
 export function catchable(h: Hen) {
   // à la poussinière, le grillage et le toit protègent les poussins
-  return !SHELTERED.has(h.act) && !h.nursery;
+  // et aucun prédateur n'ose s'attaquer à la poule légendaire
+  return !SHELTERED.has(h.act) && !h.nursery && !h.legendary;
 }
 
 /** Distance (en cases) entre un point et le terrain possédé. */
@@ -535,7 +536,7 @@ function updateFox(s: GameState, p: Predator, dt: number) {
       p.t -= dt;
       if (p.t > 0) return;
       if (p.state === 'raid') {
-        const sleepers = s.hens.filter((h) => h.coopId === b.id && h.act === 'sleep');
+        const sleepers = s.hens.filter((h) => h.coopId === b.id && h.act === 'sleep' && !h.legendary);
         if (!sleepers.length) return leave(s, p);
         const h = sleepers[Math.floor(rand(s) * sleepers.length)];
         h.x = dx;

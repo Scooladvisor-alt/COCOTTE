@@ -11,7 +11,7 @@ import { accessCells, coopDoor, coopDoorCells, crossesFence, currentDay, drainEv
 import { nurseryCount, nurseryPlan, nurseryWithRoom, readyToLeave } from '../src/sim/nursery';
 import { onlineIsNewer } from '../src/online/farms';
 import { canAfford, farmLevel, spend } from '../src/sim/economy';
-import { addToStorage, collectNest, layEgg, takeFromStorage } from '../src/sim/eggs';
+import { addToStorage, ageEggs, collectNest, layEgg, takeFromStorage } from '../src/sim/eggs';
 import {
   acceptOrder,
   cancelContract,
@@ -41,7 +41,7 @@ import {
 } from '../src/sim/market';
 import { FEED_REACH, feedLayout, feedPose } from '../src/sim/feeding';
 import { updateVaults, vaultOf } from '../src/sim/vault';
-import { buildingsOf, coopCapacity, coopOccupancy, flockCapacity, landCapacity, storageCapacity, storedCount } from '../src/sim/queries';
+import { buildingsOf, coopCapacity, coopOccupancy, flockCapacity, landCapacity, storageCapacity, storageFree, storedCount } from '../src/sim/queries';
 import { advance, advanceRealtime, canSkipNight, closeDay, dailyCharges, simulateOffline, skipNight, step } from '../src/sim/simulation';
 import { createNewGame } from '../src/sim/state';
 import { newFarm } from '../src/sim/starter';
@@ -53,8 +53,8 @@ import { enterNursery } from '../src/sim/hens';
 import { catchable, distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
 import { buyDog } from '../src/sim/dog';
 import { buyRobot, dockOf } from '../src/sim/robots';
-import { crowdedChicks, eggHatchIn, fertileStock, fertility, fertilize, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
-import { ageFactor, createHen, eggsPerDayOf, henValue, productivity, refreshVitals, slotSpots, wellbeingTarget } from '../src/sim/hens';
+import { crowdedChicks, dadCount, eggHatchIn, fertileStock, fertility, fertilize, incubatable, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
+import { ageFactor, baseLaying, createHen, eggsPerDayOf, henValue, productivity, refreshVitals, slotSpots, wellbeingTarget } from '../src/sim/hens';
 import { COMPOST, NATURE, RARE } from '../src/config/balance';
 import { parcelPerks, shelteredByTree } from '../src/sim/perks';
 import { inherit, shopGenes } from '../src/sim/genetics';
@@ -3389,4 +3389,311 @@ describe('Inscription et sauvegarde en ligne', () => {
     expect(back.buildings.find((b) => b.id === coop.id)!.autoDoor).toBe(true);
     expect(back.savedAt).toBeGreaterThan(0);
   });
+});
+
+describe('Les oies se reproduisent : couveuse à oies, jars, oisons', () => {
+  const farm = (seed: number) => {
+    const s = newFarm(seed);
+    s.xp = 99999;
+    s.money = 50000000;
+    morning(s);
+    buildGooseHouse(s);
+    return s;
+  };
+  const buildAnywhere = (s: GameState, type: 'gooseincubator' | 'nursery' | 'incubator') => {
+    for (let z = -29; z < 29; z++) for (let x = 0; x < 80; x++) if (canPlace(s, type, x, z).ok && A.build(s, type, x, z).ok) return buildingsOf(s, type).at(-1)!;
+    throw new Error(`impossible de poser ${type}`);
+  };
+
+  it('il faut le niveau 10, comme pour les oies', () => {
+    const s = farm(801);
+    expect(A.checkBuild(s, 'gooseincubator').ok).toBe(true);
+    s.xp = 0;
+    expect(A.checkBuild(s, 'gooseincubator').ok).toBe(false);
+  });
+
+  it('chacun sa couveuse : œufs d’oie d’un côté, œufs de poule de l’autre', () => {
+    const s = farm(802);
+    const goose = buildAnywhere(s, 'gooseincubator');
+    const chick = buildingsOf(s, 'incubator')[0] ?? buildAnywhere(s, 'incubator');
+    goose.auto = false;
+    chick.auto = false;
+    addToStorage(s, 'oie', 'A', 100, 3, 'oie');
+    addToStorage(s, 'roux', 'A', 100, 2, 'rousse');
+    expect(fertileStock(s, true)).toBe(3);
+    expect(fertileStock(s, false)).toBe(2);
+    expect(incubatable(s)).toBe(5);
+    expect(loadIncubator(s, goose).count).toBe(3);
+    expect(loadIncubator(s, chick).count).toBe(2);
+    expect(goose.hatch!.every((e) => e.breed === 'oie')).toBe(true);
+    expect(chick.hatch!.every((e) => e.breed === 'rousse')).toBe(true);
+  });
+
+  it('sans couveuse à oies, les œufs d’oie restent au stockage', () => {
+    const s = farm(803);
+    const chick = buildingsOf(s, 'incubator')[0] ?? buildAnywhere(s, 'incubator');
+    addToStorage(s, 'oie', 'A', 100, 3, 'oie');
+    expect(incubatable(s)).toBe(0);
+    expect(incubateAll(s).ok).toBe(false);
+    expect(chick.hatch?.length ?? 0).toBe(0);
+    expect(fertileStock(s, true)).toBe(3);
+  });
+
+  it('le remplissage automatique envoie chaque œuf dans la bonne couveuse', () => {
+    const s = farm(804);
+    const goose = buildAnywhere(s, 'gooseincubator');
+    addToStorage(s, 'oie', 'A', 100, 2, 'oie');
+    step(s, TIME.STEP);
+    expect(goose.hatch!.length).toBe(2);
+    expect(fertileStock(s, true)).toBe(0);
+  });
+
+  it('à l’éclosion, l’oison sort et vit avec les oies, jamais à la poussinière', () => {
+    const s = farm(805);
+    const house = buildingsOf(s, 'goosehouse')[0];
+    const nursery = buildAnywhere(s, 'nursery');
+    const inc = buildAnywhere(s, 'gooseincubator');
+    expect(nurseryWithRoom(s)?.id).toBe(nursery.id);
+    inc.hatch = [
+      { breed: 'oie', t: s.clock.t - BREEDING.incubationDays * TIME.DAY, ok: true },
+      { breed: 'oie', t: s.clock.t - BREEDING.incubationDays * TIME.DAY, ok: true },
+    ];
+    const before = s.hens.length;
+    step(s, TIME.STEP);
+    const born = s.hens.slice(before);
+    expect(born.length).toBe(2);
+    for (const g of born) {
+      expect(g.breed).toBe('oie');
+      expect(g.young).toBeGreaterThan(0);
+      expect(g.nursery).toBeFalsy();
+      expect(g.coopId).toBe(house.id);
+      expect(isWalkable(s, g.x, g.z)).toBe(true);
+    }
+    // une poussinière construite plus tard ne les adopte pas non plus
+    buildAnywhere(s, 'nursery');
+    expect(s.hens.some((h) => h.nursery && h.breed === 'oie')).toBe(false);
+  });
+
+  it('les œufs de poule continuent d’aller à la poussinière', () => {
+    const s = farm(806);
+    const nursery = buildAnywhere(s, 'nursery');
+    const inc = buildingsOf(s, 'incubator')[0] ?? buildAnywhere(s, 'incubator');
+    const had = nurseryCount(s, nursery);
+    inc.hatch = [{ breed: 'rousse', t: s.clock.t - BREEDING.incubationDays * TIME.DAY, ok: true }];
+    step(s, TIME.STEP);
+    expect(nurseryCount(s, nursery)).toBe(had + 1);
+  });
+
+  it('une ancienne partie : l’oison resté à la poussinière rejoint les oies au rechargement', () => {
+    const s = farm(807);
+    const house = buildingsOf(s, 'goosehouse')[0];
+    const nursery = buildAnywhere(s, 'nursery');
+    const g = createHen(s, 'oie', house, false, { young: 12 });
+    s.hens.push(g);
+    g.nursery = true;
+    g.coopId = nursery.id;
+    const back = deserialize(serialize(s))!;
+    const again = back.hens.find((h) => h.id === g.id)!;
+    expect(again.nursery).toBeFalsy();
+    expect(again.coopId).toBe(house.id);
+  });
+
+  it('le jars féconde les oies sans compter les poules, et le coq l’inverse', () => {
+    const s = farm(808);
+    s.hens = s.hens.filter((h) => !h.rooster);
+    expect(fertility(s, true)).toBe(0);
+    const house = buildingsOf(s, 'goosehouse')[0];
+    for (let i = 0; i < 4; i++) s.hens.push(createHen(s, 'oie', house));
+    s.hens.push(createHen(s, 'oie', house, false, { rooster: true }));
+    expect(dadCount(s, true)).toBe(1);
+    expect(fertility(s, true)).toBeCloseTo(BREEDING.maxFertility);
+    // les poules n'ont toujours pas de coq : leurs œufs ne sont pas fécondés
+    expect(fertility(s, false)).toBe(0);
+    // un œuf d'oie fécondé donne un oison
+    const goose = s.hens.find((h) => h.breed === 'oie' && !h.rooster)!;
+    let chick: ReturnType<typeof fertilize>;
+    for (let i = 0; i < 200 && !chick; i++) chick = fertilize(s, goose);
+    expect(chick?.breed).toBe('oie');
+  });
+
+  it('la couveuse à oies se sauvegarde avec ses œufs', () => {
+    const s = farm(809);
+    const inc = buildAnywhere(s, 'gooseincubator');
+    addToStorage(s, 'oie', 'A', 100, 2, 'oie');
+    expect(loadIncubator(s, inc).count).toBe(2);
+    const back = deserialize(serialize(s))!;
+    expect(buildingsOf(back, 'gooseincubator')[0].hatch!.length).toBe(2);
+  });
+});
+
+describe('La poule légendaire', () => {
+  const farm = (seed: number) => {
+    const s = newFarm(seed);
+    morning(s);
+    return s;
+  };
+
+  it('est dix fois plus rare que la poule aux œufs d’or', () => {
+    expect(RARE.legendaryHenHatch).toBeCloseTo(RARE.goldenHenHatch / 10);
+    const s = farm(901);
+    const coop = buildingsOf(s, 'coop')[0];
+    let legend = 0;
+    let gold = 0;
+    const n = 200000;
+    for (let i = 0; i < n; i++) {
+      const h = createHen(s, 'rousse', coop, false, { young: 10 });
+      if (h.legendary) legend++;
+      if (h.golden) gold++;
+      expect(h.legendary && h.golden).toBeFalsy();
+    }
+    drainEvents(s);
+    expect(gold).toBeGreaterThan(n * RARE.goldenHenHatch * 0.8);
+    expect(gold).toBeLessThan(n * RARE.goldenHenHatch * 1.2);
+    expect(legend).toBeGreaterThan(n * RARE.legendaryHenHatch * 0.55);
+    expect(legend).toBeLessThan(n * RARE.legendaryHenHatch * 1.5);
+    // jamais à l'achat, ni chez les coqs, ni chez les oies
+    for (let i = 0; i < 3000; i++) {
+      expect(createHen(s, 'rousse', coop).legendary).toBeFalsy();
+      expect(createHen(s, 'rousse', coop, false, { young: 10, rooster: true }).legendary).toBeFalsy();
+      expect(createHen(s, 'oie', coop, false, { young: 10 }).legendary).toBeFalsy();
+    }
+    drainEvents(s);
+  });
+
+  it('pond des œufs de phénix que le collectionneur achète aussitôt, même stockage plein', () => {
+    const s = farm(902);
+    const coop = buildingsOf(s, 'coop')[0];
+    const h = createHen(s, 'rousse', coop, false, { legendary: true });
+    s.hens.push(h);
+    expect(baseLaying(h)).toBe(RARE.phoenixEggsPerDay);
+    addToStorage(s, 'roux', 'A', 100, storageCapacity(s));
+    expect(storageFree(s)).toBe(0);
+    const egg = layEgg(s, h, null);
+    expect(egg.type).toBe('phenix');
+    expect(egg.fertile).toBeUndefined();
+    const m = s.money;
+    const stored = storedCount(s);
+    expect(A.collectGroundEgg(s, egg.id).ok).toBe(true);
+    expect(s.money - m).toBe(RARE.phoenixEggPrice);
+    expect(storedCount(s)).toBe(stored);
+    expect(s.stats.phoenixEggs).toBe(1);
+  });
+
+  it('son œuf ne pourrit pas, et ne se perd pas au rechargement', () => {
+    const s = farm(903);
+    const coop = buildingsOf(s, 'coop')[0];
+    const h = createHen(s, 'rousse', coop, false, { legendary: true });
+    s.hens.push(h);
+    const egg = layEgg(s, h, null);
+    const gold = layEgg(s, createHen(s, 'rousse', coop, false, { golden: true }), null);
+    const back = deserialize(serialize(s))!;
+    expect(back.hens.find((x) => x.id === h.id)?.legendary).toBe(true);
+    expect(back.worldEggs.find((e) => e.id === egg.id)?.type).toBe('phenix');
+    expect(back.worldEggs.find((e) => e.id === gold.id)?.type).toBe('or');
+    egg.laidAt = s.clock.t - 40 * TIME.DAY;
+    ageEggs(s, 40);
+    expect(s.worldEggs.includes(egg)).toBe(true);
+  });
+
+  it('renaît de ses cendres au lieu de mourir', () => {
+    const s = farm(904);
+    const coop = buildingsOf(s, 'coop')[0];
+    const h = createHen(s, 'rousse', coop, false, { legendary: true });
+    s.hens.push(h);
+    s.grain = 0;
+    s.water = 0;
+    h.health = 0.01;
+    h.satiety = 0;
+    h.hydration = 0;
+    h.sick = true;
+    const events = runEvents(s, 5);
+    expect(s.hens.includes(h)).toBe(true);
+    expect(h.health).toBeGreaterThan(90);
+    expect(h.sick).toBe(false);
+    expect(events.some((e) => e.kind === 'phoenix' && e.big)).toBe(true);
+    expect(s.stats.hensDied).toBe(0);
+  });
+
+  it('aucun prédateur ne peut l’attraper, et elle ne tombe pas malade', () => {
+    const s = farm(905);
+    const coop = buildingsOf(s, 'coop')[0];
+    const h = createHen(s, 'rousse', coop, false, { legendary: true });
+    s.hens.push(h);
+    expect(catchable(h)).toBe(false);
+    coop.cleanliness = 0;
+    h.wellbeing = 10;
+    for (let d = 2; d < 80; d++) {
+      closeDay(s, d);
+      expect(h.sick).toBeFalsy();
+      coop.cleanliness = 0;
+    }
+  });
+
+  it('elle ne vieillit pas et son aura apaise tout le troupeau', () => {
+    const s = farm(906);
+    const coop = buildingsOf(s, 'coop')[0];
+    const other = createHen(s, 'rousse', coop);
+    s.hens.push(other);
+    refreshVitals(s);
+    const without = wellbeingTarget(s, other);
+    const h = createHen(s, 'rousse', coop, false, { legendary: true });
+    s.hens.push(h);
+    refreshVitals(s);
+    const target = wellbeingTarget(s, other);
+    expect(target).toBeGreaterThan(without);
+    expect(target - without).toBeLessThanOrEqual(RARE.phoenixWellbeing);
+    h.age = 2000;
+    other.age = 2000;
+    expect(productivity(h)).toBeGreaterThan(productivity(other));
+    // la poule la plus chère de la ferme
+    const gold = createHen(s, 'rousse', coop, false, { golden: true });
+    expect(henValue(h)).toBeGreaterThan(henValue(gold));
+    drainEvents(s);
+  });
+});
+
+describe('Longue vie d’un troupeau d’oies', () => {
+  it('jars, couveuse à oies : les oisons naissent, grandissent et restent près de chez eux', () => {
+    const s = newFarm(990);
+    morning(s);
+    s.xp = 99999;
+    s.money = 1e9;
+    s.settings.predators = false;
+    expect(buildGooseHouse(s)).toBe(true);
+    const house = buildingsOf(s, 'goosehouse')[0];
+    A.upgrade(s, house.id);
+    for (let i = 0; i < 6; i++) expect(A.buyHen(s, 'oie').ok).toBe(true);
+    expect(A.buyRooster(s, 'oie').ok).toBe(true);
+    let placed = false;
+    for (let z = -29; z < 29 && !placed; z++) for (let x = 0; x < 80 && !placed; x++) if (canPlace(s, 'gooseincubator', x, z).ok) placed = A.build(s, 'gooseincubator', x, z).ok;
+    expect(placed).toBe(true);
+    for (let z = -29; z < 29 && !buildingsOf(s, 'nursery').length; z++) for (let x = 0; x < 80 && !buildingsOf(s, 'nursery').length; x++) if (canPlace(s, 'nursery', x, z).ok) A.build(s, 'nursery', x, z);
+    const geese = () => s.hens.filter((h) => h.breed === 'oie');
+    const start = geese().length;
+    let hatchedGoslings = 0;
+    const seen = new Set<number>();
+    for (let day = 0; day < 55; day++) {
+      s.grain = 2000;
+      s.water = 2000;
+      A.refillAll(s);
+      A.collectAll(s);
+      for (let t = 0; t < TIME.DAY; t += TIME.STEP) step(s, TIME.STEP);
+      drainEvents(s);
+      for (const g of geese()) {
+        expect(g.nursery).toBeFalsy();
+        expect(g.coopId).toBe(house.id);
+        if (g.young && !seen.has(g.id)) {
+          seen.add(g.id);
+          hatchedGoslings++;
+        }
+      }
+    }
+    expect(hatchedGoslings).toBeGreaterThan(0);
+    expect(geese().length).toBeGreaterThan(start);
+    // certains sont déjà devenus adultes, et ils peuvent être jars ou oies
+    expect(geese().some((g) => !g.young && g.dayBought > 1)).toBe(true);
+    const door = coopDoor(house);
+    const far = geese().filter((g) => Math.hypot(g.x - door.x, g.z - door.z) > 22);
+    expect(far.length).toBe(0);
+  }, 120000);
 });

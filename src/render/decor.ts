@@ -205,7 +205,7 @@ export function buildDecor(scene: THREE.Scene): Decor {
     const z = GRID_Z0 - 6 + hash(i * 7.7) * (GRID_H + 14);
     const insideFarm = x > -0.5 && x < GRID_W + 0.5 && z > GRID_Z0 - 0.5 && z < GRID_Z1 + 0.5;
     const onRoad = z > GRID_Z1 + 0.3 && z < WORLD.ROAD_Z + WORLD.ROAD_HALF + 1.4;
-    if (insideFarm || onRoad || inDecorZone(x, z) || (x > -10.5 && x < -3 && z > 21.5 && z < 32)) continue;
+    if (insideFarm || onRoad || inDecorZone(x, z) || (x > -11.8 && x < -0.6 && z > 20 && z < 32)) continue;
     tmp.position.set(x, 0, z);
     tmp.rotation.set(0, hash(i) * 6, 0);
     tmp.scale.setScalar(0.7 + hash(i * 2) * 0.8);

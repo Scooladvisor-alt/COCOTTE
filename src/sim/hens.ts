@@ -53,6 +53,8 @@ export interface NewHenOptions {
   black?: boolean;
   /** Forcer (ou interdire) les plumes d'or. */
   golden?: boolean;
+  /** Forcer (ou interdire) la poule légendaire. */
+  legendary?: boolean;
 }
 
 export function createHen(s: GameState, breed: BreedId, coop: Building, quickFirstEgg = false, opts: NewHenOptions = {}): Hen {
@@ -95,15 +97,27 @@ export function createHen(s: GameState, breed: BreedId, coop: Building, quickFir
   const skin = opts.skin ?? pickSkin(breed, rand(s));
   if (skin > 0) h.skin = skin;
   // rarissime : un coq entièrement noir
-  // encore plus rare : une poussine aux plumes d'or, future poule aux œufs d'or
-  if (!opts.rooster && !isGoose(breed) && (opts.golden ?? (!!opts.young && rand(s) < RARE.goldenHenHatch))) {
-    h.golden = true;
-    notify(
-      s,
-      `Incroyable : ${h.name} est une poussine aux plumes d’or ! Adulte, elle pondra des œufs d’or (${fmtMoney(RARE.goldEggPrice)} pièce chez le collectionneur). Elle-même vaut environ ${fmtMoney(goldenValue())}.`,
-      'good',
-      '✨',
-    );
+  // encore plus rare : une poussine aux plumes d'or, future poule aux œufs d'or ;
+  // et, une fois sur dix de ces merveilles, la poule légendaire
+  if (!opts.rooster && !isGoose(breed)) {
+    const hatched = !!opts.young && opts.golden === undefined && opts.legendary === undefined ? rand(s) : 1;
+    if (opts.legendary ?? hatched < RARE.legendaryHenHatch) {
+      h.legendary = true;
+      notify(
+        s,
+        `Légendaire ! ${h.name} est une poule phénix, la plus rare de toutes ! Immortelle, elle pondra des œufs de phénix (${fmtMoney(RARE.phoenixEggPrice)} pièce) et son aura apaisera tout le troupeau.`,
+        'good',
+        '🔥',
+      );
+    } else if (opts.golden ?? hatched < RARE.legendaryHenHatch + RARE.goldenHenHatch) {
+      h.golden = true;
+      notify(
+        s,
+        `Incroyable : ${h.name} est une poussine aux plumes d’or ! Adulte, elle pondra des œufs d’or (${fmtMoney(RARE.goldEggPrice)} pièce chez le collectionneur). Elle-même vaut environ ${fmtMoney(goldenValue())}.`,
+        'good',
+        '✨',
+      );
+    }
   }
   if (opts.rooster && !isGoose(breed) && (opts.black ?? rand(s) < (opts.young ? RARE.blackRoosterHatch : RARE.blackRoosterBuy))) {
     h.black = true;
@@ -146,14 +160,16 @@ export function productivity(h: Hen) {
   const wellF = clamp(1 - b.sensitivity * 0.55 * (1 - h.wellbeing / 100), 0.2, 1);
   // les protéines du compost (vers, insectes) stimulent la ponte
   const proteinF = 1 + COMPOST.laying * ((h.protein ?? 0) / 100);
-  return ageFactor(h.age) * healthF * needF * wellF * proteinF * layingGene(h) * (h.sick ? 0.3 : 1);
+  // la poule légendaire ne vieillit pas : une fois adulte, elle pond à plein pour toujours
+  const ageF = h.legendary && h.age > LAYING.declineStart ? 1 : ageFactor(h.age);
+  return ageF * healthF * needF * wellF * proteinF * layingGene(h) * (h.sick ? 0.3 : 1);
 }
 
 /** Poule en âge de pondre (ni coq, ni jeune). */
 export const isLayer = (h: Hen) => !h.rooster && !h.young;
 
 /** Ponte de base par jour : celle de la race, ou un œuf d'or tous les deux jours pour la poule dorée. */
-export const baseLaying = (h: Hen) => (h.golden ? RARE.goldEggsPerDay : BREEDS[h.breed].eggsPerDay);
+export const baseLaying = (h: Hen) => (h.legendary ? RARE.phoenixEggsPerDay : h.golden ? RARE.goldEggsPerDay : BREEDS[h.breed].eggsPerDay);
 
 export function eggsPerDayOf(h: Hen) {
   return isLayer(h) ? baseLaying(h) * productivity(h) : 0;
@@ -171,6 +187,11 @@ export function blackValue(h: Pick<Hen, 'id'>) {
 
 export function henValue(h: Hen) {
   const b = BREEDS[h.breed];
+  if (h.legendary) {
+    // inestimable, ou presque : la santé n'y change rien, elle renaît toujours
+    const grown = h.young ? 0.35 + 0.65 * (1 - h.young / BREEDING.growthDays) : 1;
+    return Math.round((RARE.legendaryHenValue * grown) / 100) * 100;
+  }
   if (h.golden) {
     // la poule aux œufs d'or : le prix d'une vingtaine d'œufs d'or (moins si elle est encore poussine)
     const grown = h.young ? 0.35 + 0.65 * (1 - h.young / BREEDING.growthDays) : 1;
@@ -246,12 +267,14 @@ interface VitalsCache {
   soieCoops: Set<number>;
   drinkerHealth: number;
   caretaker: boolean;
+  /** Une poule légendaire vit à la ferme : son aura apaise le troupeau. */
+  phoenix: boolean;
 }
 const vitals = new WeakMap<GameState, VitalsCache>();
 
 function vitalsCache(s: GameState) {
   let v = vitals.get(s);
-  if (!v) vitals.set(s, (v = { acc: 0, parcelGrass: new Map(), soieCoops: new Set(), drinkerHealth: 0, caretaker: false }));
+  if (!v) vitals.set(s, (v = { acc: 0, parcelGrass: new Map(), soieCoops: new Set(), drinkerHealth: 0, caretaker: false, phoenix: false }));
   return v;
 }
 
@@ -263,6 +286,7 @@ function refreshVitalsCache(s: GameState, v: VitalsCache) {
   const drinkers = buildingsOf(s, 'drinker');
   v.drinkerHealth = drinkers.length ? Math.max(...drinkers.map((d) => lvl(d).quality ?? 0)) : 0;
   v.caretaker = s.workers.some((w) => w.role === 'caretaker' && w.onSite);
+  v.phoenix = s.hens.some((h) => h.legendary);
 }
 
 /** Recalcule tout de suite les bonus par parcelle (herbe, bains, mares, arbres). */
@@ -287,6 +311,7 @@ export function wellbeingTarget(s: GameState, h: Hen, v = vitalsCache(s)) {
   t += parcelPerks(s, key).wellbeing;
   if (v.soieCoops.has(h.coopId)) t += WELLBEING.soieBonus;
   if (v.caretaker) t += STAFF.caretakerWellbeing;
+  if (v.phoenix) t += RARE.phoenixWellbeing;
   t += COMPOST.wellbeing * ((h.protein ?? 0) / 100);
   if (h.satiety < NEEDS.urgentAt) t -= WELLBEING.needPenalty;
   if (h.hydration < NEEDS.urgentAt) t -= WELLBEING.needPenalty;
@@ -340,7 +365,16 @@ function vitalsTick(s: GameState, dt: number) {
         grown.push(h);
       }
     }
-    if (h.health <= 0) {
+    if (h.health <= 0 && h.legendary) {
+      // elle s'éteint… et renaît aussitôt de ses cendres
+      h.health = 100;
+      h.satiety = 100;
+      h.hydration = 100;
+      h.wellbeing = Math.max(h.wellbeing, 80);
+      h.sick = false;
+      emit(s, { kind: 'phoenix', x: h.x, z: h.z, big: true });
+      notify(s, `${h.name} s’est éteinte… puis renaît de ses cendres, plus belle que jamais !`, 'good', '🔥');
+    } else if (h.health <= 0) {
       const cause = h.hydration < HEALTH.starvingAt ? 'de soif' : h.satiety < HEALTH.starvingAt ? 'de faim' : h.sick ? 'de maladie' : 'de mauvaises conditions';
       dead.push([h, cause]);
     }
@@ -348,7 +382,8 @@ function vitalsTick(s: GameState, dt: number) {
   if (leaving.length) notify(s, leaving.length > 1 ? `${leaving.length} jeunes quittent la poussinière et rejoignent le troupeau : ils vont bientôt pondre !` : `${leaving[0].name} quitte la poussinière et rejoint le troupeau : ${leaving[0].rooster ? 'il' : 'elle'} a bien grandi !`, 'good', '🐤');
   for (const h of grown) {
     emit(s, { kind: 'grownUp', henId: h.id });
-    notify(s, h.rooster ? `${h.name} est devenu un beau coq.` : `${h.name} est devenue une poule adulte : elle va commencer à pondre !`, 'good', h.rooster ? '🐓' : '🐔');
+    const goose = isGoose(h.breed);
+    notify(s, h.rooster ? `${h.name} est devenu un beau ${goose ? 'jars' : 'coq'}.` : `${h.name} est devenue ${goose ? 'une oie' : 'une poule'} adulte : elle va commencer à pondre !`, 'good', goose ? '🪿' : h.rooster ? '🐓' : '🐔');
   }
   for (const [h, cause] of dead) {
     s.hens.splice(s.hens.indexOf(h), 1);
@@ -458,6 +493,18 @@ function strayTick(s: GameState, h: Hen, r: HenRt, dt: number, night: boolean) {
 }
 
 function escapeHen(s: GameState, h: Hen) {
+  if (h.legendary) {
+    // la poule légendaire ne se perd jamais : elle rentre d'elle-même
+    const home = getBuilding(s, h.coopId);
+    if (home) {
+      const door = coopDoor(home);
+      h.x = door.x;
+      h.z = door.z;
+    }
+    setAct(h, 'idle', 1);
+    rtHen(h).goal = '';
+    return;
+  }
   const i = s.hens.indexOf(h);
   if (i < 0) return;
   s.hens.splice(i, 1);
@@ -1318,7 +1365,7 @@ function motherOf(s: GameState, h: Hen): Hen | null {
   let best: Hen | null = null;
   let bd = 12 * 12;
   for (const o of s.hens) {
-    if (o === h || o.young || o.rooster || o.act === 'sleep') continue;
+    if (o === h || o.young || o.rooster || o.act === 'sleep' || isGoose(o.breed) !== isGoose(h.breed)) continue;
     const d = (o.x - h.x) ** 2 + (o.z - h.z) ** 2 * (o.breed === h.breed ? 1 : 1.6);
     if (d < bd) {
       bd = d;
@@ -1865,7 +1912,8 @@ export function adoptChicks(s: GameState, b: Building) {
   let room = lvl(b).capacity - nurseryCount(s, b);
   for (const h of s.hens) {
     if (room <= 0) break;
-    if (h.nursery || !h.young || readyToLeave(h) || h.act === 'caught' || h.act === 'stray') continue;
+    // les oisons ne passent pas par la poussinière : ils vivent avec les oies dès leur sortie de la couveuse
+    if (h.nursery || !h.young || isGoose(h.breed) || readyToLeave(h) || h.act === 'caught' || h.act === 'stray') continue;
     enterNursery(s, h, b);
     room--;
   }

@@ -256,6 +256,24 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Incubateur professionnel', cost: 65000, reqLevel: 6, upkeep: 60, capacity: 72, quality: 0.15, perk: 'Hygrométrie régulée : éclosions quasi certaines' },
     ],
   },
+  gooseincubator: {
+    type: 'gooseincubator',
+    name: 'Couveuse à oies',
+    description: 'Un grand coffre paillé sous châssis vitré, chauffé par une lampe : les œufs d’oie fécondés y éclosent en 15 jours. L’oison sort tout seul par sa petite rampe et rejoint aussitôt les oies, sans passer par la poussinière. Il faut un jars pour féconder les œufs.',
+    w: 3,
+    d: 2,
+    access: 'none',
+    unique: false,
+    buildable: true,
+    movable: true,
+    icon: '🪿',
+    strictLevel: true,
+    levels: [
+      { name: 'Couveuse à oies', cost: 20000, reqLevel: 10, upkeep: 30, capacity: 6, quality: 0.04, perk: 'Six gros œufs bien au chaud' },
+      { name: 'Grande couveuse à oies', cost: 55000, reqLevel: 10, upkeep: 60, capacity: 12, quality: 0.1, w: 4, d: 2, perk: 'Deux lampes et de la paille fraîche : 12 œufs, plus d’éclosions' },
+      { name: 'Couvoir des oies', cost: 120000, reqLevel: 10, upkeep: 110, capacity: 24, quality: 0.16, w: 4, d: 3, perk: 'Poêle et hygrométrie réglés : 24 œufs, éclosions quasi certaines' },
+    ],
+  },
   nursery: {
     type: 'nursery',
     name: 'Poussinière',
@@ -304,7 +322,14 @@ export function sizeOf(type: BuildingType, level = 1, rot = 0): { w: number; d: 
   return rot % 2 ? { w: d, d: w } : { w, d };
 }
 
-export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'incubator', 'nursery'];
+export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'incubator', 'nursery', 'gooseincubator'];
+
+/**
+ * Hôtel de ville (décor, à l'ouest de la grille), où logent les salariés : ligne de sa façade, et
+ * point devant sa porte par lequel ils arrivent et repartent.
+ */
+export const HALL_FRONT = 25.2;
+export const HALL_DOOR: [number, number] = [-6, 25.72];
 
 /** Position fixe de l'étal (hors parcelles, sur la place pavée qui donne sur le trottoir). */
 export const STAND_POS = { x: 17.2, z: 31.8 };

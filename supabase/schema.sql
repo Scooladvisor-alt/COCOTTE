@@ -4,6 +4,8 @@
 -- Sécurité : la table n'est lisible par personne directement. Le jeu passe uniquement par les
 -- fonctions ci-dessous, qui ne renvoient jamais le code secret. Pas besoin de connexion Supabase :
 -- le nom de la ferme + un petit code secret identifient le joueur.
+--
+-- Le coucou entre fermes est dans coucou.sql, à exécuter après ce fichier.
 
 create extension if not exists pgcrypto with schema extensions;
 

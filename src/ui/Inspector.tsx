@@ -2,13 +2,13 @@ import { useState } from 'preact/hooks';
 import { AUTO_DOOR, BREEDING, COMPOST, EGG_TYPES, TIME, GRADES, HEALTH, LAYING, NATURE, PARCELS, ROBOT, parcelPrice, WORLD } from '../config/balance';
 import { season, seasonIndex } from '../sim/seasons';
 import { hopperCount, sellRobot } from '../sim/robots';
-import { crowdedChicks, eggHatchIn, fertileStock, fertility, growthLabel, growthStage, incubatable, incubateAll, incubatingCount, loadIncubator, roosterCount, toggleIncubatorAuto } from '../sim/breeding';
+import { crowdedChicks, crowdedGoslings, dadCount, eggHatchIn, fertileStock, fertility, hatchesGeese, isIncubator, growthLabel, growthStage, incubatable, incubateAll, incubatingCount, loadIncubator, roosterCount, toggleIncubatorAuto } from '../sim/breeding';
 import { birdThumb, buildingThumb, dogThumb, robotThumb } from '../render/thumbs';
 import { parcelPerks } from '../sim/perks';
 import { parcelKeyOfCell } from '../sim/core';
 import { buyDog, checkBuyDog } from '../sim/dog';
 import { DOG } from '../config/balance';
-import { BREEDS, skinName } from '../config/breeds';
+import { BREEDS, isGoose, skinName } from '../config/breeds';
 import { BUILDINGS, type BuildingLevel } from '../config/buildings';
 import * as A from '../sim/actions';
 import { cleaningCost } from '../sim/buildings';
@@ -282,9 +282,15 @@ function ageLabel(age: number) {
   return 'Poule âgée';
 }
 
-/** Coq, coquelet, poussin ou poulette. */
+/** Coq, coquelet, poussin, poulette ; jars, oie, oison pour les oies. */
 export function birdRole(h: Hen) {
-  if (h.young) return growthStage(h) < 3 ? 'Poussin' : h.rooster ? 'Coquelet' : 'Poulette';
+  const goose = isGoose(h.breed);
+  if (h.young) {
+    if (growthStage(h) < 3) return goose ? 'Oison' : 'Poussin';
+    if (goose) return h.rooster ? 'Jeune jars' : 'Jeune oie';
+    return h.rooster ? 'Coquelet' : 'Poulette';
+  }
+  if (goose) return h.rooster ? 'Jars' : 'Oie';
   return h.rooster ? 'Coq' : 'Poule';
 }
 
@@ -348,9 +354,11 @@ function IncubatorInfo({ b }: { b: Building }) {
   const s = game.state;
   const L = lvl(b);
   const list = b.hatch ?? [];
-  const stock = fertileStock(s);
+  const goose = hatchesGeese(b);
+  const stock = fertileStock(s, goose);
   const canLoad = Math.min(stock, L.capacity - list.length);
-  const crowd = crowdedChicks(s);
+  const crowd = goose ? crowdedGoslings(s) : crowdedChicks(s);
+  const dads = dadCount(s, goose);
   // œufs mis ensemble (même race, même moment) regroupés sur une ligne, les plus avancés en premier
   const rows = new Map<string, { breed: Hen['breed']; t: number; n: number }>();
   for (const e of list) {
@@ -389,17 +397,19 @@ function IncubatorInfo({ b }: { b: Building }) {
         </div>
       )}
       <div class="kv">
-        <span>Œufs fécondés au garde-manger</span>
+        <span>{goose ? 'Œufs d’oie fécondés au garde-manger' : 'Œufs fécondés au garde-manger'}</span>
         <b>{stock}</b>
       </div>
       <div class="kv">
         <span>Fécondation</span>
         <b>
-          {roosterCount(s) ? `${Math.round(fertility(s) * 100)} % des œufs · ${roosterCount(s)} coq${roosterCount(s) > 1 ? 's' : ''}` : 'aucun coq'}
+          {dads ? `${Math.round(fertility(s, goose) * 100)} % des œufs · ${dads} ${goose ? 'jars' : `coq${dads > 1 ? 's' : ''}`}` : goose ? 'aucun jars' : 'aucun coq'}
         </b>
       </div>
-      {!roosterCount(s) && <p class="hint warn">Sans coq, aucun œuf n’est fécondé : achetez-en un dans la boutique (rubrique Poules).</p>}
-      {crowd > 0 && (
+      {!dads && <p class="hint warn">{goose ? 'Sans jars, aucun œuf d’oie n’est fécondé : achetez-en un dans la boutique (rubrique Coqs et jars).' : 'Sans coq, aucun œuf n’est fécondé : achetez-en un dans la boutique (rubrique Poules).'}</p>}
+      {goose && !s.buildings.some((o) => o.type === 'goosehouse') && <p class="hint warn">Il faut un abri à oies pour que les oisons aient où vivre.</p>}
+      {goose && crowd > 0 && <p class="hint warn">Les abris à oies seront trop petits pour {crowd} futur{crowd > 1 ? 's' : ''} oison{crowd > 1 ? 's' : ''} : agrandissez-les bientôt.</p>}
+      {!goose && crowd > 0 && (
         <p class="hint warn">
           La ferme est pleine : {crowd} futur{crowd > 1 ? 's' : ''} poussin{crowd > 1 ? 's' : ''} {crowd > 1 ? 'seront' : 'sera'} à l’étroit (bien-être en baisse). Achetez une parcelle ou agrandissez un poulailler.
         </p>
@@ -413,7 +423,9 @@ function IncubatorInfo({ b }: { b: Building }) {
         </Btn>
       </div>
       <p class="desc">
-        Chaque œuf éclot {BREEDING.incubationDays} jours après sa mise en couveuse (les plus frais éclosent le mieux). Les poussins suivent les poules et pondent à {BREEDING.growthDays} jours.
+        {goose
+          ? `Chaque œuf éclot ${BREEDING.incubationDays} jours après sa mise en couveuse (les plus frais éclosent le mieux). L’oison sort tout seul, suit les oies et il est adulte à ${BREEDING.growthDays} jours.`
+          : `Chaque œuf éclot ${BREEDING.incubationDays} jours après sa mise en couveuse (les plus frais éclosent le mieux). Les poussins suivent les poules et pondent à ${BREEDING.growthDays} jours.`}
       </p>
     </>
   );
@@ -450,9 +462,9 @@ function HenCard({ h }: { h: Hen }) {
             </h3>
           )}
           <div class="chips">
-            <Chip>{b.name}</Chip>
-            {h.golden ? <Chip tone="warn">Poule aux œufs d’or · un œuf d’or tous les 2 jours</Chip> : h.black ? <Chip tone="warn">Entièrement noir · rarissime</Chip> : h.skin ? <Chip>{skinName(h.breed, h.skin)}</Chip> : null}
-            {(h.rooster || h.young) && <Chip tone="blue">{birdRole(h)}</Chip>}
+            {!isGoose(h.breed) && <Chip>{b.name}</Chip>}
+            {h.legendary ? <Chip tone="warn">Poule légendaire · immortelle, un œuf de phénix tous les 4 jours</Chip> : h.golden ? <Chip tone="warn">Poule aux œufs d’or · un œuf d’or tous les 2 jours</Chip> : h.black ? <Chip tone="warn">Entièrement noir · rarissime</Chip> : h.skin ? <Chip>{skinName(h.breed, h.skin)}</Chip> : null}
+            {isGoose(h.breed) && growthStage(h) >= 3 ? <span class={`sex-chip ${h.rooster ? 'male' : 'female'}`}>{h.rooster ? '♂' : '♀'} {birdRole(h)}</span> : (h.rooster || h.young) && <Chip tone="blue">{birdRole(h)}</Chip>}
             <Chip tone={st.tone}>{st.label}</Chip>
           </div>
         </div>
@@ -507,7 +519,7 @@ function HenCard({ h }: { h: Hen }) {
           <span>{h.rooster || h.young ? 'Race' : 'Œufs pondus'}</span>
           <b>{h.rooster || h.young ? b.trait : h.eggsLaid}</b>
           <small>
-            <EggDot type={b.egg} /> {EGG_TYPES[b.egg].short}
+            <EggDot type={h.legendary ? 'phenix' : h.golden ? 'or' : b.egg} /> {EGG_TYPES[h.legendary ? 'phenix' : h.golden ? 'or' : b.egg].short}
           </small>
         </div>
         <div>
@@ -571,7 +583,7 @@ function levelDiff(type: Building['type'], cur: BuildingLevel, next: BuildingLev
   if (type === 'storage') out.push(`Capacité ${cur.capacity} → ${next.capacity} œufs`, `Vieillissement ×${cur.decay} → ×${next.decay}`);
   if (type === 'dustbath') out.push(`Bien-être +${cur.wellbeing} → +${next.wellbeing}`);
   if (type === 'pond') out.push(`Réserve ${cur.capacity} → ${next.capacity} L`, `Pluie +${cur.regen} → +${next.regen} L/jour`, `Bien-être +${cur.wellbeing} → +${next.wellbeing}`);
-  if (type === 'incubator') out.push(`Capacité ${cur.capacity} → ${next.capacity} œufs`, `Éclosion +${Math.round((next.quality ?? 0) * 100)} %`);
+  if (type === 'incubator' || type === 'gooseincubator') out.push(`Capacité ${cur.capacity} → ${next.capacity} œufs`, `Éclosion +${Math.round((next.quality ?? 0) * 100)} %`);
   if (type === 'nursery') out.push(`Capacité ${cur.capacity} → ${next.capacity} poussins`, `Croissance +${Math.round(((cur.growth ?? 1) - 1) * 100)} % → +${Math.round(((next.growth ?? 1) - 1) * 100)} %`);
   if (type === 'stand') out.push(`Clients ${cur.flow}/h → ${next.flow}/h`, `Paniers ×${cur.qtyMult} → ×${next.qtyMult}`);
   if (next.perk) out.push(next.perk);
@@ -650,7 +662,7 @@ function BuildingCard({ b }: { b: Building }) {
           </div>
         </>
       )}
-      {b.type === 'incubator' && <IncubatorInfo b={b} />}
+      {isIncubator(b) && <IncubatorInfo b={b} />}
       {b.type === 'nursery' && <NurseryInfo b={b} />}
       {b.type === 'compost' && (
         <>
@@ -880,7 +892,10 @@ function StorageInfo() {
   const n = storedCount(s);
   const cap = storageCapacity(s);
   const fertile = fertileStock(s);
-  const incubators = buildingsOf(s, 'incubator');
+  const chickStock = fertileStock(s, false);
+  const gooseStock = fertileStock(s, true);
+  const noChickInc = chickStock > 0 && !buildingsOf(s, 'incubator').length;
+  const noGooseInc = gooseStock > 0 && !buildingsOf(s, 'gooseincubator').length;
   const hatching = incubatingCount(s);
   const placeable = incubatable(s);
   const groups = new Map<string, { type: keyof typeof EGG_TYPES; grade: keyof typeof GRADES; count: number; fresh: number; fertile: boolean }>();
@@ -918,8 +933,7 @@ function StorageInfo() {
           <small>{hatching ? 'en train de couver' : 'vide'}</small>
         </div>
       </div>
-      {fertile > 0 &&
-        (incubators.length ? (
+      {fertile > 0 && buildingsOf(s, 'incubator').length + buildingsOf(s, 'gooseincubator').length > 0 && (
           <>
             <Btn kind="primary" block disabled={placeable <= 0} onClick={() => game.act(() => incubateAll(s), 'pop')}>
               <Icon name="egg" size={15} />{' '}
@@ -929,16 +943,21 @@ function StorageInfo() {
                   ? `Mettre ${fertile > 1 ? `les ${fertile} œufs fécondés` : 'l’œuf fécondé'} en couveuse`
                   : `Mettre ${placeable} œuf${placeable > 1 ? 's' : ''} sur ${fertile} en couveuse`}
             </Btn>
-            {placeable < fertile && <p class="hint warn">{placeable ? 'Il ne reste pas assez de place dans' : 'Plus de place dans'} la couveuse : améliorez-la ou construisez-en une autre.</p>}
+            {placeable < fertile && !noChickInc && !noGooseInc && <p class="hint warn">{placeable ? 'Il ne reste pas assez de place dans' : 'Plus de place dans'} la couveuse : améliorez-la ou construisez-en une autre.</p>}
           </>
-        ) : (
-          <div class="hint warn">
-            Ces œufs peuvent donner des poussins : construisez une couveuse (Boutique → Bâtiments).{' '}
-            <button class="link" onClick={() => game.openPanel('shop', 'buildings')}>
-              Voir la couveuse
-            </button>
-          </div>
-        ))}
+        )}
+      {(noChickInc || noGooseInc) && (
+        <div class="hint warn">
+          {noChickInc && noGooseInc
+            ? 'Ces œufs peuvent éclore : construisez une couveuse pour les poules et une couveuse à oies (Boutique → Bâtiments).'
+            : noGooseInc
+              ? 'Ces œufs d’oie peuvent donner des oisons : construisez une couveuse à oies (Boutique → Bâtiments).'
+              : 'Ces œufs peuvent donner des poussins : construisez une couveuse (Boutique → Bâtiments).'}{' '}
+          <button class="link" onClick={() => game.openPanel('shop', 'buildings')}>
+            Voir les couveuses
+          </button>
+        </div>
+      )}
       <div class="lots">
         {list.map((g) => (
           <div class={`lot ${g.fertile ? 'fert' : ''}`} key={`${g.type}${g.grade}${g.fertile}`}>

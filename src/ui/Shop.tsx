@@ -4,7 +4,7 @@ import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
 import { BREEDING, COSTS, DELIVERY, HEN_PACKS, DOG, EGG_TYPES, GRAIN_BINS, GRAIN_SACKS, PARCELS, ROBOT, UNLOCKS, WATER, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice, type StoreLevel, COMPOST, NATURE } from '../config/balance';
 import { grainBinDef, grainPerDay, waterPerDay, waterTankDef } from '../sim/stocks';
-import { BREEDS, BREED_ORDER, ROOSTER_TITLES } from '../config/breeds';
+import { BREEDS, BREED_ORDER, ROOSTER_TITLES, isGoose } from '../config/breeds';
 import { BUILDINGS, BUILD_ORDER } from '../config/buildings';
 import * as A from '../sim/actions';
 import { parcelCenter } from '../sim/core';
@@ -254,13 +254,20 @@ function HensTab() {
       </div>
       <Head
         title="Coqs et jars"
-        sub={`Un coq féconde les œufs d’une dizaine de poules (un jars, ceux des oies). Mis en couveuse, ces œufs éclosent en ${BREEDING.incubationDays} jours ; les poussins pondent à ${BREEDING.growthDays} jours.`}
+        sub={`Un coq féconde les œufs d’une dizaine de poules, un jars ceux d’une dizaine d’oies (dans leur couveuse à oies, d’où les oisons sortent directement). Mis en couveuse, ces œufs éclosent en ${BREEDING.incubationDays} jours ; les poussins pondent à ${BREEDING.growthDays} jours.`}
       >
         <div class="meter-pill">
           <span>Œufs fécondés</span>
           <b>{Math.round(fertility(s) * 100)} %</b>
           <i style={{ width: `${fertility(s) * 100}%` }} />
         </div>
+        {s.hens.some((h) => isGoose(h.breed)) && (
+          <div class="meter-pill">
+            <span>Œufs d’oie fécondés</span>
+            <b>{Math.round(fertility(s, true) * 100)} %</b>
+            <i style={{ width: `${fertility(s, true) * 100}%` }} />
+          </div>
+        )}
       </Head>
       {!buildingsOf(s, 'incubator').length && (
         <div class="notice">
@@ -298,7 +305,7 @@ function RoosterTile({ id }: { id: BreedId }) {
       pic={roosterThumb(id)}
       title={ROOSTER_TITLES[id]}
       tag={owned ? `${owned} à la ferme` : 'Reproducteur'}
-      stats={[['Féconde', `~${BREEDING.hensPerRooster} poules`]]}
+      stats={[['Féconde', `~${BREEDING.hensPerRooster} ${isGoose(id) ? 'oies' : 'poules'}`]]}
       extra={<GeneRange breed={id} />}
       price={A.roosterPrice(id)}
       cta="Acheter"
@@ -448,6 +455,11 @@ function keyStat(type: BuildingType): Array<[string, ComponentChildren]> {
       return [
         ['Ponte', `jusqu’à +${Math.round(COMPOST.laying * 100)} %`],
         ['Grain', `jusqu’à −${Math.round(COMPOST.grainSaving * 100)} %`],
+      ];
+    case 'gooseincubator':
+      return [
+        ['Capacité', `${L.capacity} œufs d’oie`],
+        ['Oisons', 'sortent directement'],
       ];
     case 'incubator':
       return [

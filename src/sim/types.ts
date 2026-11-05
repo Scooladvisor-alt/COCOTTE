@@ -2,9 +2,9 @@
 // le rendu et l'interface ne font que les lire (et passer par actions.ts pour les modifier).
 
 export type BreedId = 'rousse' | 'leghorn' | 'sussex' | 'soie' | 'araucana' | 'marans' | 'oie';
-export type EggType = 'roux' | 'blanc' | 'creme' | 'mini' | 'bleu' | 'chocolat' | 'oie' | 'or';
+export type EggType = 'roux' | 'blanc' | 'creme' | 'mini' | 'bleu' | 'chocolat' | 'oie' | 'or' | 'phenix';
 export type Grade = 'extra' | 'A' | 'B';
-export type BuildingType = 'coop' | 'goosehouse' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'pond' | 'tree' | 'nursery';
+export type BuildingType = 'coop' | 'goosehouse' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'gooseincubator' | 'pond' | 'tree' | 'nursery';
 
 export type HenAct =
   | 'idle'
@@ -86,6 +86,8 @@ export interface Hen {
   black?: boolean;
   /** Poule aux plumes d'or (encore dix fois plus rare) : elle pond des œufs d'or. */
   golden?: boolean;
+  /** La poule légendaire (phénix) : immortelle, elle pond des œufs de phénix et apaise tout le troupeau. */
+  legendary?: boolean;
   /** Coq qui s'est déjà mesuré aux autres coqs (un nouveau venu se bat dès qu'il les croise). */
   ranked?: boolean;
   /** Plumage (variante de la race, voir BREEDS[].skins). */
@@ -528,6 +530,8 @@ export interface Stats {
   /** Œufs d'or ramassés et vendus. */
   goldEggs?: number;
   goldEggsSold?: number;
+  /** Œufs de phénix ramassés (achetés aussitôt par le collectionneur). */
+  phoenixEggs?: number;
   coopsCleaned: number;
   feederFills: number;
   /** Poules emportées par un prédateur (comptées à part des décès). */
@@ -675,6 +679,8 @@ export type GameEvent =
   | { kind: 'incubated'; count: number; x: number; z: number }
   | { kind: 'crow'; x: number; z: number }
   | { kind: 'grownUp'; henId: number }
+  /** La poule légendaire renaît de ses cendres, ou pond : grande gerbe de flammes. */
+  | { kind: 'phoenix'; x: number; z: number; big: boolean }
   | { kind: 'workerArrived'; workerId: number; x: number; z: number }
   | { kind: 'henGone'; henId: number; reason: 'died' | 'sold' | 'escaped' }
   | { kind: 'fence'; placed: number }

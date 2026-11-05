@@ -1,7 +1,11 @@
 // Interface du registre en ligne : nom de ferme unique, classement, visites.
 import { useEffect, useState } from 'preact/hooks';
 import { deserialize } from '../save/save';
-import { NAME_RE, OnlineError, SECRET_MIN, claimFarm, identity, lastPushOk, loadBoard, pushFarm, restoreFarm, setIdentity, type BoardRow, type BoardSort } from '../online/farms';
+import { NAME_RE, OnlineError, SECRET_MIN, claimFarm, farmStats, identity, lastPushOk, loadBoard, pushFarm, restoreFarm, sendGreeting, setIdentity, type BoardRow, type BoardSort } from '../online/farms';
+import { ROLES, ROLE_ORDER } from '../config/staff';
+import { currentDay } from '../sim/core';
+import { fmtMoney, fmtSigned, levelDef, nextLevelDef, sumExpense, sumIncome, today } from '../sim/economy';
+import { season } from '../sim/seasons';
 import type { GameState } from '../sim/types';
 import { Btn, Icon, Tabs, useGame } from './common';
 
@@ -236,22 +240,219 @@ export function CloudVeil() {
   );
 }
 
-/** Bandeau du mode visiteur : où l'on est, et le retour vers sa ferme. */
+/** Bouton du visiteur : passer le coucou à la ferme qu'on regarde. */
+function CoucouButton({ name }: { name: string }) {
+  const game = useGame();
+  const [state, setState] = useState<'idle' | 'busy' | 'sent'>('idle');
+  const send = async () => {
+    setState('busy');
+    try {
+      const r = await sendGreeting(name);
+      if (r === 'ok' || r === 'wait') {
+        setState('sent');
+        game.toast(r === 'ok' ? `Coucou passé à ${name} : la ferme le verra à son retour !` : `Vous avez déjà passé le coucou à ${name} il y a peu.`, r === 'ok' ? 'good' : 'info');
+        return;
+      }
+      setState('idle');
+      game.toast(r === 'denied' ? 'Votre code secret n’est plus reconnu : impossible de passer le coucou.' : 'Cette ferme ne peut pas recevoir de coucou.', 'warn');
+    } catch (e) {
+      setState('idle');
+      const offline = e instanceof OnlineError && e.message === 'network';
+      game.toast(offline ? 'Impossible de joindre le serveur. Vérifiez votre connexion.' : 'Le coucou n’est pas encore disponible sur le serveur.', 'warn');
+    }
+  };
+  return (
+    <Btn kind={state === 'sent' ? 'ghost' : 'soft'} small disabled={state !== 'idle'} onClick={() => void send()} title="La ferme verra votre coucou à son retour">
+      {state === 'sent' ? '✓ Coucou passé' : state === 'busy' ? 'Envoi…' : 'Passer le coucou'}
+    </Btn>
+  );
+}
+
+/** Bandeau du mode visiteur : où l'on est, le coucou et le retour vers sa ferme. */
 export function VisitBar() {
   const game = useGame();
   const v = game.visiting;
   if (!v) return null;
+  const mine = identity()?.name.toLowerCase() === v.name.toLowerCase();
   return (
     <div class="visit-bar card">
       <span class="visit-tag">Mode visiteur</span>
       <div class="visit-txt">
         <b>{v.name}</b>
-        <small>
-          Niveau {v.level} · {v.hens.toLocaleString('fr-FR')} volaille{v.hens > 1 ? 's' : ''} · vous regardez, rien ne se touche
-        </small>
+        <small>Vous regardez, rien ne se touche</small>
       </div>
+      {!mine && <CoucouButton key={v.name} name={v.name} />}
       <Btn kind="primary" small onClick={() => void game.leaveVisit()}>
         Retour à ma ferme
+      </Btn>
+    </div>
+  );
+}
+
+const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('fr-FR')} ${n > 1 ? many : one}`;
+
+/** Petit widget du visiteur, en haut à gauche : la journée et la force de la ferme visitée. */
+export function VisitStats() {
+  const game = useGame();
+  const s = game.state;
+  // replié par défaut sur téléphone, pour laisser voir la ferme
+  const [open, setOpen] = useState(() => typeof window === 'undefined' || (window.innerWidth > 820 && window.innerHeight > 540));
+  const lv = levelDef(s);
+  const next = nextLevelDef(s);
+  const xpRatio = next ? (s.xp - lv.xp) / Math.max(1, next.xp - lv.xp) : 1;
+  const d = today(s);
+  const inc = sumIncome(d);
+  const exp = sumExpense(d);
+  const st = farmStats(s);
+  const adults = s.hens.filter((h) => !h.young);
+  const layers = adults.filter((h) => !h.rooster).length;
+  const males = adults.length - layers;
+  const young = s.hens.length - adults.length;
+  const staff = ROLE_ORDER.map((r) => ({ n: s.workers.filter((w) => w.role === r).length, title: ROLES[r].title })).filter((x) => x.n > 0);
+  const rare = [
+    { n: s.hens.filter((h) => h.legendary).length, one: 'légendaire', many: 'légendaires' },
+    { n: s.hens.filter((h) => h.golden).length, one: 'poule d’or', many: 'poules d’or' },
+    { n: s.hens.filter((h) => h.black).length, one: 'coq noir', many: 'coqs noirs' },
+  ].filter((x) => x.n > 0);
+  return (
+    <aside class={`visit-stats card ${open ? '' : 'closed'}`}>
+      <button class="vs-head" onClick={() => setOpen(!open)} title={open ? 'Réduire' : 'Voir les statistiques de la ferme'}>
+        <span class="vs-level">{lv.level}</span>
+        <span class="vs-title">
+          <b>{lv.title}</b>
+          <small>
+            Jour {currentDay(s).toLocaleString('fr-FR')} · {season(s).name} · ★ {Math.round(s.reputation)}
+          </small>
+        </span>
+        <Icon name={open ? 'chevronUp' : 'chevronDown'} size={15} />
+      </button>
+      <div class="vs-xp">
+        <i style={{ width: `${Math.round(Math.min(1, xpRatio) * 100)}%` }} />
+      </div>
+      {open && (
+        <div class="vs-body">
+          <div class="vs-money">
+            <span>Trésorerie</span>
+            <b class={s.money < 0 ? 'neg' : ''}>{fmtMoney(s.money)}</b>
+          </div>
+          <h6>Aujourd’hui</h6>
+          <div class="vs-grid">
+            <div>
+              <span>Recettes</span>
+              <b class="pos">{fmtMoney(inc)}</b>
+            </div>
+            <div>
+              <span>Dépenses</span>
+              <b>{fmtMoney(exp)}</b>
+            </div>
+            <div>
+              <span>Bilan</span>
+              <b class={inc - exp < 0 ? 'neg' : 'pos'}>{fmtSigned(inc - exp)}</b>
+            </div>
+            <div>
+              <span>Œufs pondus</span>
+              <b>{(d.eggs ?? 0).toLocaleString('fr-FR')}</b>
+            </div>
+          </div>
+          <h6>Sa force</h6>
+          <div class="vs-grid">
+            <div>
+              <span>Volailles</span>
+              <b>{s.hens.length.toLocaleString('fr-FR')}</b>
+            </div>
+            <div>
+              <span>Employés</span>
+              <b>{s.workers.length}</b>
+            </div>
+            <div>
+              <span>Taux de ponte</span>
+              <b>{Math.round(st.laying * 100)} %</b>
+            </div>
+            <div>
+              <span>Bien-être</span>
+              <b>{Math.round(st.wellbeing)} %</b>
+            </div>
+            <div>
+              <span>Bâtiments</span>
+              <b>{s.buildings.length}</b>
+            </div>
+            <div>
+              <span>Parcelles</span>
+              <b>{s.parcels.length}</b>
+            </div>
+          </div>
+          <p class="vs-line">
+            {plural(layers, 'pondeuse')} · {plural(males, 'mâle')}
+            {young > 0 && ` · ${plural(young, 'jeune')}`}
+          </p>
+          {staff.length > 0 && <p class="vs-line">{staff.map((x) => `${x.n} ${x.title.toLowerCase()}`).join(' · ')}</p>}
+          {rare.length > 0 && <p class="vs-line vs-rare">{rare.map((x) => (x.n > 1 ? `${x.n} ${x.many}` : `1 ${x.one}`)).join(' · ')}</p>}
+          <h6>Depuis le début</h6>
+          <div class="vs-grid">
+            <div>
+              <span>Œufs vendus</span>
+              <b>{s.stats.eggsSold.toLocaleString('fr-FR')}</b>
+            </div>
+            <div>
+              <span>Chiffre d’affaires</span>
+              <b>{fmtMoney(s.stats.totalIncome)}</b>
+            </div>
+            <div>
+              <span>Clients servis</span>
+              <b>{s.stats.customersServed.toLocaleString('fr-FR')}</b>
+            </div>
+            <div>
+              <span>Poussins nés</span>
+              <b>{s.stats.chicksHatched.toLocaleString('fr-FR')}</b>
+            </div>
+          </div>
+        </div>
+      )}
+    </aside>
+  );
+}
+
+/** « La ferme X vous passe le coucou » : à son retour, le joueur voit qui est passé et peut rendre la visite. */
+export function GreetingsCard() {
+  const game = useGame();
+  const list = game.greetings;
+  if (!list.length || game.visiting) return null;
+  const shown = list.slice(0, 4);
+  const more = list.length - shown.length;
+  const close = () => {
+    game.greetings = [];
+    game.changed();
+  };
+  return (
+    <div class="greet-card card" role="status">
+      <div class="greet-head">
+        <b>{list.length > 1 ? 'Des voisins sont passés !' : 'Un voisin est passé !'}</b>
+        <button class="greet-x" onClick={close} aria-label="Fermer">
+          <Icon name="close" size={15} />
+        </button>
+      </div>
+      <ul>
+        {shown.map((g) => (
+          <li key={g.name}>
+            <span class="greet-name">
+              <b>{g.name}</b> vous passe le coucou{g.count > 1 ? ` (${g.count} fois)` : ''}
+            </span>
+            <Btn
+              kind="soft"
+              small
+              onClick={() => {
+                game.greetings = game.greetings.filter((x) => x !== g);
+                void game.visitFarm(g.name);
+              }}
+            >
+              Rendre la visite
+            </Btn>
+          </li>
+        ))}
+      </ul>
+      {more > 0 && <small>et {plural(more, 'autre ferme', 'autres fermes')}</small>}
+      <Btn kind="primary" small block onClick={close}>
+        Merci !
       </Btn>
     </div>
   );

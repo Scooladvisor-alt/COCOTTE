@@ -215,6 +215,8 @@ export const EGG_TYPES: Record<EggType, EggTypeDef> = {
   oie: { id: 'oie', name: 'Œuf d’oie', short: 'Oie', ref: 650, specialty: true, color: 0xf3f0e8 },
   // pondu par la poule aux œufs d'or ; il ne passe ni par le stockage ni par le marché (voir sim/eggs.ts)
   or: { id: 'or', name: 'Œuf d’or', short: 'Or', ref: 15000, specialty: true, color: 0xf2c230 },
+  // pondu par la poule légendaire ; le collectionneur l'achète dès qu'il est ramassé (voir sim/eggs.ts)
+  phenix: { id: 'phenix', name: 'Œuf de phénix', short: 'Phénix', ref: 200000, specialty: true, color: 0xff6a22 },
 };
 export const EGG_ORDER: EggType[] = ['roux', 'blanc', 'creme', 'mini', 'bleu', 'chocolat', 'oie'];
 
@@ -727,6 +729,16 @@ export const RARE = {
   goldCustomerShare: 0.06,
   /** Valeur de la poule elle-même : une vingtaine d'œufs d'or. */
   goldHenEggs: 20,
+  /** Chance qu'une poussine née à la ferme soit légendaire : dix fois plus rare que la poule aux œufs d'or. */
+  legendaryHenHatch: 0.0004,
+  /** La poule légendaire pond un œuf de phénix tous les quatre jours (en bonne forme). */
+  phoenixEggsPerDay: 0.25,
+  /** Le collectionneur achète chaque œuf de phénix à ce prix, dès qu'il est ramassé (centimes). */
+  phoenixEggPrice: 200000,
+  /** Valeur de la poule légendaire adulte (centimes). */
+  legendaryHenValue: 5000000,
+  /** Bien-être gagné par tout le troupeau tant qu'elle vit à la ferme. */
+  phoenixWellbeing: 6,
 };
 
 export const PARCELS = {

@@ -1,10 +1,10 @@
 // Sauvegarde locale robuste : double emplacement (principal + secours), versionnage,
 // et assainissement complet des données lues (valeurs manquantes, corrompues ou obsolètes).
 import { DELIVERY, EGG_ORDER, EGG_TYPES, GRAIN_BINS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, HOUR, SAVE_VERSION, TIME, WATER, WATER_TANKS, WORLD, clamp } from '../config/balance';
-import { BREEDS } from '../config/breeds';
+import { BREEDS, isGoose } from '../config/breeds';
 import { BUILDINGS } from '../config/buildings';
 import { MISSIONS } from '../config/missions';
-import { invalidateLayout, isShelterType } from '../sim/core';
+import { coopDoor, invalidateLayout, isShelterType } from '../sim/core';
 import { createNewGame, makeBuilding } from '../sim/state';
 import type { BreedId, Building, Delivery, BuildingType, EggType, GameState, Grade, Hen, HenAct, Worker, WorkerRole } from '../sim/types';
 import { ROLES } from '../config/staff';
@@ -242,7 +242,7 @@ export function sanitize(input: unknown): GameState | null {
     nb.invested = int(b.invested, 0, 0, 1e10);
     nb.builtAt = num(b.builtAt, 0);
     nb.eggIds = [];
-    if (type === 'incubator') {
+    if (type === 'incubator' || type === 'gooseincubator') {
       nb.auto = bool(b.auto, true);
       nb.hatch = arr(b.hatch)
         .map((re) => {
@@ -275,8 +275,17 @@ export function sanitize(input: unknown): GameState | null {
     const wasIsa = h.breed === 'isa';
     const breed = (wasIsa ? 'rousse' : h.breed) as Hen['breed'];
     if (!BREEDS[breed]) continue;
-    const raising = bool(h.nursery, false) && num(h.young, 0) > 0 && nurseries.some((c) => c.id === h.coopId);
-    const coopId = raising || homes.some((c) => c.id === h.coopId) ? (h.coopId as number) : coops[0].id;
+    const raising = !isGoose(breed) && bool(h.nursery, false) && num(h.young, 0) > 0 && nurseries.some((c) => c.id === h.coopId);
+    // anciennes parties : un oison resté à la poussinière rejoint les oies, à la porte de leur abri
+    const flockHouse = isGoose(breed) ? homes.find((c) => c.type === 'goosehouse') : undefined;
+    const movedOut = !raising && !!flockHouse && nurseries.some((c) => c.id === h.coopId);
+    if (movedOut) {
+      const door = coopDoor(flockHouse);
+      h.x = door.x;
+      h.z = door.z;
+      h.act = 'idle';
+    }
+    const coopId = movedOut ? flockHouse.id : raising || homes.some((c) => c.id === h.coopId) ? (h.coopId as number) : (flockHouse ?? coops[0]).id;
     const hen: Hen = {
       id: int(h.id, 0),
       name: str(h.name, 'Poulette', 18),
@@ -307,6 +316,7 @@ export function sanitize(input: unknown): GameState | null {
     if (bool(h.rooster, false)) hen.rooster = true;
     if (hen.rooster && bool(h.black, false)) hen.black = true;
     if (!hen.rooster && bool(h.golden, false)) hen.golden = true;
+    if (!hen.rooster && bool(h.legendary, false)) hen.legendary = true;
     if (hen.rooster && bool(h.ranked, false)) hen.ranked = true;
     const skin = wasIsa ? 3 : int(h.skin, 0, 0, Math.max(0, (BREEDS[breed].skins?.length ?? 1) - 1));
     if (skin > 0) hen.skin = skin;
@@ -324,7 +334,8 @@ export function sanitize(input: unknown): GameState | null {
   for (const re of arr(raw.worldEggs)) {
     const e = obj(re);
     const type = e.type as EggType;
-    if (!EGG_ORDER.includes(type)) continue;
+    // l'œuf d'or ou de phénix encore au pondoir ne se perd pas au rechargement
+    if (!EGG_TYPES[type]) continue;
     const id = int(e.id, -1);
     if (id < 0 || seen.has(id)) continue;
     seen.add(id);

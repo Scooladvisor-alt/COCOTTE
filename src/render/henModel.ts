@@ -6,7 +6,7 @@
 // Mêmes pivots d'animation que l'ancien modèle : corps, cou, ailes, pattes.
 import * as THREE from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { skinLook, type HenLook } from '../config/breeds';
+import { skinLook, type HenLook, LEGEND_SKIN } from '../config/breeds';
 import type { BreedId } from '../sim/types';
 
 export interface HenGeo {
@@ -64,6 +64,33 @@ GOLD_HEN_MAT.onBeforeCompile = (sh) => {
       float rimK = pow( 1.0 - saturate( dot( normal, rimV ) ), 2.2 );
       totalEmissiveRadiance += vec3( 1.0, 0.82, 0.35 ) * rimK * ( 0.35 + uRim );`,
   );
+};
+
+/** Horloge des flammes de la poule légendaire (réglée à chaque image par le rendu). */
+export const LEGEND_TIME = { value: 0 };
+/**
+ * Plumes de feu de la poule légendaire : des vagues de flammes montent sans cesse le long du
+ * plumage, et le contour rougeoie (visibles de jour, éclatantes la nuit).
+ */
+export const LEGEND_HEN_MAT = new THREE.MeshPhongMaterial({ vertexColors: true, specular: 0xffd9a0, shininess: 40, emissive: 0x3a0a00 });
+LEGEND_HEN_MAT.onBeforeCompile = (sh) => {
+  sh.uniforms.uRim = HEN_RIM;
+  sh.uniforms.uFlame = LEGEND_TIME;
+  sh.vertexShader = sh.vertexShader
+    .replace('#include <common>', '#include <common>\nvarying vec3 vFlame;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\n      vFlame = position;');
+  sh.fragmentShader = sh.fragmentShader
+    .replace('#include <common>', '#include <common>\nuniform float uRim;\nuniform float uFlame;\nvarying vec3 vFlame;')
+    .replace(
+      '#include <emissivemap_fragment>',
+      `#include <emissivemap_fragment>
+      vec3 rimV = isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition );
+      float rimK = pow( 1.0 - saturate( dot( normal, rimV ) ), 2.0 );
+      float wave = sin( vFlame.y * 46.0 + vFlame.z * 18.0 - uFlame * 5.2 + sin( vFlame.x * 30.0 + uFlame * 1.7 ) * 1.5 ) * 0.5 + 0.5;
+      float lick = pow( wave, 3.0 );
+      totalEmissiveRadiance += mix( vec3( 0.95, 0.2, 0.02 ), vec3( 1.0, 0.72, 0.16 ), lick ) * ( 0.1 + lick * 0.62 );
+      totalEmissiveRadiance += vec3( 1.0, 0.45, 0.08 ) * rimK * ( 0.55 + uRim );`,
+    );
 };
 
 // ------------------------------------------------------------- Outils ----
@@ -1000,6 +1027,46 @@ function chickGeometry(breed: BreedId, stage: number, skin = 0): HenGeo {
   return { body, head, wingL: wing(1), wingR: wing(-1), leg: legGeo(L, false, 0, true), eyes: merge(eyeParts), eyeAt: [eyeY, eyeZ] };
 }
 
+// ========================================================= POULE PHÉNIX ====
+/** Dégradé d'une plume de feu : cramoisi à la base, orangé, puis pointe dorée. */
+const flamePlume = (t: number, _a: number, c: THREE.Color) => {
+  c.setHex(0xa3141c);
+  mixIn(c, 0xff5a12, ss(0.08, 0.5, t));
+  mixIn(c, 0xffc62e, ss(0.55, 0.92, t));
+};
+
+/** Longue traîne de la poule légendaire : sept plumes qui montent, s'arrondissent et retombent. */
+function phoenixPlumes(growth: number): THREE.BufferGeometry[] {
+  const parts: THREE.BufferGeometry[] = [];
+  const g = Math.max(0.15, growth);
+  for (let k = -3; k <= 3; k++) {
+    const a = k / 3;
+    const b: V3 = [a * 0.03, 0.36 - Math.abs(a) * 0.02, -0.17];
+    const at = (x: number, y: number, z: number): V3 => [b[0] + (x - b[0]) * g, b[1] + (y - b[1]) * g, b[2] + (z - b[2]) * g];
+    const drop = Math.abs(a) * 0.07;
+    const pts: V3[] = [b, at(a * 0.075, 0.47 - drop * 0.3, -0.26), at(a * 0.14, 0.52 - drop, -0.42), at(a * 0.19, 0.44 - drop * 1.2, -0.58), at(a * 0.22, 0.3 - drop * 1.2, -0.68)];
+    parts.push(ribbon(pts, (t) => (0.016 + 0.024 * ss(0.35, 0.85, t)) * featherW(t), [1, 0, a * 0.4], flamePlume, 14, 0.16));
+  }
+  return parts;
+}
+
+/** Aigrette dorée sur la tête (repère du cou) : cinq brins terminés par une goutte de feu. */
+function phoenixCrown(): THREE.BufferGeometry[] {
+  const parts: THREE.BufferGeometry[] = [];
+  for (let k = -2; k <= 2; k++) {
+    const a = k / 2;
+    const b: V3 = [a * 0.012, 0.19, 0.055 - Math.abs(a) * 0.01];
+    const tip: V3 = [a * 0.062, 0.312 - Math.abs(a) * 0.022, 0.012 - Math.abs(a) * 0.012];
+    parts.push(ribbon([b, [a * 0.034, 0.25, 0.038], tip], (t) => 0.005 + 0.004 * t, [1, 0, 0], grad(0xffb02e, 0xffe27a), 6, 0.1));
+    parts.push(blob([0.013, 0.019, 0.012], tip, (p, n, c) => {
+      c.setHex(0xff6a12);
+      mixIn(c, 0xffe27a, ss(tip[1] - 0.012, tip[1] + 0.016, p.y));
+      occlude(c, n, 0.1);
+    }, 8));
+  }
+  return parts;
+}
+
 // =========================================================== ASSEMBLAGE ====
 const henCache = new Map<string, HenGeo>();
 
@@ -1038,6 +1105,8 @@ export function henGeometry(breed: BreedId, kind: HenKind = 'hen', stage = ADULT
     } else if (rooster) body.push(...roosterTail(L, breed, J));
     else body.push(...henTail(L, J));
   }
+  const legend = skin === LEGEND_SKIN;
+  if (legend) body.push(...phoenixPlumes(J.tail));
   const bodyGeo = merge(body);
   bodyGeo.translate(0, -HEN_PIVOT.body, 0);
 
@@ -1045,7 +1114,7 @@ export function henGeometry(breed: BreedId, kind: HenKind = 'hen', stage = ADULT
     body: bodyGeo,
     ...(() => {
       const hg = headGeo(L, breed, rooster, J, stage, combCol);
-      return { head: hg.head, eyes: hg.eyes, eyeAt: EYE_AT };
+      return { head: legend && stage >= 5 ? merge([hg.head, ...phoenixCrown()]) : hg.head, eyes: hg.eyes, eyeAt: EYE_AT };
     })(),
     wingL: wingGeo(L, 1, !!L.fluffy),
     wingR: wingGeo(L, -1, !!L.fluffy),
@@ -1060,13 +1129,36 @@ export function henGeometry(breed: BreedId, kind: HenKind = 'hen', stage = ADULT
 const GOOSE_EYE: [number, number] = [0.282, 0.062];
 
 /**
- * Oie (et jars, un peu plus massif), dans le même style que les poules et sur les mêmes pivots
- * d'animation : long corps horizontal au ventre bas (fanon des Toulouse), poitrine ronde, queue
- * courte et pointue, long cou en S, tête allongée, bec plat orange à onglet clair, ailes repliées
- * aux plumes bordées de clair, pattes courtes et pieds palmés orange.
+ * Livrée du jars : capuchon sombre sur la tête et le cou, ailes et rémiges plus marquées, bec et
+ * pattes orange vif (m : 0 tout jeune, 1 adulte). L'oie garde un cou clair et uni.
  */
-function gooseGeometry(L: HenLook, gander: boolean, stage: number): HenGeo {
-  const k = gander ? 1.08 : 1;
+function ganderLook(L: HenLook, m: number): HenLook {
+  const c = new THREE.Color(L.body);
+  const pale = (c.r + c.g + c.b) / 3 > 0.7;
+  const hood = pale ? 0x74838f : 0x2e2a28;
+  return {
+    ...L,
+    hackle: mixHex(L.hackle, hood, m),
+    cape: mixHex(L.cape, hood, m),
+    wing: pale ? mixHex(L.wing, 0xc7ced4, m) : mixHex(L.wing, 0x4f4a46, m * 0.7),
+    primaries: mixHex(L.primaries, pale ? 0x5f6c79 : 0x2a2725, m),
+    beak: mixHex(L.beak, 0xf2641e, m * 0.6),
+    legs: mixHex(L.legs, 0xf2641e, m * 0.6),
+  };
+}
+
+/**
+ * Oie et jars, dans le même style que les poules et sur les mêmes pivots d'animation : long corps
+ * horizontal au ventre bas (fanon des Toulouse), poitrine ronde, queue courte et pointue, long cou
+ * en S, tête allongée, bec plat orange à onglet clair, ailes repliées aux plumes bordées de clair,
+ * pattes courtes et pieds palmés orange. Le jars se reconnaît au premier coup d'œil : bien plus
+ * grand, cou sombre à collier blanc, grosse bosse rouge orangé sur le bec, queue relevée.
+ */
+function gooseGeometry(L0: HenLook, gander: boolean, stage: number): HenGeo {
+  // le jeune jars se distingue peu à peu en grandissant
+  const male = gander ? (stage >= ADULT_STAGE ? 1 : Math.max(0, (stage - 2) / 5)) : 0;
+  const L = gander ? ganderLook(L0, male) : L0;
+  const k = 1 + 0.2 * male;
   // les jeunes (stades 3 à 6) gardent un peu de duvet jaunâtre
   const young = stage < ADULT_STAGE ? (ADULT_STAGE - stage) / 4 : 0;
   const youngTint = (c: THREE.Color) => (young > 0 ? mixIn(c, 0xd9cb63, young * 0.45) : c);
@@ -1110,6 +1202,16 @@ function gooseGeometry(L: HenLook, gander: boolean, stage: number): HenGeo {
       v.x *= 1 - Math.max(0, -v.z) * 0.7;
     }, [-0.3, 0, 0]),
   ];
+  if (male > 0.3) {
+    // le jars porte haut une petite queue sombre, retroussée
+    bodyParts.push(
+      blob([0.03 * k, 0.02, 0.062 * male], [0, 0.262 * k, -0.262 * k], (_p, n, c) => {
+        c.setHex(L.primaries);
+        mixIn(c, L.fluff ?? 0xf2efe9, ss(-0.5, -0.9, n.y) * 0.7);
+        occlude(c, n, 0.2);
+      }, 10, undefined, [0.75, 0, 0]),
+    );
+  }
   const bodyGeo = merge(bodyParts);
   bodyGeo.translate(0, -HEN_PIVOT.body, 0);
 
@@ -1127,6 +1229,8 @@ function gooseGeometry(L: HenLook, gander: boolean, stage: number): HenGeo {
     mixIn(c, L.breast, ss(0.06, -0.01, p.y) * 0.6);
     const f = (p.y * 70) % 1;
     c.multiplyScalar(f < 0.2 ? 0.93 : 1);
+    // le collier blanc du jars, bien net entre le cou sombre et la poitrine
+    if (male > 0) mixIn(c, 0xf8f4ea, ss(0.035, 0.05, p.y) * ss(0.11, 0.095, p.y) * male);
     youngTint(c);
     occlude(c, n, 0.2);
   };
@@ -1159,6 +1263,14 @@ function gooseGeometry(L: HenLook, gander: boolean, stage: number): HenGeo {
   ];
   // narines
   for (const sx of [1, -1]) head.push(blob([0.0035, 0.0025, 0.007], [sx * 0.008, 0.265, 0.12], 0x3b2a20, 6));
+  // la grosse bosse du jars, à la base du bec
+  if (male > 0.2) {
+    head.push(blob([0.027 * male, 0.028 * male, 0.029 * male], [0, 0.283 + 0.004 * male, 0.092], (p, n, c) => {
+      c.setHex(0xe8491a);
+      mixIn(c, 0xff8a3a, ss(0.285, 0.31, p.y) * 0.8);
+      occlude(c, n, 0.15);
+    }, 12));
+  }
   const eyes: THREE.BufferGeometry[] = [];
   for (const sx of [1, -1]) {
     eyes.push(blob([0.008, 0.008, 0.007], [sx * 0.028, GOOSE_EYE[0], GOOSE_EYE[1]], L.iris ?? 0x2c2420, 8));
@@ -1233,11 +1345,17 @@ function gooseGeometry(L: HenLook, gander: boolean, stage: number): HenGeo {
   }));
   for (const a of [-0.6, 0, 0.6]) legParts.push(blob([0.005, 0.004, 0.008], [Math.sin(a) * 0.072, -0.158, Math.cos(a) * 0.072 + 0.004], 0x4a3a2c, 6));
 
+  // le jars porte la tête plus haut : cou et tête plus grands
+  const tall = 1 + 0.14 * male;
+  const headGeom = merge(head);
+  const eyesGeom = merge(eyes);
+  headGeom.scale(tall, tall, tall);
+  eyesGeom.scale(tall, tall, tall);
   return {
     body: bodyGeo,
-    head: merge(head),
-    eyes: merge(eyes),
-    eyeAt: GOOSE_EYE,
+    head: headGeom,
+    eyes: eyesGeom,
+    eyeAt: [GOOSE_EYE[0] * tall, GOOSE_EYE[1] * tall],
     wingL: merge([wing(1)]),
     wingR: merge([wing(-1)]),
     leg: merge(legParts),

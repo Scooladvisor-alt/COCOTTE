@@ -23,9 +23,10 @@ export function addStarterFlock(s: GameState) {
   const hen = createHen(s, 'rousse', coop, true, { at: [x, z], genes: mother });
   hen.name = 'Cocotte';
   s.hens.push(hen);
+  // ses poussins sont ordinaires : les raretés naissent à la couveuse
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2 + 0.4;
-    s.hens.push(createHen(s, 'rousse', coop, false, { young: BREEDING.growthDays, at: [x + Math.cos(a) * 0.6, z + Math.sin(a) * 0.6], genes: capped(inherit(s, mother, { p: 3, r: 2, b: 3 })) }));
+    s.hens.push(createHen(s, 'rousse', coop, false, { young: BREEDING.growthDays, golden: false, legendary: false, at: [x + Math.cos(a) * 0.6, z + Math.sin(a) * 0.6], genes: capped(inherit(s, mother, { p: 3, r: 2, b: 3 })) }));
   }
 }
 

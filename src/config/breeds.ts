@@ -375,11 +375,33 @@ const GOLD_COLORS = {
   downBelly: 0xf8e394,
 };
 
+/** Plumage spécial : la poule légendaire, un phénix de basse-cour (quelle que soit sa race). */
+export const LEGEND_SKIN = 97;
+/** Feu vivant : camail d'or, flancs orangés, ailes cramoisies, crête rouge vif. */
+const LEGEND_COLORS = {
+  body: 0xe8481a,
+  breast: 0xff7a1c,
+  hackle: 0xffc53a,
+  cape: 0xff9a22,
+  tail: 0xb4181c,
+  tail2: 0xff6a12,
+  wing: 0xc4241a,
+  primaries: 0x7a1030,
+  comb: 0xe61e1e,
+  lobes: 0xffc53a,
+  legs: 0xf2b53c,
+  beak: 0xf7cf5c,
+  iris: 0xfff0a8,
+  down: 0xff9a2e,
+  downBelly: 0xffd36a,
+};
+
 /** Plumage d'une volaille (variante tirée à l'achat ; 0 = plumage de base de la race). */
 export function skinLook(breed: BreedId, skin = 0): HenLook {
   const b = BREEDS[breed];
   if (skin === BLACK_SKIN) return { ...b.look, ...BLACK_COLORS, scales: undefined, chest: undefined, fluff: undefined };
   if (skin === GOLD_SKIN) return { ...b.look, ...GOLD_COLORS, scales: undefined, chest: undefined };
+  if (skin === LEGEND_SKIN) return { ...b.look, ...LEGEND_COLORS, scales: undefined, chest: undefined, fluff: undefined };
   return b.skins?.[skin]?.look ?? b.look;
 }
 /** Nom du plumage, s'il y en a plusieurs pour la race. */

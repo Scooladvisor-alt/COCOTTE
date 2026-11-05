@@ -6,7 +6,7 @@ import { music } from './audio/music';
 import { FarmRenderer, type PickResult } from './render/farmRenderer';
 import { Vector3 as THREE_V } from 'three';
 import { deserialize, saveGame } from './save/save';
-import { fetchFarm, pushFarm } from './online/farms';
+import { fetchFarm, pushFarm, readGreetings } from './online/farms';
 import { nurseryCount } from './sim/nursery';
 import * as A from './sim/actions';
 import { canPlace } from './sim/buildings';
@@ -20,7 +20,8 @@ import { PREDATOR_INFO, livePredators, setPredatorsQuiet, shootPredator } from '
 import { getBuilding, lvl, storageCapacity, storedCount } from './sim/queries';
 import { deliverOrder } from './sim/market';
 import { createShowcase } from './sim/showcase';
-import { fertileStock, nextHatchIn } from './sim/breeding';
+import { fertileStock, hatchesGeese, isIncubator, nextHatchIn } from './sim/breeding';
+import { isTreasure } from './sim/eggs';
 import { advance, advanceRealtime, canSkipNight, simulateOffline, skipNight, type OfflineSummary } from './sim/simulation';
 import type { ActionResult, BuildingType, GameEvent, GameState, NotifyAction, ShowResult } from './sim/types';
 
@@ -55,6 +56,8 @@ export const toastLife = (t: Pick<Toast, 'tone' | 'action'>) => TOAST_LIFE[t.ton
 const sleep = (ms: number) => new Promise<void>((r) => window.setTimeout(r, ms));
 /** Durée d'une traversée des nuages (ms). */
 export const CLOUD_MS = 1000;
+/** On regarde toutes les trois minutes si un coucou est arrivé (et à chaque retour à sa ferme). */
+const GREET_EVERY_MS = 180_000;
 
 export class Game {
   state: GameState;
@@ -77,6 +80,8 @@ export class Game {
   started = false;
   /** Visite d'une autre ferme (lecture seule) ; la nôtre attend à côté, intacte. */
   visiting: { name: string; level: number; hens: number } | null = null;
+  /** Fermes qui nous ont passé le coucou, en attendant qu'on les remercie. */
+  greetings: Array<{ name: string; count: number; at: string }> = [];
   private home: GameState | null = null;
   /** Nuages de transition entre deux fermes : ils couvrent l'écran ('in'), puis se dégagent ('out'). */
   cloud: 'off' | 'in' | 'out' = 'off';
@@ -268,6 +273,31 @@ export class Game {
       if (sum && (sum.eggsLaid > 0 || sum.money !== 0)) this.offline = sum;
     }
     this.changed();
+    if (this.persist) {
+      void this.checkGreetings();
+      window.setInterval(() => void this.checkGreetings(), GREET_EVERY_MS);
+    }
+  }
+
+  /** Va voir si d'autres fermes nous ont passé le coucou (silencieux si le réseau ou le serveur manque). */
+  async checkGreetings() {
+    if (!this.started || !this.persist || this.visiting || this.showcase || document.hidden) return;
+    let rows;
+    try {
+      rows = await readGreetings();
+    } catch {
+      return;
+    }
+    if (!rows.length) return;
+    for (const r of rows) {
+      const known = this.greetings.find((g) => g.name === r.from_name);
+      if (known) {
+        known.count++;
+        if (r.sent_at > known.at) known.at = r.sent_at;
+      } else this.greetings.push({ name: r.from_name, count: 1, at: r.sent_at });
+    }
+    if (!this.visiting) sound.play('pop');
+    this.changed();
   }
 
   // ------------------------------------------------------------- Boucle ----
@@ -415,6 +445,7 @@ export class Game {
     this.wall = performance.now();
     this.last = performance.now();
     this.clearCloud();
+    void this.checkGreetings();
   }
 
   toast(text: string, tone: Toast['tone'] = 'info', icon?: string, action?: NotifyAction) {
@@ -604,6 +635,14 @@ export class Game {
         if (h) R.particles.burst(h.x, 0.5, h.z, 0xfff1b8, 12, { speed: 0.8, up: 1.4, gravity: 1.5 });
         break;
       }
+      case 'phoenix':
+        // gerbe de flammes : la poule légendaire pond, ou renaît de ses cendres
+        for (const col of [0xffd24a, 0xff8a1f, 0xff3d12]) R.particles.burst(e.x, 0.3, e.z, col, e.big ? 26 : 8, { speed: e.big ? 1.5 : 0.7, up: e.big ? 2.8 : 1.6, gravity: 1.2, life: e.big ? 1.8 : 1.1 });
+        if (e.big) {
+          R.labels.float(e.x, 1.4, e.z, 'Elle renaît !', 'egg');
+          sound.play('crow');
+        }
+        break;
       case 'eggRotten':
         R.particles.burst(e.x, 0.2, e.z, 0x8f9a5c, 10, { speed: 0.4, up: 0.8, gravity: 0.6, size: 0.7, life: 1.4 });
         break;
@@ -793,12 +832,15 @@ export class Game {
         text = 'À nettoyer';
         urgent = b.cleanliness < 20;
       } else if (b.type === 'nest' && b.eggIds.length >= L1.capacity) text = 'Plein · à ramasser';
-      else if (b.type === 'incubator' && (b.hatch?.length || fertileStock(s) > 0)) {
+      else if (isIncubator(b) && (b.hatch?.length || fertileStock(s, hatchesGeese(b)) > 0)) {
         // couveuse : combien d'œufs couvent et quand ils éclosent (ou des œufs qui attendent d'y entrer)
         const n = b.hatch?.length ?? 0;
         const left = nextHatchIn(s, b);
         if (n) text = `${n} œuf${n > 1 ? 's' : ''} · ${left !== null && left < 1 ? 'éclosion imminente' : `${n > 1 ? '1re éclosion' : 'éclosion'} dans ${Math.ceil(left ?? 0)} j`}`;
-        else if (b.auto === false) text = `${fertileStock(s)} œuf${fertileStock(s) > 1 ? 's' : ''} fécondé${fertileStock(s) > 1 ? 's' : ''} à placer`;
+        else if (b.auto === false) {
+          const stock = fertileStock(s, hatchesGeese(b));
+          text = `${stock} œuf${stock > 1 ? 's' : ''} fécondé${stock > 1 ? 's' : ''} à placer`;
+        }
         else continue;
         const c = buildingCenter(b);
         L.set(`b${b.id}`, c.x, 1.25, c.z, `<i></i>${text}`, n ? 'todo calm' : 'todo');
@@ -812,7 +854,7 @@ export class Game {
     }
     // œufs pondus au sol qui vont bientôt pourrir
     for (const e of s.worldEggs) {
-      if (e.where !== 'ground' || s.clock.t - e.laidAt < FRESHNESS.groundWarnDays * TIME.DAY) continue;
+      if (e.where !== 'ground' || isTreasure(e.type) || s.clock.t - e.laidAt < FRESHNESS.groundWarnDays * TIME.DAY) continue;
       L.set(`e${e.id}`, e.x, 0.55, e.z, '<i></i>Va pourrir', 'todo urgent');
     }
   }
@@ -953,6 +995,11 @@ export class Game {
       return;
     }
     const p = this.renderer.pick(clientX, clientY);
+    // l'hôtel de ville : c'est là qu'on gère son équipe
+    if ((!p || p.kind === 'ground' || p.kind === 'parcel') && this.renderer.pickTownHall(clientX, clientY)) {
+      sound.play('click');
+      return this.openPanel('team');
+    }
     if (!p) return this.select(null);
     switch (p.kind) {
       case 'predator':

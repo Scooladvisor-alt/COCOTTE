@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'preact/hooks';
 import { HEALTH, LAYING } from '../config/balance';
-import { BREEDS, BREED_ORDER } from '../config/breeds';
+import { BREEDS, BREED_ORDER, isGoose } from '../config/breeds';
+import { growthStage } from '../sim/breeding';
 import * as A from '../sim/actions';
 import { fmtMoney } from '../sim/economy';
 import { actLabel, eggsPerDayOf, henStatus, henValue, isLayer, productivity } from '../sim/hens';
@@ -261,10 +262,12 @@ export function HenListPanel() {
                     <span class={`pill ${st.tone}`}>{st.label}</span>
                     {h.black && <span class="pill rare">Rarissime</span>}
                     {h.golden && <span class="pill rare">Œufs d’or</span>}
+                    {h.legendary && <span class="pill legend">Légendaire</span>}
+                    {isGoose(h.breed) && growthStage(h) >= 3 && <span class={`sex-chip ${h.rooster ? 'male' : 'female'}`}>{h.rooster ? '♂' : '♀'} {h.rooster ? 'Mâle' : 'Femelle'}</span>}
                   </div>
                   <small>
-                    {h.rooster || h.young ? `${birdRole(h)} · ` : ''}
-                    {b.name} · {Math.floor(h.age)} j · {actLabel(h)}
+                    {(h.rooster || h.young) && !isGoose(h.breed) ? `${birdRole(h)} · ` : ''}
+                    {isGoose(h.breed) ? birdRole(h) : b.name} · {Math.floor(h.age)} j · {actLabel(h)}
                   </small>
                   <GeneStars h={h} compact />
                   <div class="hc-needs">
@@ -279,7 +282,7 @@ export function HenListPanel() {
                     <>
                       <b>{Math.round(productivity(h) * 100)} %</b>
                       <small>
-                        <EggDot type={b.egg} size={9} /> {n1(eggsPerDayOf(h))} / j
+                        <EggDot type={h.legendary ? 'phenix' : h.golden ? 'or' : b.egg} size={9} /> {n1(eggsPerDayOf(h))} / j
                       </small>
                     </>
                   ) : h.young ? (
@@ -289,7 +292,7 @@ export function HenListPanel() {
                     </>
                   ) : (
                     <>
-                      <b>Coq</b>
+                      <b>{birdRole(h)}</b>
                       <small>féconde</small>
                     </>
                   )}

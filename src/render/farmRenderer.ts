@@ -1,7 +1,7 @@
 // Rendu de la ferme : synchronise l'état de simulation avec la scène three.js.
 import * as THREE from 'three';
 import { BIRD_ORDERS, inTruckBay, FRESHNESS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, NEEDS, TIME, WORLD, clamp, smoothstep } from '../config/balance';
-import { COOP_SCALE, PET_POS, STAND_POS, petLayout, sizeOf, standLayout, HALL_ALLEY, HALL_COURT, HALL_DOOR, HALL_FRONT } from '../config/buildings';
+import { COOP_SCALE, PET_POS, penGate, STAND_POS, petLayout, sizeOf, standLayout, HALL_ALLEY, HALL_COURT, HALL_DOOR, HALL_FRONT } from '../config/buildings';
 import { nurseryPlan, incubatorSeat } from '../sim/nursery';
 import { nurseryGateOpen } from '../sim/hens';
 import { feedPose, type FeedPose } from '../sim/feeding';
@@ -124,15 +124,12 @@ const AZIM = THREE.MathUtils.degToRad(45);
 const CAM_DIR = new THREE.Vector3(Math.sin(AZIM) * Math.cos(ELEV), Math.sin(ELEV), Math.cos(AZIM) * Math.cos(ELEV));
 
 const GRASS_TOP = 0.1;
-/** Zooms où les oiseaux changent de modèle : d'un seul tenant de loin, tout le détail en gros plan. */
-const HEN_FAR_ZOOM = 0.85;
-/** Foule à l'écran : au-delà de tant d'oiseaux visibles, la silhouette simple s'applique jusqu'à ce zoom. */
-const HEN_CROWD_ON = 350;
-const HEN_CROWD_OFF = 220;
-const HEN_CROWD_ZOOM = 1.9;
+/** Au-delà de tant d'oiseaux à l'écran, on passe au modèle suivant ; d'un seul tenant vus de très haut. */
+const HEN_FULL_MAX = 240;
+const HEN_MID_MAX = 1400;
+const HEN_FAR_ZOOM = 0.42;
 const WHITE = new THREE.Color(1, 1, 1);
 const BLOB_MAT = new THREE.MeshBasicMaterial({ color: 0x18240f, transparent: true, opacity: 0.26, depthWrite: false });
-const HEN_FULL_ZOOM = 3;
 const colLush = new THREE.Color(0x67a93f);
 const colDry = new THREE.Color(0xa7ae5f);
 const colDirt = new THREE.Color(0xc8ab7a);
@@ -282,19 +279,14 @@ export class FarmRenderer {
   private batches = new Map<string, HenBatch>();
   private farBatches = new Map<string, HenFarBatch>();
   private henStamp = 0;
-  private shadowEvery = 2;
-  private shadowFrame = 0;
-  private shadowX = NaN;
-  private shadowZ = NaN;
-  private shadowK = NaN;
-  private fpsSum = 0;
-  private fpsN = 0;
   /** Zoom à partir duquel l'herbe est dessinée brin par brin. */
-  private grassMinZoom = 1.1;
-  /** En dessous de ce zoom, les oiseaux passent au modèle d'un seul tenant. */
-  private henFarZoom = HEN_FAR_ZOOM;
+  private grassMinZoom = 0.85;
+  private grassHover = '';
   private henOnScreen = 0;
-  private henCrowd = false;
+  private henLod = 0;
+  /** Modèles préparés à l'avance, un par image, pour ne jamais figer le jeu quand on zoome. */
+  private henWarm = new Set<string>();
+  private henWarmQueue: string[] = [];
   private bG = new THREE.Group();
   private eggsG = new THREE.Group();
   private peopleG = new THREE.Group();
@@ -309,7 +301,7 @@ export class FarmRenderer {
   /** Les volailles dans les parcs de la vente de poules : une copie pour le rendu, qui vit sa vie de poule. */
   private petBirds = new Map<number, { hen: Hen; view: HenState; tx: number; tz: number; wait: number; k: number }>();
   /** Les volailles qui marchent entre un camion et la ferme. */
-  private ghosts = new Map<number, { hen: Hen; view: HenState }>();
+  private ghosts = new Map<number, { hen: Hen; view: HenState; fx: number; fz: number }>();
   /** Ombres toutes simples sous les oiseaux vus de loin. */
   private blobs = new HenFarBatch(new THREE.CircleGeometry(0.2, 8).rotateX(-Math.PI / 2), BLOB_MAT);
   private petSeller: ReturnType<typeof createWorkerView> | null = null;
@@ -362,7 +354,6 @@ export class FarmRenderer {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.autoUpdate = false;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
     this.renderer.domElement.className = 'farm-canvas';
@@ -430,7 +421,6 @@ export class FarmRenderer {
 
     this.resize();
     // téléphones : on part directement d'un cran au-dessous
-    if (navigator.maxTouchPoints > 0 && Math.min(window.screen.width, window.screen.height) < 600) this.setQuality(1);
   }
 
   // --------------------------------------------------------- Décor fixe ----
@@ -1169,12 +1159,17 @@ export class FarmRenderer {
   private syncHens(s: GameState, dt: number) {
     const stamp = ++this.henStamp;
     const alpha = simAlpha(s);
-    // niveau de détail selon le zoom : de loin, une seule pièce par oiseau, sans squelette ;
-    // et plus tôt quand ils sont très nombreux à l'écran (avec une marge, pour ne pas clignoter)
-    if (this.henCrowd ? this.henOnScreen < HEN_CROWD_OFF : this.henOnScreen > HEN_CROWD_ON) this.henCrowd = !this.henCrowd;
-    const far = this.zoom < this.henFarZoom || (this.henCrowd && this.zoom < HEN_CROWD_ZOOM);
+    // niveau de détail : tout le monde au modèle complet tant que les oiseaux à l'écran restent peu nombreux,
+    // un modèle à peine allégé pour un grand troupeau, et d'un seul tenant seulement pour une vraie foule
+    // ou vus de très haut. Une marge évite que l'image change à chaque poule qui entre dans le cadre.
+    const seen = this.henOnScreen;
+    if (this.henLod === 0 && seen > HEN_FULL_MAX) this.henLod = 1;
+    else if (this.henLod === 1 && seen < HEN_FULL_MAX * 0.75) this.henLod = 0;
+    else if (this.henLod === 1 && seen > HEN_MID_MAX) this.henLod = 2;
+    else if (this.henLod === 2 && seen < HEN_MID_MAX * 0.75) this.henLod = 1;
+    const far = this.lowGraphics ? this.zoom < 0.85 || seen > 350 : this.henLod === 2 || this.zoom < HEN_FAR_ZOOM;
+    const full = this.lowGraphics ? this.zoom >= 3 : this.henLod === 0;
     let onScreen = 0;
-    const full = this.zoom >= HEN_FULL_ZOOM;
     // cadre visible, en coordonnées du sol : ce qui est hors champ n'est ni animé ni dessiné
     const e = this.camera.matrixWorld.elements;
     const rx = e[0];
@@ -1213,6 +1208,10 @@ export class FarmRenderer {
       }
       onScreen++;
       const key = henKey(h);
+      if (!this.henWarm.has(key)) {
+        this.henWarm.add(key);
+        this.henWarmQueue.push(`full|${key}`, `mid|${key}`, `far|${key}`);
+      }
       if (far && !h.golden && !h.legendary && h.id !== this.selectedHen) {
         v.key = key;
         const hidden = h.act === 'sleep' || h.act === 'enter';
@@ -1298,19 +1297,23 @@ export class FarmRenderer {
       if (selected) lot.push(v, this.selTint.copy(v.tint).multiplyScalar(1.25 + 0.15 * Math.sin(this.time * 3.6)));
       else lot.push(v);
     };
-    this.syncPetBirds(s, dt, drawBird);
     this.truck.birds(s, (b) => {
       let g = this.ghosts.get(b.seed);
       if (!g) {
-        const hen = { id: b.seed, breed: b.breed, skin: b.skin, x: b.x, z: b.z, heading: 0, act: 'walk', actT: 5, targetId: -1, health: 100 } as unknown as Hen;
-        g = { hen, view: this.birdView(hen) };
+        // elle sort de son parc : c'est la même volaille, qui continue depuis là où elle est
+        const pet = this.petBirds.get(b.seed);
+        const hen = pet?.hen ?? ({ id: b.seed, breed: b.breed, skin: b.skin, x: b.x, z: b.z, heading: 0, act: 'walk', actT: 5, targetId: -1, health: 100 } as unknown as Hen);
+        hen.act = 'walk';
+        g = { hen, view: pet?.view ?? this.birdView(hen), fx: hen.x, fz: hen.z };
         g.view.root.rotation.order = 'YXZ';
         this.ghosts.set(b.seed, g);
+        this.petBirds.delete(b.seed);
       }
       g.view.stamp = stamp;
       const hen = g.hen;
-      hen.x = b.x;
-      hen.z = b.z;
+      const k = Math.min(1, b.age / 0.8);
+      hen.x = g.fx + (b.x - g.fx) * k;
+      hen.z = g.fz + (b.z - g.fz) * k;
       if (b.dx || b.dz) hen.heading = Math.atan2(b.dx, b.dz);
       const r = rtHen(hen);
       r.px = hen.x;
@@ -1321,7 +1324,17 @@ export class FarmRenderer {
       g.view.root.rotation.x = -b.slope;
       drawBird(hen, g.view, b.lift);
     });
+    this.syncPetBirds(s, dt, drawBird);
     for (const [id, g] of this.ghosts) if (g.view.stamp !== stamp) this.ghosts.delete(id);
+    // un modèle de plus préparé à l'avance, s'il en reste
+    const warm = this.henWarmQueue.shift();
+    if (warm) {
+      const [lod, key] = warm.split('|');
+      const [head, skin] = key.split('#');
+      const [breed, kind, stage] = head.split(':') as [BreedId, HenKind?, string?];
+      const make = lod === 'full' ? henGeometry : lod === 'mid' ? henGeometryMid : henGeometryFar;
+      make(breed, kind ?? 'hen', stage === undefined ? ADULT_STAGE : Number(stage), Number(skin ?? 0));
+    }
     for (const b of this.batches.values()) b.end();
     for (const b of this.farBatches.values()) b.end();
     this.blobs.end();
@@ -1683,16 +1696,22 @@ export class FarmRenderer {
           b.tz = g.z;
         }
         b.wait -= dt;
+        // réservée pour le camion : elle va attendre son tour près du portillon
+        if (h.ship) {
+          const [gx, gz] = penGate(shop.level, goose);
+          b.tx = gx + (hash(h.id * 3.3) - 0.5) * 1.1 - 0.15;
+          b.tz = gz + 0.3 + hash(h.id * 5.7) * 0.9;
+        }
         const r = rtHen(g);
         const dx = b.tx - g.x;
         const dz = b.tz - g.z;
         const d = Math.hypot(dx, dz);
-        if (night) {
+        if (night && !h.ship) {
           g.act = 'rest';
           r.spd = 0;
         } else if (d > 0.05) {
           g.act = 'walk';
-          const step = Math.min(d, dt * 0.5);
+          const step = Math.min(d, dt * (h.ship ? 0.9 : 0.5));
           g.x += (dx / d) * step;
           g.z += (dz / d) * step;
           let dh = Math.atan2(dx, dz) - g.heading;
@@ -2513,9 +2532,11 @@ export class FarmRenderer {
       }
       this.layoutKey = key;
     }
+    // l'herbe change lentement : on ne la recalcule pas tout le temps, sauf quand on survole une parcelle
     this.grassTimer += dt;
-    if (this.grassTimer > 0.4) {
+    if (this.grassTimer > 2 || this.hoverParcel !== this.grassHover) {
       this.grassTimer = 0;
+      this.grassHover = this.hoverParcel;
       this.updateGrass(s);
     }
     // clôtures : reconstruites à chaque changement de terrain (pose, retrait, trou)
@@ -2612,55 +2633,23 @@ export class FarmRenderer {
 
   render(dt: number) {
     this.labels.update(this.camera, this.width, this.height, dt);
-    // la carte d'ombres n'est pas redessinée à chaque image (sauf quand la caméra bouge) : personne
-    // ne voit la différence, et c'est un quart du travail de la carte graphique en moins
-    const sm = this.renderer.shadowMap;
-    const moved = this.target.x !== this.shadowX || this.target.z !== this.shadowZ || this.zoom !== this.shadowK;
-    if (moved || ++this.shadowFrame >= this.shadowEvery) {
-      this.shadowFrame = 0;
-      this.shadowX = this.target.x;
-      this.shadowZ = this.target.z;
-      this.shadowK = this.zoom;
-      sm.needsUpdate = true;
-    }
     this.renderer.render(this.scene, this.camera);
-    this.watchFrameRate(dt);
   }
 
   /**
-   * Qualité automatique : si l'appareil n'arrive pas à suivre pendant plusieurs secondes, on baisse
-   * d'un cran (définition de l'image, ombres, herbe, arbres). On ne remonte pas en cours de partie,
-   * pour éviter que l'image change sans cesse.
+   * Graphismes allégés, sur demande du joueur (ou d'office sur les petits téléphones) : image moins fine,
+   * ombres moins précises, herbe et arbres simplifiés, poules plus simples dès qu'elles sont nombreuses.
    */
-  private watchFrameRate(dt: number) {
-    if (document.visibilityState !== 'visible' || dt <= 0 || dt >= 0.095) {
-      this.fpsSum = 0;
-      this.fpsN = 0;
-      return;
-    }
-    this.fpsSum += dt;
-    if (++this.fpsN < 150) return;
-    const avg = this.fpsSum / this.fpsN;
-    this.fpsSum = 0;
-    this.fpsN = 0;
-    if (avg > 1 / 36 && this.quality < 3) this.setQuality(this.quality + 1);
-  }
-
-  /** Niveau de qualité : 0 complet, 1 et 2 allégés, 3 le plus léger. */
-  quality = 0;
-  setQuality(q: number) {
-    this.quality = q;
-    const dpr = window.devicePixelRatio || 1;
-    this.renderer.setPixelRatio(Math.min(dpr, [1.5, 1.25, 1, 0.85][q]));
-    this.shadowEvery = [2, 3, 4, 8][q];
-    if (q >= 2 && this.sun.shadow.mapSize.x > 1024) {
-      this.sun.shadow.mapSize.set(1024, 1024);
-      this.sun.shadow.map?.dispose();
-      this.sun.shadow.map = null;
-    }
-    this.henFarZoom = q >= 2 ? 1.3 : HEN_FAR_ZOOM;
-    this.grassMinZoom = q >= 1 ? 2 : 1.1;
-    setVegetationQuality(q >= 2);
+  lowGraphics = false;
+  setLowGraphics(low: boolean) {
+    if (low === this.lowGraphics) return;
+    this.lowGraphics = low;
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, low ? 1 : 1.5));
+    this.sun.shadow.mapSize.setScalar(low ? 1024 : 2048);
+    this.sun.shadow.map?.dispose();
+    this.sun.shadow.map = null;
+    this.grassMinZoom = low ? 2 : 0.85;
+    setVegetationQuality(low);
     this.resize();
   }
 

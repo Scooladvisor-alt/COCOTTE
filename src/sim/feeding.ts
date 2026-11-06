@@ -38,7 +38,7 @@ function trough(xs: number[], side: 1 | -1, cz: number, half: number, pose: Feed
 
 export function feedPose(b: Pick<Building, 'type' | 'level'>): FeedPose {
   // les auges sur pieds et les abreuvoirs en long sont à hauteur de poitrine ; le reste au ras du sol
-  if (b.type === 'feeder') return b.level === 1 || b.level === 4 ? 'mid' : 'low';
+  if (b.type === 'feeder') return b.level === 1 || b.level === 4 || b.level === 6 ? 'mid' : 'low';
   if (b.type === 'drinker') return b.level >= 3 ? 'mid' : 'low';
   return 'low';
 }
@@ -56,6 +56,8 @@ export function feedLayout(b: Pick<Building, 'type' | 'level'>): FeedSpot[] {
     if (b.level === 3) return ring(0.5, 0.5, 8, 0.36, pose, 0.2);
     // auge longue galvanisée (x 0,12 → 2,88) : sept poules de chaque côté
     if (b.level === 4) return [...trough(along(0.3, 2.7, 7), 1, 0.5, 0.085, pose), ...trough(along(0.3, 2.7, 7), -1, 0.5, 0.085, pose)];
+    // grande bassine (x 0,12 → 5,88, large de 0,6) : quinze poules de chaque côté, le bec au-dessus du bord
+    if (b.level === 6) return [...trough(along(0.42, 5.58, 15), 1, 0.5, 0.21, pose), ...trough(along(0.42, 5.58, 15), -1, 0.5, 0.21, pose)];
     // chaîne d'alimentation au ras du sol (trémie en x < 0,6) : onze poules de chaque côté
     return [...trough(along(0.8, 3.75, 11), 1, 0.5, 0.07, pose), ...trough(along(0.8, 3.75, 11), -1, 0.5, 0.07, pose)];
   }
@@ -66,6 +68,8 @@ export function feedLayout(b: Pick<Building, 'type' | 'level'>): FeedSpot[] {
     if (b.level === 3) return [...trough([0.04, 0.35, 0.66, 0.97], 1, 0.5, 0.07, pose), ...trough([0.04, 0.35, 0.66, 0.97], -1, 0.5, 0.07, pose)];
     // abreuvoir long en inox (x 0,1 → 2,7, flotteur au bout) : sept poules de chaque côté
     if (b.level === 4) return [...trough(along(0.28, 2.55, 7), 1, 0.5, 0.085, pose), ...trough(along(0.28, 2.55, 7), -1, 0.5, 0.085, pose)];
+    // grande bassine (x 0,12 → 5,88, large de 0,6) : quinze poules de chaque côté, le bec au-dessus du bord
+    if (b.level === 6) return [...trough(along(0.42, 5.58, 15), 1, 0.5, 0.21, pose), ...trough(along(0.42, 5.58, 15), -1, 0.5, 0.21, pose)];
     // grand bac en béton (x 0,15 → 3,8, eau large de 0,34) : onze poules de chaque côté
     return [...trough(along(0.4, 3.55, 11), 1, 0.5, 0.165, pose), ...trough(along(0.4, 3.55, 11), -1, 0.5, 0.165, pose)];
   }

@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { BIRD_ORDERS, WORLD } from '../config/balance';
 import { C, box, merge, mesh } from './geo';
 import { lump } from './nature';
+import { TRUCK_HATCH_X } from '../sim/deliveries';
 
 type Pt = [number, number];
 const hash = (i: number) => {
@@ -314,6 +315,13 @@ export function buildTruckRoad(scene: THREE.Object3D) {
     // le seuil sous le portail raccorde le chemin à la parcelle, un peu plus haute
     mesh(merge([box(0.8, 0.118, 1.94, 0xb59a72, [80.1, 0.059, Z]), box(0.8, 0.004, 0.3, 0x8b7352, [80.1, 0.12, Z - 0.56]), box(0.8, 0.004, 0.3, 0x8b7352, [80.1, 0.12, Z + 0.56])]), false, true),
   );
+  // la trappe des volailles, dans la clôture du sud : c'est par là qu'elles arrivent de leur parc
+  const hatch: THREE.BufferGeometry[] = [];
+  const HX = TRUCK_HATCH_X;
+  for (const dx of [-0.46, 0.46]) hatch.push(box(0.1, 0.95, 0.1, C.woodDark, [HX + dx, 0.57, 30]));
+  for (const dx of [-0.3, 0.3]) hatch.push(box(0.32, 0.72, 0.04, C.wood, [HX + dx, 0.46, 30]));
+  hatch.push(box(1.0, 0.07, 0.06, C.woodDark, [HX, 0.98, 30]), box(0.32, 0.3, 0.04, C.wood, [HX, 0.8, 30]), box(0.34, 0.04, 0.06, C.woodDark, [HX, 0.63, 30]));
+  yard.add(mesh(merge(hatch)));
   scene.add(yard);
   return { yard };
 }

@@ -52,6 +52,8 @@ export function fencedEdges(s: GameState) {
 export const GATE_EDGE = hCode(GATE.x, GATE.z + 1);
 /** Grand portail du camion, à l'est de la parcelle du bout (code 5 : portail fermé). */
 export const TRUCK_GATE_EDGES = [vCode(TRUCK_BAY.x1 + 1, TRUCK_BAY.z0), vCode(TRUCK_BAY.x1 + 1, TRUCK_BAY.z1)];
+/** La trappe par où les volailles en vente rejoignent la cour du camion (code 5 : elle reste fermée aux autres). */
+export const TRUCK_HATCH_EDGE = hCode(TRUCK_BAY.x1 - 1, GRID_Z1);
 
 /** Contour du terrain possédé (arêtes entre une case possédée et une case qui ne l'est pas). */
 export function perimeter(s: GameState) {
@@ -74,7 +76,7 @@ export function perimeter(s: GameState) {
 export function autoEnclose(s: GameState) {
   s.fenceH.fill(0);
   s.fenceV.fill(0);
-  for (const c of perimeter(s)) setFence(s, c, c === GATE_EDGE ? 3 : TRUCK_GATE_EDGES.includes(c) ? 5 : 1);
+  for (const c of perimeter(s)) setFence(s, c, c === GATE_EDGE ? 3 : TRUCK_GATE_EDGES.includes(c) || c === TRUCK_HATCH_EDGE ? 5 : 1);
   invalidateLayout(s);
 }
 

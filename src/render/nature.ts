@@ -87,8 +87,7 @@ function memo(key: string, make: () => THREE.BufferGeometry) {
 }
 
 function crown(lobes: Lobe[], colors: number[], seed: number, far: boolean, s: V3 = [1, 0.92, 1]) {
-  // de près, seules les deux grosses masses sont bien rondes : le reste ne se distingue pas à l'écran
-  const g = merge(lobes.map(([x, y, z, r], i) => lump(r, !far && i < 2 ? 1 : 0, colors[i % colors.length], [x, y, z], s, seed + i, far ? 0.2 : 0.11)));
+  const g = merge(lobes.map(([x, y, z, r], i) => lump(r, far ? 0 : 1, colors[i % colors.length], [x, y, z], s, seed + i, far ? 0.2 : 0.11)));
   grade(g, Math.min(...lobes.map((l) => l[1] - l[3])), Math.max(...lobes.map((l) => l[1] + l[3])), 0.74, 1.2);
   return g;
 }
@@ -484,7 +483,7 @@ const details: THREE.Object3D[] = [];
 let lodNear = true;
 let detailsOn = true;
 /** En dessous de ce zoom, les arbres passent au modèle allégé… */
-let NEAR_ZOOM = 0.8;
+let NEAR_ZOOM = 0.45;
 /** … et en dessous de celui-ci, herbes et plantes des champs ne se verraient plus. */
 const DETAIL_ZOOM = 0.55;
 
@@ -495,7 +494,7 @@ export const registerDetail = (o: THREE.Object3D) => {
 
 /** En qualité réduite, les arbres gardent leur modèle allégé même de près. */
 export const setVegetationQuality = (low: boolean) => {
-  NEAR_ZOOM = low ? 99 : 0.8;
+  NEAR_ZOOM = low ? 99 : 0.45;
 };
 
 /** Selon le zoom : modèles complets de près, allégés de loin (seuls les blocs à l'écran sont dessinés). */

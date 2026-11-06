@@ -194,6 +194,8 @@ export interface BirdOnTheWay {
   /** Hauteur au-dessus du sol, et pente sur laquelle elle marche. */
   lift: number;
   slope: number;
+  /** Depuis combien de temps elle marche (secondes). */
+  age: number;
 }
 
 export interface DeliveryTruck {
@@ -402,7 +404,7 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
           const k = (t - j) / dur;
           const p = alongPath(path, k);
           const jump = k < 0.08 ? Math.sin((k / 0.08) * Math.PI) * 0.35 + (1 - k / 0.08) * 0.45 : 0;
-          draw({ seed: 1e7 + d.id * 200 + i, breed: d.breed, skin: 0, x: p.x, z: p.z, dx: p.dx, dz: p.dz, lift: jump - 0.03, slope: 0 });
+          draw({ seed: 1e7 + d.id * 200 + i, breed: d.breed, skin: 0, x: p.x, z: p.z, dx: p.dx, dz: p.dz, lift: jump - 0.03, slope: 0, age: t - j });
         }
       }
       // celles du revendeur : elles rejoignent le pied de la rampe, grimpent et disparaissent dans le noir
@@ -414,7 +416,7 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
         const k = (t - q.t) / dur;
         const p = alongPath(boardPath(q.x, q.z), k);
         const up = rampProgress(q.x, q.z, k);
-        draw({ seed: q.id, breed: q.breed, skin: q.skin ?? 0, x: p.x, z: p.z, dx: p.dx, dz: p.dz, lift: up * 0.6, slope: up > 0 && up < 1 ? 0.5 : 0 });
+        draw({ seed: q.id, breed: q.breed, skin: q.skin ?? 0, x: p.x, z: p.z, dx: p.dx, dz: p.dz, lift: up * 0.6, slope: up > 0 && up < 1 ? 0.5 : 0, age: t - q.t });
       }
     },
   };

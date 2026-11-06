@@ -49,21 +49,28 @@ export function truckBlockedBy(s: GameState) {
       }
   return -1;
 }
-/** Trajet d'une volaille : jusqu'au pied de la rampe, puis elle monte et disparaît dans le camion. */
+/** L'allée qui longe la clôture, derrière les parcs, et la trappe de la parcelle du camion. */
+export const SHOP_LANE_Z = 30.38;
+export const TRUCK_HATCH_X = 78.5;
+const BOARD_SPEED = 1.8;
+/** Trajet d'une volaille depuis le portillon de son parc : l'allée, la trappe, la cour, puis la rampe. */
 export function boardPath(x: number, z: number): Array<[number, number]> {
   return [
     [x, z],
+    [x, SHOP_LANE_Z],
+    [TRUCK_HATCH_X, SHOP_LANE_Z],
+    [TRUCK_HATCH_X, 29.2],
     [RAMP_FOOT, TRUCK_Z],
     [TRUCK_REAR, TRUCK_Z],
     [TRUCK_REAR - 0.5, TRUCK_Z],
   ];
 }
-export const boardTime = (x: number, z: number) => pathLength(boardPath(x, z)) / DELIVERY.henSpeed;
+export const boardTime = (x: number, z: number) => pathLength(boardPath(x, z)) / BOARD_SPEED;
 /** Hauteur de la volaille sur la rampe, à la fraction k de son trajet (0 au sol, 1 dans le camion). */
 export function rampProgress(x: number, z: number, k: number) {
-  const before = Math.hypot(x - RAMP_FOOT, z - TRUCK_Z);
-  const walked = k * pathLength(boardPath(x, z));
-  return Math.max(0, Math.min(1, (walked - before) / (RAMP_FOOT - TRUCK_REAR)));
+  const total = pathLength(boardPath(x, z));
+  const up = RAMP_FOOT - TRUCK_REAR;
+  return Math.max(0, Math.min(1, (k * total - (total - up - 0.5)) / up));
 }
 
 /** Point du trajet à la fraction k (0 → 1) et direction de marche. */

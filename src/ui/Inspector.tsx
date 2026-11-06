@@ -228,10 +228,11 @@ function PetBirdCard({ h }: { h: Hen }) {
         <span>Prix en boutique</span>
         <b>{fmtMoney(petPrice(s, h.breed))}</b>
       </div>
-      <p class="hint">{goose ? 'Cette oie attend' : 'Cette poule attend'} un client dans son parc. Vous pouvez encore changer d’avis.</p>
+      <p class="hint">{h.ship ? `${goose ? 'Cette oie part' : 'Cette poule part'} avec le camion du revendeur.` : `${goose ? 'Cette oie attend' : 'Cette poule attend'} un client dans son parc. Vous pouvez encore changer d’avis.`}</p>
       <div class="actions">
         <Btn
           kind="primary"
+          disabled={!!h.ship}
           onClick={() => {
             if (game.act(() => unstockBird(s, h.id), 'pop')) game.select(null);
           }}
@@ -282,7 +283,7 @@ function PetPlotCard() {
             if (game.act(() => A.openPetShop(s), 'build')) {
               const b = petShopOf(s);
               if (b) game.select({ kind: 'building', id: b.id });
-              game.toast('La vente de poules pondeuses est construite : mettez-y des volailles, ou embauchez un vendeur.', 'good', '🐔');
+              game.toast('La vente de poules pondeuses est construite : embauchez un vendeur pour l’ouvrir, puis mettez-y des volailles.', 'good', '🐔');
             }
           }}
         >
@@ -763,7 +764,7 @@ function HenCard({ h }: { h: Hen }) {
           </Btn>
         )}
         {!confirm ? (
-          <Btn kind="ghost" onClick={() => setConfirm(true)}>
+          <Btn kind="ghost" title="Revente directe à prix cassé : la vente de poules pondeuses rapporte bien plus" onClick={() => setConfirm(true)}>
             Vendre · {fmtMoney(henValue(h))}
           </Btn>
         ) : (

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { AUTO_DOOR, BIRD_ORDERS, PETSHOP, TRUCK_BAY, TRUCK_COURT, inTruckBay, BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, GRID_W, GRID_Z0, HOUR, LEVELS, levelAt, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, tradeAt, waterPrice } from '../src/config/balance';
-import { GATE_EDGE, TRUCK_GATE_EDGES, farmEnclosed, perimeter } from '../src/sim/fences';
-import { RAMP_FOOT, TRUCK_REAR, TRUCK_Z, boardPath } from '../src/sim/deliveries';
+import { GATE_EDGE, TRUCK_GATE_EDGES, TRUCK_HATCH_EDGE, farmEnclosed, perimeter } from '../src/sim/fences';
+import { RAMP_FOOT, TRUCK_HATCH_X, TRUCK_REAR, boardPath } from '../src/sim/deliveries';
 import { autoEnclose } from '../src/sim/fences';
 import { waterCapacity } from '../src/sim/stocks';
 import { BREEDS, BREED_ORDER, GOOSE_NAMES, isGoose } from '../src/config/breeds';
@@ -84,7 +84,7 @@ import { advance, advanceRealtime, canSkipNight, closeDay, dailyCharges, simulat
 import { createNewGame } from '../src/sim/state';
 import { newFarm } from '../src/sim/starter';
 import { creditLimit, dailyDue, loanRate, pauseLoan, quoteLoan, repayLoan, takeLoan } from '../src/sim/bank';
-import type { GameState } from '../src/sim/types';
+import type { GameState, Hen } from '../src/sim/types';
 import { goodPlayer, guard, lazyPlayer } from '../scripts/bot';
 import { buyWorkerSkill, dailyWages, fire, hire, sellerSpot, workerSkillsHourly } from '../src/sim/workers';
 import { enterNursery } from '../src/sim/hens';
@@ -4068,6 +4068,7 @@ describe('Vente de poules pondeuses', () => {
   it('les clients viennent avec leur carton, achètent plusieurs volailles et paient le prix fixé', () => {
     const s = farm(1507);
     open(s);
+    hirePetSeller(s);
     flock(s, 'rousse', 12);
     stockBirds(s, 'rousse', 12);
     setPetPrice(s, 'rousse', 500);
@@ -4161,8 +4162,8 @@ describe('Vente de poules pondeuses', () => {
     // c'est bien la parcelle du bas, tout à droite
     expect(BIRD_ORDERS.parcel).toBe(`${WORLD.COLS - 1},${WORLD.ROWS - 1}`);
     ownTruckParcel(s);
-    expect(birdOrdersOpen(s)).toBe(true);
     expect(A.openPetShop(s).ok).toBe(true);
+    expect(birdOrdersOpen(s)).toBe(true);
   });
 
   it('on explique une seule fois comment vendre ses poules', () => {
@@ -4256,11 +4257,18 @@ describe('Commandes de revendeurs et camion', () => {
     s.settings.predators = false;
     while (farmLevel(s) < level) s.xp += 1000;
     ownTruckParcel(s);
+    // la boutique au grand complet : le camion ne prend que ce qui y est en vente
+    if (level >= BIRD_ORDERS.reqLevel) {
+      expect(A.openPetShop(s).ok).toBe(true);
+      while (A.upgrade(s, petShopOf(s)!.id).ok);
+    }
     return s;
   };
-  const flock = (s: GameState, breed: 'rousse' | 'marans' | 'oie', n: number) => {
+  /** Des volailles à la ferme, puis (sauf demande contraire) en vente dans les parcs. */
+  const flock = (s: GameState, breed: 'rousse' | 'marans' | 'oie', n: number, sell = true) => {
     const coop = buildingsOf(s, breed === 'oie' ? 'goosehouse' : 'coop')[0] ?? buildingsOf(s, 'coop')[0];
     for (let i = 0; i < n; i++) s.hens.push(createHen(s, breed, coop, false, { at: [coop.x + 1 + (i % 4), coop.z + 5] }));
+    if (sell) expect(stockBirds(s, breed, n).ok).toBe(true);
   };
   const order = (s: GameState, o: Partial<import('../src/sim/types').BirdOrder> = {}) => {
     const b: import('../src/sim/types').BirdOrder = { id: 900000 + s.birdOrders.length, client: 'Volailles du Val', goose: false, count: 6, unitPrice: 700, deadlineDay: currentDay(s) + 3, offerUntilDay: currentDay(s) + 2, status: 'active', ...o };
@@ -4297,9 +4305,10 @@ describe('Commandes de revendeurs et camion', () => {
     const o = order(s);
     expect(checkCallTruck(s, o).reason).toMatch(/commis/);
     hire(s, 'farmhand');
-    s.hens = s.hens.filter((h) => h.young || h.rooster);
-    expect(checkCallTruck(s, o).reason).toMatch(/Pas assez/);
-    flock(s, 'rousse', 6);
+    // des poules à la ferme ne suffisent pas : il les faut en vente
+    flock(s, 'rousse', 6, false);
+    expect(checkCallTruck(s, o).reason).toMatch(/en vente/);
+    stockBirds(s, 'rousse', 6);
     expect(checkCallTruck(s, o).ok).toBe(true);
     expect(callTruck(s, o.id).ok).toBe(true);
     // un seul camion à la fois
@@ -4314,21 +4323,24 @@ describe('Commandes de revendeurs et camion', () => {
     flock(s, 'rousse', 10);
     const o = order(s, { count: 6, unitPrice: 700 });
     const money = s.money;
-    const rousses = s.hens.filter((h) => h.breed === 'rousse' && !h.young && !h.rooster).length;
+    const farmHens = s.hens.length;
     expect(callTruck(s, o.id).ok).toBe(true);
     expect(o.status).toBe('loading');
     let helped = false;
     let went = false;
-    run(s, 12 * HOUR, () => {
+    for (let i = 0; i < 1200 && s.birdLoad; i++) {
+      run(s, 0.1);
       if (s.workers.some((w) => w.job?.kind === 'loadTruck' && w.job.phase === 'work')) helped = true;
-      if (s.hens.some((h) => h.ship)) went = true;
-    });
+      if (s.petShop.birds.some((h) => h.ship)) went = true;
+    }
     expect(went).toBe(true);
     expect(helped).toBe(true);
     expect(s.birdLoad).toBeNull();
     expect(s.birdOrders.find((x) => x.id === o.id)).toBeUndefined();
-    expect(s.hens.filter((h) => h.breed === 'rousse' && !h.young && !h.rooster).length).toBe(rousses - 6);
-    expect(s.hens.some((h) => h.ship)).toBe(false);
+    // seules celles qui étaient en vente sont parties : le troupeau de la ferme n'a pas bougé
+    expect(s.hens.length).toBe(farmHens);
+    expect(s.petShop.birds).toHaveLength(4);
+    expect(s.petShop.birds.some((h) => h.ship)).toBe(false);
     expect(s.stats.birdOrdersDone).toBe(1);
     expect(s.stats.birdsSoldDealers).toBe(6);
     expect(s.money).toBeGreaterThan(money);
@@ -4345,14 +4357,13 @@ describe('Commandes de revendeurs et camion', () => {
     run(s, 2 * HOUR);
     flock(s, 'oie', 4);
     flock(s, 'rousse', 6);
-    const poules = s.hens.filter((h) => !isGoose(h.breed)).length;
     const o = order(s, { goose: true, count: 3, unitPrice: 4000 });
     expect(orderLabel(o)).toBe('3 oies');
     expect(callTruck(s, o.id).ok).toBe(true);
-    run(s, 12 * HOUR);
+    run(s, 16 * HOUR);
     expect(s.birdLoad).toBeNull();
-    expect(s.hens.filter((h) => !isGoose(h.breed)).length).toBe(poules);
-    expect(s.hens.filter((h) => isGoose(h.breed) && !h.rooster && !h.young)).toHaveLength(1);
+    expect(s.petShop.birds.filter((h) => !isGoose(h.breed))).toHaveLength(6);
+    expect(s.petShop.birds.filter((h) => isGoose(h.breed))).toHaveLength(1);
   });
 
   it('une commande d’une race précise n’emporte que cette race', () => {
@@ -4363,11 +4374,10 @@ describe('Commandes de revendeurs et camion', () => {
     flock(s, 'rousse', 5);
     const o = order(s, { breed: 'marans', count: 3 });
     expect(orderStock(s, o)).toBe(3);
-    const rousses = s.hens.filter((h) => h.breed === 'rousse').length;
     callTruck(s, o.id);
-    run(s, 12 * HOUR);
-    expect(s.hens.filter((h) => h.breed === 'marans')).toHaveLength(0);
-    expect(s.hens.filter((h) => h.breed === 'rousse')).toHaveLength(rousses);
+    run(s, 16 * HOUR);
+    expect(s.petShop.birds.filter((h) => h.breed === 'marans')).toHaveLength(0);
+    expect(s.petShop.birds.filter((h) => h.breed === 'rousse')).toHaveLength(5);
   });
 
   it('il faut la parcelle du bout du chemin pour appeler le camion', () => {
@@ -4377,10 +4387,13 @@ describe('Commandes de revendeurs et camion', () => {
     s.settings.predators = false;
     while (farmLevel(s) < 16) s.xp += 1000;
     hire(s, 'farmhand');
-    flock(s, 'rousse', 6);
     const o = order(s);
     expect(checkCallTruck(s, o).reason).toMatch(/parcelle D3/);
     ownTruckParcel(s);
+    expect(checkCallTruck(s, o).reason).toMatch(/vente de poules/);
+    expect(A.openPetShop(s).ok).toBe(true);
+    A.upgrade(s, petShopOf(s)!.id);
+    flock(s, 'rousse', 6);
     expect(checkCallTruck(s, o).ok).toBe(true);
   });
 
@@ -4410,6 +4423,8 @@ describe('Commandes de revendeurs et camion', () => {
     expect(callTruck(s, order(s).id).ok).toBe(true);
     for (let i = 0; i < 200 && !s.birdLoad!.called; i++) run(s, 1);
     expect(s.birdLoad!.called).toBe(true);
+    // la trappe des volailles est fermée au reste du troupeau
+    expect(s.fenceH[TRUCK_HATCH_EDGE]).toBe(5);
     run(s, 0.2);
     expect(rt(s).blocked[cellIndex(TRUCK_BAY.x0 + 2, TRUCK_BAY.z0)]).toBe(1);
     // la cour devant la rampe reste libre
@@ -4427,56 +4442,69 @@ describe('Commandes de revendeurs et camion', () => {
     expect(checkCallTruck(s, o).reason).toMatch(/gêne le camion/);
   });
 
-  it('les volailles traversent la ferme, les commis les poussent et elles montent par la rampe', () => {
+  it('seules les volailles en vente partent : elles passent la trappe, le commis les guide jusqu’à la rampe', () => {
     const s = farm(1622);
     hire(s, 'farmhand');
     run(s, 2 * HOUR);
-    flock(s, 'rousse', 12);
+    flock(s, 'rousse', 12, false);
+    const farmHens = s.hens.length;
+    stockBirds(s, 'rousse', 8);
+    const inShop = s.petShop.birds.map((h) => h.id);
     const o = order(s, { count: 8 });
     expect(callTruck(s, o.id).ok).toBe(true);
-    const rampDist = () => {
-      const l = s.hens.filter((h) => h.ship);
-      return l.reduce((a, h) => a + Math.hypot(h.x - RAMP_FOOT, h.z - TRUCK_Z), 0) / Math.max(1, l.length);
-    };
-    // on attend qu'elles se mettent en route, puis qu'il arrive à l'heure dite
     while (!s.birdLoad!.called) run(s, 1);
-    run(s, 0.1);
-    const far = rampDist();
-    const eta = s.birdLoad!.eta;
-    run(s, Math.max(0, eta - s.clock.t) - 1);
-    // elles sont arrivées dans la cour, entre le hayon et le portail
-    expect(rampDist()).toBeLessThan(far);
-    expect(rampDist()).toBeLessThan(5);
-    for (const h of s.hens.filter((x) => x.ship)) {
-      expect(h.x).toBeLessThan(80);
-      expect(h.x).toBeGreaterThan(TRUCK_REAR - 12);
-    }
+    run(s, 0.2);
+    // réservées : plus question de les vendre à un client ni de les reprendre
+    expect(s.birdLoad!.henIds.sort()).toEqual([...inShop].sort());
+    expect(stockOf(s, 'rousse')).toHaveLength(0);
+    expect(unstockBird(s, inShop[0]).ok).toBe(false);
     let sawBehind = false;
     let inside = true;
-    const each = () => {
+    for (let i = 0; i < 1500 && s.birdLoad; i++) {
+      run(s, 0.1);
       for (const w of s.workers)
         if (w.job?.kind === 'loadTruck' && w.job.phase === 'work') {
           sawBehind = true;
-          // le commis reste dans la ferme : il ne sort pas sur la route
           if (w.z > 30 || w.x > 80) inside = false;
         }
       const L = s.birdLoad;
       if (L)
         for (const q of L.gone) {
+          expect(inShop).toContain(q.id);
           const p = boardPath(q.x, q.z);
           expect(p[p.length - 1][0]).toBeLessThan(TRUCK_REAR);
-          expect(p[1][0]).toBe(RAMP_FOOT);
-          expect(q.id).toBeGreaterThan(0);
+          expect(p.some(([x, z]) => x === TRUCK_HATCH_X && z < 30)).toBe(true);
+          expect(p[p.length - 3][0]).toBe(RAMP_FOOT);
         }
-    };
-    for (let i = 0; i < 900 && s.birdLoad; i++) {
-      run(s, 0.1);
-      each();
     }
     expect(sawBehind).toBe(true);
     expect(inside).toBe(true);
     expect(s.birdLoad).toBeNull();
     expect(s.birdOrders.find((x) => x.id === o.id)).toBeUndefined();
+    expect(s.petShop.birds).toHaveLength(0);
+    // la ferme n'a perdu que les huit mises en vente
+    expect(s.hens.length).toBe(farmHens - 8);
+  });
+
+  it('n’importe quelle poule adulte peut être mise en vente, où qu’elle soit et quelle que soit sa couleur', () => {
+    const s = farm(1623);
+    const coop = buildingsOf(s, 'coop')[0];
+    const mk = (over: Partial<Hen>) => {
+      const h = createHen(s, 'rousse', coop, false, { at: [coop.x + 1, coop.z + 5] });
+      Object.assign(h, over);
+      s.hens.push(h);
+      return h;
+    };
+    for (const h of [mk({ skin: 3 }), mk({ nursery: true }), mk({ act: 'stray' }), mk({ black: true }), mk({ x: 70, z: 12 })]) {
+      expect(sellable(h)).toBe(true);
+      expect(stockBird(s, h.id).ok).toBe(true);
+      expect(h.nursery).toBeUndefined();
+    }
+    // les jeunes, les coqs et les deux trésors restent à part
+    for (const h of [mk({ young: 3 }), mk({ rooster: true }), mk({ golden: true }), mk({ legendary: true })]) expect(sellable(h)).toBe(false);
+    // le vendeur, lui, ne met jamais une rareté en vente de lui-même
+    const rare = mk({ black: true });
+    expect(isRareBird(rare)).toBe(true);
   });
 
   it('sans commis, le camion repart à vide et la commande reste à livrer', () => {
@@ -4506,10 +4534,10 @@ describe('Commandes de revendeurs et camion', () => {
     const o = order(s, { count: 4 });
     callTruck(s, o.id);
     run(s, BIRD_ORDERS.delay - BIRD_ORDERS.prep + 1);
-    const first = s.hens.find((h) => h.ship)!;
+    const first = s.petShop.birds.find((h) => h.ship)!;
     expect(first).toBeTruthy();
-    A.sellHen(s, first.id);
-    run(s, 12 * HOUR);
+    s.petShop.birds.splice(s.petShop.birds.indexOf(first), 1);
+    run(s, 16 * HOUR);
     expect(s.birdOrders.find((x) => x.id === o.id)).toBeUndefined();
     expect(s.stats.birdsSoldDealers).toBe(4);
   });
@@ -4528,7 +4556,7 @@ describe('Commandes de revendeurs et camion', () => {
     expect(s.birdLoad!.eta).toBeLessThan((day + 1) * TIME.DAY + 14 * HOUR);
     // la nuit, les poules dorment normalement
     run(s, 4 * HOUR);
-    expect(s.hens.some((h) => h.ship)).toBe(false);
+    expect(s.birdLoad!.called).toBe(false);
   });
 
   it('une commande acceptée et oubliée coûte de la réputation', () => {
@@ -4550,8 +4578,8 @@ describe('Commandes de revendeurs et camion', () => {
     run(s, BIRD_ORDERS.delay + 2);
     const back = deserialize(serialize(s))!;
     expect(back.birdLoad?.orderId).toBe(o.id);
-    expect(back.hens.filter((h) => h.ship).length).toBe(back.birdLoad!.henIds.length);
-    run(back, 12 * HOUR);
+    expect(back.petShop.birds.filter((h) => h.ship).length).toBe(back.birdLoad!.henIds.length);
+    run(back, 16 * HOUR);
     expect(back.birdLoad).toBeNull();
     expect(back.birdOrders.find((x) => x.id === o.id)).toBeUndefined();
   });
@@ -4863,5 +4891,111 @@ describe('L’hôtel de ville et le chien', () => {
     const [kx, kz] = kennelPoint(s);
     expect(Math.hypot(d.x - kx, d.z - kz)).toBeLessThan(1.6);
     expect(d.act).toBe('sleep');
+  });
+});
+
+describe('Prix de vente et grandes bassines', () => {
+  const rich = (seed: number) => {
+    const s = newFarm(seed);
+    morning(s);
+    s.money = 100_000_000;
+    s.xp = 99999;
+    s.settings.predators = false;
+    return s;
+  };
+
+  it('dès le début, on peut revendre une poule, mais 4 à 5 fois moins cher que son prix d’achat', () => {
+    const s = newFarm(2001);
+    morning(s);
+    const coop = buildingsOf(s, 'coop')[0];
+    const h = createHen(s, 'rousse', coop, false, { at: [coop.x + 1, coop.z + 5] });
+    h.health = 100;
+    h.age = 1;
+    h.genes = undefined;
+    s.hens.push(h);
+    const v = henValue(h);
+    expect(v).toBeLessThanOrEqual(BREEDS.rousse.price / 4);
+    expect(v).toBeGreaterThanOrEqual(BREEDS.rousse.price / 5.5);
+    const money = s.money;
+    expect(A.sellHen(s, h.id).ok).toBe(true);
+    expect(s.money - money).toBe(v);
+    // la boutique rapporte bien plus
+    expect(suggestedPrice('rousse')).toBeGreaterThanOrEqual(v * 2);
+  });
+
+  it('sans vendeur, la boutique ne vend rien ; dès qu’il arrive, les clients viennent', () => {
+    const s = rich(2002);
+    for (const k of ['1,2', '2,2', '3,2']) expect(A.buyParcel(s, k).ok).toBe(true);
+    expect(A.openPetShop(s).ok).toBe(true);
+    const coop = buildingsOf(s, 'coop')[0];
+    A.upgrade(s, coop.id);
+    for (let i = 0; i < 12; i++) s.hens.push(createHen(s, 'rousse', coop, false, { at: [coop.x + 1 + (i % 4), coop.z + 5] }));
+    stockBirds(s, 'rousse', 10);
+    const n = s.petShop.birds.length;
+    expect(n).toBeGreaterThan(0);
+    expect(petCustomersPerDay(s)).toBe(0);
+    run(s, 8 * HOUR);
+    expect(s.petCustomers).toHaveLength(0);
+    expect(s.petShop.birds).toHaveLength(n);
+    expect(hirePetSeller(s).ok).toBe(true);
+    expect(petCustomersPerDay(s)).toBeGreaterThan(0);
+    morning(s);
+    run(s, 8 * HOUR);
+    expect(s.petShop.birds.length).toBeLessThan(n);
+  });
+
+  it('les parcelles et les améliorations coûtent plus cher, sans toucher au premier niveau', () => {
+    expect(parcelPrice(1)).toBe(45000);
+    expect(parcelPrice(2)).toBeGreaterThan(parcelPrice(1) * 1.4);
+    expect(BUILDINGS.coop.levels[0].cost).toBe(3500);
+    expect(BUILDINGS.coop.levels[1].cost).toBeGreaterThan(4500);
+    expect(BUILDINGS.stand.levels[3].cost).toBeGreaterThan(240000);
+  });
+
+  it.each(['feeder', 'drinker'] as const)('la longue bassine (%s) : 6 cases, 30 places, et les poules s’en servent', (type) => {
+    const s = rich(2003);
+    const top = BUILDINGS[type].levels.length;
+    expect(top).toBe(6);
+    expect(sizeOf(type, 6)).toEqual({ w: 6, d: 1 });
+    expect(BUILDINGS[type].levels[5].slots).toBe(30);
+    const b = buildingsOf(s, type)[0];
+    // on lui fait de la place : tout le reste a été déplacé
+    s.buildings = s.buildings.filter((o) => o === b || o.type === 'coop' || o.type === 'stand' || o.type === 'storage' || (o.type !== type && o.type !== 'nest' && (o.type === 'feeder' || o.type === 'drinker')));
+    invalidateLayout(s);
+    let guard = 0;
+    while (b.level < 6 && guard++ < 8) {
+      const r = A.upgrade(s, b.id);
+      if (!r.ok) {
+        // (la place manque au pied du bâtiment : on le recule d'une rangée)
+        expect(A.move(s, b.id, 2, 12 + guard).ok).toBe(true);
+      }
+    }
+    expect(b.level).toBe(6);
+    const spots = feedLayout(b);
+    expect(spots).toHaveLength(30);
+    for (const p of spots) {
+      expect(p.x).toBeGreaterThan(0);
+      expect(p.x).toBeLessThan(6);
+      expect(p.z).toBeGreaterThanOrEqual(0);
+      expect(p.z).toBeLessThanOrEqual(1);
+      // le bec tombe dans la bassine, la poule reste dehors
+      expect(Math.abs(p.fz - 0.5)).toBeLessThan(0.3);
+      expect(Math.abs(p.z - 0.5)).toBeGreaterThan(0.3);
+    }
+    const coop = buildingsOf(s, 'coop')[0];
+    A.upgrade(s, coop.id);
+    for (let i = 0; i < 6; i++) {
+      const h = createHen(s, 'rousse', coop, false, { at: [b.x + 1 + i * 0.6, b.z + 2] });
+      // (une seule envie à la fois : il n'y a que cette bassine sur le terrain)
+      h.satiety = type === 'feeder' ? 20 : 100;
+      h.hydration = type === 'drinker' ? 20 : 100;
+      s.hens.push(h);
+    }
+    let used = false;
+    for (let i = 0; i < 400 && !used; i++) {
+      run(s, 0.1);
+      if (s.hens.some((h) => h.targetId === b.id && (h.act === 'eat' || h.act === 'drink'))) used = true;
+    }
+    expect(used).toBe(true);
   });
 });

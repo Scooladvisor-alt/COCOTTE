@@ -176,6 +176,17 @@ function SettingsPanel() {
       </div>
       <h5>Affichage & son</h5>
       {toggle('labels', 'Étiquettes au-dessus des éléments (sinon : seulement à la sélection)')}
+      <label class="toggle">
+        <input
+          type="checkbox"
+          checked={!!s.settings.lowGraphics}
+          onChange={(e) => {
+            s.settings.lowGraphics = (e.target as HTMLInputElement).checked;
+            game.changed();
+          }}
+        />
+        <span>Graphismes allégés (seulement si le jeu rame sur votre appareil)</span>
+      </label>
       {toggle('sound', 'Effets sonores')}
       <label class="toggle">
         <input

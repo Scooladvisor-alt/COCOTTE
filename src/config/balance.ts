@@ -340,9 +340,8 @@ export const PETSHOP = {
   servePerBird: 0.45,
   maxQueue: 3,
   patience: [8, 16] as [number, number],
-  /** Le vendeur : son salaire, les clients en plus, et ce qu'il remet en vitrine à chaque heure. */
+  /** Le vendeur, sans qui la boutique ne vend rien : son salaire, et ce qu'il remet en vente à chaque heure. */
   sellerWage: 1500,
-  sellerFlow: 1.5,
   sellerPerHour: 8,
   /** Poules et oies qu'il laisse toujours à la ferme, par défaut. */
   keepDefault: 30,
@@ -377,12 +376,10 @@ export const BIRD_ORDERS = {
   xp: 25,
   repDone: 2,
   repLate: 4,
-  /** Le camion arrive tant de secondes après l'appel ; les volailles partent vers le portail un peu avant. */
-  delay: 16,
-  /** Départ des volailles avant l'arrivée du camion : selon la distance à parcourir (secondes). */
-  prep: 14,
-  prepMax: 60,
-  walkSpeed: 1.25,
+  /** Le camion arrive tant de secondes après l'appel. */
+  delay: 42,
+  /** Les commis et les volailles se préparent tant de secondes avant l'arrivée du camion. */
+  prep: 40,
   /** Le camion n'arrive qu'aux heures où les commis peuvent finir le chargement. */
   earliestHour: 7,
   marginHours: 3,
@@ -393,8 +390,6 @@ export const BIRD_ORDERS = {
   gapMax: 0.85,
   helpers: 2,
   /** Une volaille monte quand elle est assez près du portail ; une retardataire finit par être portée. */
-  boardFrom: 3.2,
-  lateAfter: 30,
   maxWait: 80,
   /** Retard toléré du camion, pris dans la circulation ou en train de reculer (secondes). */
   truckGrace: 60,
@@ -492,8 +487,8 @@ export const COSTS = {
   /** Taux d'agios journalier appliqué à un solde négatif. */
   overdraftRate: 0.03,
   demolishRefund: 0.4,
-  /** Revente d'une poule : fraction du prix d'achat (avant âge/santé). */
-  henResale: 0.55,
+  /** Revente directe d'une volaille : un prix dérisoire, 4 à 5 fois moins que l'achat (avant âge et santé). */
+  henResale: 0.25,
 };
 
 export interface GrainSack {
@@ -860,8 +855,8 @@ export const RARE = {
 
 export const PARCELS = {
   /** Une parcelle de 20 × 20 (quatre fois les anciennes) : prix en conséquence. */
-  basePrice: 30000,
-  growth: 1.45,
+  basePrice: 45000,
+  growth: 1.5,
   /** Nombre de poules que peut accueillir une parcelle confortablement (limite dure). */
   hensPerParcel: 70,
 };

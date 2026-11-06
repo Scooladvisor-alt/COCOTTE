@@ -1,4 +1,5 @@
 // La vente de poules pondeuses (poules et oies en vente, au prix qu'on veut) et les commandes des revendeurs.
+import { useState } from 'preact/hooks';
 import { BIRD_ORDERS, HOUR, PETSHOP, TIME } from '../config/balance';
 import { BREEDS, BREED_ORDER, isGoose } from '../config/breeds';
 import { BUILDINGS, PET_POS } from '../config/buildings';
@@ -71,6 +72,19 @@ export function ParcelLocked({ what }: { what: string }) {
   );
 }
 
+/** Les revendeurs n'achètent que ce qui est en vente : il faut d'abord la boutique. */
+export function ShopLocked() {
+  return (
+    <div class="locked-box">
+      <div class="big">
+        <Icon name="lock" size={30} />
+      </div>
+      <b>Construisez d’abord la vente de poules pondeuses</b>
+      <p>Le camion des revendeurs ne prend que les volailles qui y sont en vente. Cliquez sur l’emplacement à droite du parking.</p>
+    </div>
+  );
+}
+
 function OpenCard() {
   const game = useGame();
   const L = BUILDINGS.petshop.levels[0];
@@ -109,12 +123,14 @@ export function SellerCard() {
   const s = game.state;
   const P = s.petShop;
   const keep = petKeep(s);
+  // (le temps de la saisie, le champ garde ce qu'on tape, même vide : la partie continue de tourner derrière)
+  const [draft, setDraft] = useState<string | null>(null);
   return (
     <div class="seller">
       <div class="seller-top">
         <span>
           <b>Vendeur</b>
-          <small>{fmtMoney(PETSHOP.sellerWage)} par jour · {Math.round((PETSHOP.sellerFlow - 1) * 100)} % de clients en plus</small>
+          <small>{P.seller ? `${fmtMoney(PETSHOP.sellerWage)} par jour : il sert les clients au comptoir` : `Sans lui, la boutique reste fermée et rien ne se vend · ${fmtMoney(PETSHOP.sellerWage)} par jour`}</small>
         </span>
         {P.seller ? (
           <Btn kind="ghost" small onClick={() => game.act(() => firePetSeller(s))}>
@@ -136,19 +152,27 @@ export function SellerCard() {
             </span>
           </label>
           {P.restock && (
-            <div class="seller-keep">
-              <span>
-                Garder au moins <b>{keep}</b> poules à la ferme
-              </span>
-              <div class="row-btns">
-                <button class="step" onClick={() => (setPetKeep(s, keep - 10), game.changed())}>
-                  −
-                </button>
-                <button class="step" onClick={() => (setPetKeep(s, keep + 10), game.changed())}>
-                  +
-                </button>
-              </div>
-            </div>
+            <label class="seller-keep">
+              <span>Poules à garder au minimum à la ferme</span>
+              <input
+                type="number"
+                min={0}
+                step={1}
+                inputMode="numeric"
+                value={draft ?? keep}
+                onFocus={(e) => {
+                  setDraft(String(keep));
+                  (e.target as HTMLInputElement).select();
+                }}
+                onBlur={() => setDraft(null)}
+                onInput={(e) => {
+                  const text = (e.target as HTMLInputElement).value;
+                  setDraft(text);
+                  const v = Number(text);
+                  if (text !== '' && Number.isFinite(v)) setPetKeep(s, v);
+                }}
+              />
+            </label>
           )}
         </>
       )}
@@ -268,7 +292,7 @@ export function PetShopTab() {
         </div>
       </div>
       <p class="hint">
-        Ouverte de {TIME.SHOP_OPEN} h à {TIME.SHOP_CLOSE} h. Les clients viennent avec leur carton et repartent avec {Math.min(...PETSHOP.wantChoices)} à {Math.max(...PETSHOP.wantChoices)} volailles. Cliquez sur une volaille dans son parc pour la reprendre à la ferme. Les jeunes, les coqs, les jars et les spécimens rares ne se vendent pas ici.
+        {s.petShop.seller ? `Ouverte de ${TIME.SHOP_OPEN} h à ${TIME.SHOP_CLOSE} h.` : 'Fermée tant que vous n’avez pas de vendeur.'} Les clients viennent avec leur carton et repartent avec {Math.min(...PETSHOP.wantChoices)} à {Math.max(...PETSHOP.wantChoices)} volailles. Cliquez sur une volaille dans son parc pour la reprendre à la ferme. Les jeunes, les coqs, les jars et les spécimens rares ne se vendent pas ici.
       </p>
       <SellerCard />
       <div class="row-btns pet-top">
@@ -307,7 +331,7 @@ function LoadCard({ o }: { o: BirdOrder }) {
       : left > 0
         ? !L.called
           ? `Le camion passera vers ${Math.floor((L.eta % TIME.DAY) / HOUR)} h : les ${o.goose ? 'oies' : 'poules'} se mettront en route à temps.`
-          : `Le camion arrive dans ${Math.ceil((left / TIME.DAY) * 24 * 10) / 10} h. Les ${o.goose ? 'oies' : 'poules'} rejoignent la cour derrière le grand portail.`
+          : `Le camion arrive dans ${Math.ceil((left / TIME.DAY) * 24 * 10) / 10} h. Les ${o.goose ? 'oies' : 'poules'} attendent au portillon de leur parc.`
         : helpers
           ? `Chargement : ${L.loaded} / ${o.count} · ${helpers} commis poussent les volailles`
           : hasRole(s, 'farmhand')
@@ -331,7 +355,7 @@ export function DealersTab() {
   return (
     <>
       <p class="hint">
-        Des revendeurs et des associations cherchent des poules et des oies pour des particuliers. Une fois la commande acceptée, vous appelez leur camion : il quitte la route par le chemin de terre, entre par le grand portail de la parcelle {BIRD_ORDERS.parcelName}, et les commis de ferme poussent les volailles sur sa rampe. Vous êtes payé quand il repart. Ni coqs, ni jars, ni jeunes : les meilleures reproductrices partent en dernier.
+        Des revendeurs et des associations cherchent des poules et des oies pour des particuliers. Une fois la commande acceptée, mettez les volailles dans les parcs de la vente de poules, puis appelez leur camion : seules celles-là partent, les moins bonnes d’abord. Il quitte la route par le chemin de terre, entre par le grand portail de la parcelle {BIRD_ORDERS.parcelName}, et les commis de ferme guident les volailles jusqu’à sa rampe. Vous êtes payé quand il repart.
       </p>
       {!commis && (
         <div class="notice">
@@ -359,7 +383,7 @@ export function DealersTab() {
                 <LoadCard o={o} />
               ) : (
                 <small class={o.deadlineDay - day <= 0 ? 'neg' : ''}>
-                  Avant la fin du jour {o.deadlineDay} · {have} / {o.count} {o.goose ? 'oies' : 'poules'} disponibles
+                  Avant la fin du jour {o.deadlineDay} · {have} / {o.count} {o.goose ? 'oies' : 'poules'} en vente
                 </small>
               )}
             </div>
@@ -390,7 +414,7 @@ export function DealersTab() {
               {o.goose ? '🪿' : '🐔'} {orderLabel(o)} à {fmtMoney(o.unitPrice)} pièce
             </span>
             <small>
-              Délai : jour {o.deadlineDay} · offre valable jusqu’au jour {o.offerUntilDay} · vous en avez {orderStock(s, o)}
+              Délai : jour {o.deadlineDay} · offre valable jusqu’au jour {o.offerUntilDay} · {orderStock(s, o)} en vente
             </small>
           </div>
           <div class="o-side">

@@ -614,6 +614,8 @@ export interface Settings {
   autoWater: boolean;
   /** Le commis commande lui-même l'eau et le grain quand les réserves baissent. */
   staffRestock: boolean;
+  /** Graphismes allégés pour les petites machines (par défaut : seulement sur les petits téléphones). */
+  lowGraphics?: boolean;
   /** Seuil (en % de la cuve) sous lequel l'eau est rachetée automatiquement. */
   autoWaterThreshold: number;
   autoWholesale: boolean;

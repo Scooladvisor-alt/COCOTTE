@@ -42,7 +42,7 @@ import * as A from '../sim/actions';
 import type { EggType, GameState } from '../sim/types';
 import { Btn, EggDot, Icon, Tabs, n1, useGame } from './common';
 import { HistoryChart } from './Charts';
-import { DealersTab, ParcelLocked, PetShopTab } from './PetShop';
+import { DealersTab, ParcelLocked, PetShopTab, ShopLocked } from './PetShop';
 import { birdOrdersOpen, truckParcelOwned } from '../sim/petshop';
 import { buildingThumb, eggThumb } from '../render/thumbs';
 
@@ -88,7 +88,7 @@ export function MarketPanel() {
         {tab === 'contracts' && (lvl >= UNLOCKS.contracts ? <ContractsTab /> : <Locked level={UNLOCKS.contracts} what="Des contrats de livraison quotidienne assurent un revenu régulier." />)}
         {tab === 'auto' && (lvl >= UNLOCKS.autoWholesale ? <AutoTab /> : <Locked level={UNLOCKS.autoWholesale} what="Vendez automatiquement le surplus au-delà d’un seuil de stock." />)}
         {tab === 'pets' && (petOpen ? <PetShopTab /> : lvl < BIRD_ORDERS.reqLevel ? <Locked level={BIRD_ORDERS.reqLevel} what="Construisez une vente de poules pondeuses à droite du parking pour vendre vos poules et vos oies en trop." /> : <ParcelLocked what="La vente de poules pondeuses se construit une fois cette parcelle achetée." />)}
-        {tab === 'dealers' && (birdOrdersOpen(s) ? <DealersTab /> : lvl < BIRD_ORDERS.reqLevel ? <Locked level={BIRD_ORDERS.reqLevel} what="Des revendeurs et des associations vous commandent des poules et des oies : un camion vient les chercher." /> : <ParcelLocked what="Le camion des revendeurs n’entre que par le chemin de terre qui mène à cette parcelle." />)}
+        {tab === 'dealers' && (birdOrdersOpen(s) ? <DealersTab /> : lvl < BIRD_ORDERS.reqLevel ? <Locked level={BIRD_ORDERS.reqLevel} what="Des revendeurs et des associations vous commandent des poules et des oies : un camion vient les chercher." /> : !truckParcelOwned(s) ? <ParcelLocked what="Le camion des revendeurs n’entre que par le chemin de terre qui mène à cette parcelle." /> : <ShopLocked />)}
       </div>
     </>
   );

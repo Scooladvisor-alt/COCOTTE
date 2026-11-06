@@ -318,6 +318,7 @@ export class Game {
     }
     this.wall = performance.now();
     for (const e of drainEvents(this.state)) this.onEvent(e);
+    this.renderer.setLowGraphics(this.state.settings.lowGraphics ?? (navigator.maxTouchPoints > 0 && Math.min(window.screen.width, window.screen.height) < 600));
     this.renderer.selectedHen = this.selection?.kind === 'hen' ? this.selection.id : -1;
     this.renderer.selectedPetBird = this.selection?.kind === 'petbird' ? this.selection.id : -1;
     this.renderer.selectedBuilding = this.selection?.kind === 'building' ? this.selection.id : -1;

@@ -1,7 +1,7 @@
 // Les poules : besoins, santé, bien-être, ponte et comportement (machine à états).
-import { RAMP_FOOT, TRUCK_Z } from './deliveries';
 import {
   BREEDING,
+  COSTS,
   COMPOST,
   DAYTIME_SECONDS,
   FENCE,
@@ -206,7 +206,7 @@ export function henValue(h: Hen) {
   const ageV = h.age < LAYING.declineStart ? 1 : clamp(1 - (h.age - LAYING.declineStart) / 250, 0.25, 1);
   const kind = h.young ? BREEDING.chickValue + (1 - BREEDING.chickValue) * (1 - h.young / BREEDING.growthDays) : 1;
   const sex = h.rooster ? BREEDING.roosterPriceMult : 1;
-  return Math.round((b.price * sex * 0.55 * ageV * kind * beautyValue(h) * (0.4 + 0.6 * h.health / 100)) / 10) * 10;
+  return Math.round((b.price * sex * COSTS.henResale * ageV * kind * beautyValue(h) * (0.4 + 0.6 * h.health / 100)) / 10) * 10;
 }
 
 export function henStatus(h: Hen): { label: string; tone: 'good' | 'warn' | 'bad' } {
@@ -1718,61 +1718,12 @@ function startFlee(s: GameState, h: Hen, px: number, pz: number, hawk = false) {
   setAct(h, 'flap', 0.6);
 }
 
-/** Repère du chemin d'une volaille qui rejoint le camion. */
-const SHIP_PATH = -2;
-/**
- * Vendue : elle traverse la ferme jusqu'à la cour du camion, sans s'arrêter en chemin, et presse le pas
- * quand un commis arrive derrière elle. Tant que le camion n'est pas garé, elle laisse sa place libre.
- */
-function shipTick(s: GameState, h: Hen, r: HenRt, dt: number) {
-  const L = s.birdLoad;
-  if (!L) {
-    delete h.ship;
-    return;
-  }
-  if (h.act === 'sleep') {
-    const coop = getBuilding(s, h.coopId);
-    if (coop) {
-      const d = coopDoor(coop);
-      h.x = d.x;
-      h.z = d.z;
-    }
-  }
-  const parked = !L.late && s.clock.t >= L.eta;
-  const a = h.id * 2.399;
-  const spread = (h.id * 0.618) % 1;
-  const tx = RAMP_FOOT + 0.35 + Math.abs(Math.cos(a)) * spread * 1.45;
-  const tz = parked ? TRUCK_Z + Math.sin(a) * spread * 2.3 : TRUCK_Z + (h.z < TRUCK_Z ? -1 : 1) * (1.45 + spread * 1.05);
-  h.targetId = -1;
-  h.actT = 5;
-  if (r.pathKey !== SHIP_PATH) {
-    r.pathKey = SHIP_PATH;
-    r.path = planPath(s, h.x, h.z, tx, tz, 0.12) ?? [];
-  }
-  while (r.path.length >= 2 && Math.hypot(r.path[0] - h.x, r.path[1] - h.z) < 0.25) r.path.splice(0, 2);
-  if (!r.path.length && Math.hypot(tx - h.x, tz - h.z) < 0.3) {
-    h.act = 'idle';
-    r.spd = 0;
-    nudge(s, h, r, dt);
-    return;
-  }
-  h.act = 'walk';
-  const pushed = s.workers.some((w) => w.job?.kind === 'loadTruck' && Math.hypot(w.x - h.x, w.z - h.z) < 2.6);
-  steer(s, h, r, r.path.length ? r.path[0] : tx, r.path.length ? r.path[1] : tz, speedOf(h, 'go') * (pushed ? 2 : 1.6), dt, r.stuckT > 2.4);
-  // vraiment coincée : elle cherche un autre chemin
-  if (r.stuckT > 3) {
-    r.stuckT = 0;
-    r.pathKey = -1;
-  }
-}
-
 function behave(s: GameState, h: Hen, dt: number, night: boolean, hour: number) {
   const r = rtHen(h);
   h.actT -= dt;
   h.thinkT -= dt;
 
   // vendue à un revendeur : elle file vers le portail, où un commis la fera monter dans le camion
-  if (h.ship && h.act !== 'caught') return shipTick(s, h, r, dt);
 
   // à la poussinière, la vie se passe dans le parc (voir plus bas)
   if (h.nursery) {

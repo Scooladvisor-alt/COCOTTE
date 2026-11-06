@@ -5,7 +5,7 @@ import { BUILDINGS, STAND_POS, sizeOf, standLayout, HALL_ALLEY, HALL_DOOR } from
 import { ROLES, STAFF, WORKER_NAMES } from '../config/staff';
 import { buildingCenter, canStand, cellIndex, coopDoor, cellX, cellZ, crossesFence, currentDay, facadeHeading, frontOf, toWorld, currentHour, emit, inGrid, isWalkable, nearestWalkable, newId, notify, pick, planPath, rand, randRange, rt, isShelter } from './core';
 import { PREDATOR_INFO, damagePredator, distanceToFarm, predatorAimY } from './predators';
-import { RAMP_FOOT, TRUCK_Z } from './deliveries';
+import { RAMP_FOOT, TRUCK_HATCH_X, TRUCK_Z } from './deliveries';
 import { henMovable, henValue } from './hens';
 import { addXp, buyLevel, fmtMoney, spend } from './economy';
 import { addToStorage, removeWorldEgg } from './eggs';
@@ -476,35 +476,10 @@ function pickupOnTheWay(s: GameState, w: Worker) {
   }
 }
 
-/** Où se tenir pour faire avancer le groupe : derrière lui, vu de la rampe (chacun son côté). */
+/** Sa place dans la cour, de part et d'autre du passage : il guide les volailles de la trappe à la rampe. */
 function herdSpot(s: GameState, w: Worker): [number, number] {
-  let cx = 0;
-  let cz = 0;
-  let n = 0;
-  for (const h of s.hens) {
-    if (!h.ship) continue;
-    cx += h.x;
-    cz += h.z;
-    n++;
-  }
-  let nx = 1;
-  let nz = 0;
-  let d = 0;
-  if (n) {
-    const ox = cx / n - RAMP_FOOT;
-    const oz = cz / n - TRUCK_Z;
-    const l = Math.hypot(ox, oz);
-    // groupe déjà devant la rampe : il ferme le passage du côté du portail
-    if (l >= 0.6) {
-      nx = ox / l;
-      nz = oz / l;
-      d = l;
-    }
-  }
-  const side = s.workers.filter((o) => o.job?.kind === 'loadTruck').indexOf(w) > 0 ? 1.3 : -1.3;
-  const back = Math.max(d + 1.5, 2.2);
-  // (il reste dans l'enclos : jamais de l'autre côté de la clôture)
-  return [Math.max(0.3, Math.min(79.6, RAMP_FOOT + nx * back - nz * side)), Math.min(29.6, TRUCK_Z + nz * back + nx * side)];
+  const side = s.workers.filter((o) => o.job?.kind === 'loadTruck').indexOf(w) > 0 ? 1 : -1;
+  return [TRUCK_HATCH_X + 0.9, TRUCK_Z + side * 1.2 + 1.8];
 }
 
 /** Va pousser les volailles vers la rampe du camion, garé dans la parcelle du bout. */
@@ -518,7 +493,7 @@ function goLoadTruck(s: GameState, w: Worker) {
   return true;
 }
 
-/** Il marche derrière le groupe, bras écartés : les volailles avancent devant lui vers la rampe. */
+/** Dans la cour, bras écartés : les volailles qui arrivent avancent devant lui vers la rampe. */
 function herd(s: GameState, w: Worker, dt: number) {
   const [tx, tz] = herdSpot(s, w);
   const dx = tx - w.x;

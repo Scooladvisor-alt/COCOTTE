@@ -655,6 +655,7 @@ function grainHeap(rx: number, rz: number, color = C.grain) {
 }
 
 function feederModel(level: number): BuildingView {
+  if (level === 6) return basinModel('grain');
   if (level >= 4) return longFeederModel(level);
   const parts: THREE.BufferGeometry[] = [];
   wornGround(parts, 'grain', level === 3 ? 0.56 : 0.5);
@@ -737,6 +738,90 @@ function feederModel(level: number): BuildingView {
  * et séparateurs (niveau 4), puis chaîne d'alimentation au ras du sol avec sa trémie motorisée (niveau 5).
  * Les places des poules sont dans sim/feeding.ts.
  */
+/** Contour d'une longue bassine aux bouts arrondis, centré sur (0, 0), posé à plat. */
+function stadium(len: number, half: number, inner = 0) {
+  const trace = (p: THREE.Shape | THREE.Path, h: number) => {
+    const a = len / 2 - half;
+    p.moveTo(-a, -h);
+    p.lineTo(a, -h);
+    p.absarc(a, 0, h, -Math.PI / 2, Math.PI / 2, false);
+    p.lineTo(-a, h);
+    p.absarc(-a, 0, h, Math.PI / 2, (3 * Math.PI) / 2, false);
+  };
+  const shape = new THREE.Shape();
+  trace(shape, half);
+  if (inner > 0) {
+    const hole = new THREE.Path();
+    trace(hole, inner);
+    shape.holes.push(hole);
+  }
+  return shape;
+}
+
+/** Un volume en forme de bassine (de y à y + h), en coordonnées du bâtiment. */
+function basinSolid(x: number, z: number, y: number, h: number, len: number, half: number, inner: number, color: number, flare = 1) {
+  const g = new THREE.ExtrudeGeometry(stadium(len, half, inner), { depth: h, bevelEnabled: false, curveSegments: 10 });
+  // la forme est dessinée à plat (x, y) : on la couche, et ses parois s'évasent un peu vers le haut
+  g.rotateX(-Math.PI / 2);
+  if (flare !== 1) {
+    const p = g.attributes.position as THREE.BufferAttribute;
+    for (let i = 0; i < p.count; i++) p.setZ(i, p.getZ(i) * (1 + ((flare - 1) * p.getY(i)) / h));
+    g.computeVertexNormals();
+  }
+  return finalizeExport(g, color, [x, y, z]);
+}
+
+/**
+ * Le dernier niveau de la mangeoire et de l'abreuvoir : une seule grande bassine en longueur, sans
+ * fioritures. Du zinc pour le grain, de l'inox pour l'eau ; un bord roulé plus clair, deux patins, une
+ * fine barre pour que personne ne s'y perche, et l'arrivée discrète au bout.
+ */
+function basinModel(kind: 'grain' | 'water'): BuildingView {
+  const parts: THREE.BufferGeometry[] = [];
+  wornGround(parts, kind, 0.5, 6);
+  const grain = kind === 'grain';
+  const WALL = grain ? GALVA : 0xdfe4ea;
+  const DARK = grain ? GALVA_DARK : 0xb3bcc5;
+  const RIM = grain ? GALVA_LIGHT : 0xf4f6f8;
+  const L = 5.76;
+  const cx = 3;
+  const cz = 0.5;
+  const HALF = 0.3;
+  const Y0 = 0.07;
+  const H = 0.17;
+  // patins sous la bassine
+  for (const x of [0.75, 3, 5.25]) parts.push(box(0.09, 0.05, 0.5, DARK, [x, 0.045, cz]));
+  // le fond, les parois légèrement évasées, le bord roulé
+  parts.push(basinSolid(cx, cz, Y0, 0.02, L - 0.03, HALF - 0.015, 0, DARK));
+  parts.push(basinSolid(cx, cz, Y0, H, L - 0.02, HALF - 0.012, HALF - 0.03, WALL, 1.05));
+  parts.push(basinSolid(cx, cz, Y0 + H, 0.02, L + 0.02, HALF + 0.012, HALF - 0.022, RIM));
+  // deux fins cerclages sur la longueur
+  parts.push(basinSolid(cx, cz, Y0 + 0.055, 0.012, L - 0.004, HALF - 0.004, HALF - 0.03, DARK));
+  // barre anti-perchoir : trois fines potences, une seule ligne
+  const barY = grain ? 0.5 : 0.46;
+  for (const x of [0.5, 3, 5.5]) parts.push(cyl(0.011, 0.011, barY - Y0 - H, 6, DARK, [x, (barY + Y0 + H) / 2, cz]));
+  parts.push(cyl(0.014, 0.014, 5.04, 8, RIM, [cx, barY, cz], [0, 0, Math.PI / 2]));
+  // l'arrivée, au bout : grain par un tube incliné, eau par un flotteur sous son petit capot
+  if (grain) {
+    parts.push(cyl(0.028, 0.028, 0.62, 8, DARK, [5.86, 0.3, cz], [0, 0, 0.42]));
+    parts.push(box(0.1, 0.04, 0.1, DARK, [5.98, 0.02, cz]));
+  } else {
+    parts.push(basinSolid(5.52, cz, Y0 + H + 0.02, 0.05, 0.42, 0.13, 0, DARK));
+    parts.push(cyl(0.02, 0.02, 0.26, 8, 0x2f3238, [5.97, 0.13, cz]));
+    parts.push(cyl(0.02, 0.02, 0.12, 8, 0x2f3238, [5.92, 0.25, cz], [0, 0, Math.PI / 2]));
+    parts.push(cyl(0.028, 0.028, 0.04, 8, 0xd9b35a, [5.97, 0.08, cz]));
+  }
+  const g = groupOf(parts);
+  // grain : un seul lit qui monte et descend ; eau : une nappe qui baisse
+  const fillShape = basinSolid(0, 0, 0, grain ? 1 : 0.012, L - 0.08, HALF - 0.04, 0, grain ? C.grain : C.water);
+  const fill = mesh(fillShape, false, !grain ? false : true);
+  fill.position.set(cx, Y0 + 0.02, cz);
+  g.add(fill);
+  return grain
+    ? { group: g, fill, fillMode: 'scale', fillBase: Y0 + 0.02, fillHeight: 0.14, eggSlots: [], eggMeshes: [], key: 'basin-grain' }
+    : { group: g, fill, fillMode: 'move', fillBase: Y0 + 0.02, fillHeight: 0.13, eggSlots: [], eggMeshes: [], key: 'basin-water' };
+}
+
 function longFeederModel(level: number): BuildingView {
   const parts: THREE.BufferGeometry[] = [];
   let fill: THREE.Object3D;
@@ -905,6 +990,7 @@ function longDrinkerModel(level: number): BuildingView {
 }
 
 function drinkerModel(level: number): BuildingView {
+  if (level === 6) return basinModel('water');
   if (level >= 4) return longDrinkerModel(level);
   const parts: THREE.BufferGeometry[] = [];
   wornGround(parts, 'water', level === 3 ? 0.55 : 0.48);
@@ -1512,7 +1598,12 @@ function petShopModel(level: number): BuildingView {
   const zone = (a: { x0: number; x1: number; z0: number; z1: number }) => {
     pen.push(box(a.x1 - a.x0, FLOOR - 0.035, a.z1 - a.z0, 0x7a9a55, [(a.x0 + a.x1) / 2, (FLOOR - 0.035) / 2, (a.z0 + a.z1) / 2]));
     whitePickets(pen, a.x0, a.z1, a.x1, a.z1);
-    whitePickets(pen, a.x0, a.z0, a.x1, a.z0);
+    // au fond, un portillon ouvert : c'est par là que les volailles partent vers le camion des revendeurs
+    const gate = a.x1 - 0.5;
+    whitePickets(pen, a.x0, a.z0, gate - 0.24, a.z0);
+    whitePickets(pen, gate + 0.24, a.z0, a.x1, a.z0);
+    for (const s of [-1, 1]) pen.push(box(0.07, 0.62, 0.07, C.woodDark, [gate + s * 0.24, 0.31, a.z0]));
+    pen.push(box(0.44, 0.04, 0.03, C.woodDark, [gate - 0.46, 0.34, a.z0 + 0.22], [0, Math.PI / 2 - 0.25, 0]), box(0.44, 0.04, 0.03, C.woodDark, [gate - 0.46, 0.14, a.z0 + 0.22], [0, Math.PI / 2 - 0.25, 0]));
     whitePickets(pen, a.x0, a.z0, a.x0, a.z1);
     whitePickets(pen, a.x1, a.z0, a.x1, a.z1);
   };
@@ -1524,8 +1615,10 @@ function petShopModel(level: number): BuildingView {
   for (let k = 0; k < huts; k++) {
     const x = hens.x0 + ((k + 0.5) * hw) / huts;
     birdHut(pen, x, hens.z0 + 0.46);
-    pen.push(box(0.8, 0.04, 0.16, 0x8e939b, [x + 1.1, 0.13, hens.z0 + 0.32]), box(0.72, 0.02, 0.09, C.grain, [x + 1.1, 0.155, hens.z0 + 0.32]));
-    for (const dx of [-0.32, 0.32]) pen.push(box(0.04, 0.09, 0.2, 0x6d7076, [x + 1.1 + dx, 0.09, hens.z0 + 0.32]));
+    // (la mangeoire ne bouche jamais le portillon)
+    const tx = x + 1.1 > hens.x1 - 1.3 ? x - 1.1 : x + 1.1;
+    pen.push(box(0.8, 0.04, 0.16, 0x8e939b, [tx, 0.13, hens.z0 + 0.32]), box(0.72, 0.02, 0.09, C.grain, [tx, 0.155, hens.z0 + 0.32]));
+    for (const dx of [-0.32, 0.32]) pen.push(box(0.04, 0.09, 0.2, 0x6d7076, [tx + dx, 0.09, hens.z0 + 0.32]));
   }
   // abreuvoir, botte de paille et son tas, coin de poussière
   pen.push(cyl(0.16, 0.18, 0.16, 12, 0xc9ccd1, [hens.x0 + 0.42, 0.15, hens.z1 - 0.45]), cyl(0.13, 0.13, 0.01, 12, 0x7cc7ee, [hens.x0 + 0.42, 0.232, hens.z1 - 0.45]));
@@ -1675,19 +1768,29 @@ export function buildingModel(type: BuildingType, level: number): BuildingView {
  */
 export function flowerGeometry() {
   const parts: THREE.BufferGeometry[] = [];
-  // pâquerette : une corolle blanche à plat, un cœur jaune
+  // pâquerette : pétales blancs en étoile, cœur jaune
   parts.push(cyl(0.006, 0.008, 0.16, 3, 0x5f9c45, [0, 0.08, 0]));
-  parts.push(cyl(0.047, 0.047, 0.006, 7, 0xfbfaf6, [0, 0.162, 0]));
-  parts.push(cyl(0.016, 0.016, 0.008, 5, 0xf4c43a, [0, 0.168, 0]));
+  for (let i = 0; i < 7; i++) {
+    const a = (i / 7) * Math.PI * 2;
+    parts.push(box(0.045, 0.006, 0.016, 0xfbfaf6, [Math.cos(a) * 0.026, 0.162, Math.sin(a) * 0.026], [0, -a, 0.2]));
+  }
+  parts.push(ico(0.014, 0, 0xf4c43a, [0, 0.168, 0]));
   // bouton d'or : petite coupe jaune brillant
   parts.push(cyl(0.005, 0.007, 0.12, 3, 0x5f9c45, [0.07, 0.06, 0.03], [0, 0, -0.15]));
-  parts.push(cone(0.024, 0.03, 5, 0xf2cf2b, [0.087, 0.13, 0.03], [Math.PI, 0, 0]));
-  // trèfle : tête rose-mauve et une feuille
+  parts.push(cone(0.022, 0.03, 6, 0xf2cf2b, [0.087, 0.13, 0.03], [Math.PI, 0, 0]));
+  parts.push(ico(0.008, 0, 0xe8a91f, [0.087, 0.13, 0.03]));
+  // trèfle : tête rose-mauve et feuilles en trois folioles
   parts.push(cyl(0.005, 0.007, 0.09, 3, 0x5f9c45, [-0.05, 0.045, 0.05], [0.1, 0, 0.12]));
-  parts.push(ico(0.024, 0, 0xc9709c, [-0.056, 0.098, 0.055], [1, 1.15, 1]));
-  parts.push(cyl(0.03, 0.03, 0.004, 5, 0x4f8f3a, [-0.03, 0.035, 0.08]));
+  parts.push(ico(0.022, 1, 0xc9709c, [-0.056, 0.098, 0.055], [1, 1.15, 1]));
+  for (let i = 0; i < 3; i++) {
+    const a = (i / 3) * Math.PI * 2 + 0.4;
+    parts.push(cyl(0.018, 0.018, 0.004, 6, 0x4f8f3a, [-0.03 + Math.cos(a) * 0.02, 0.035, 0.08 + Math.sin(a) * 0.02]));
+  }
   // feuilles de la pâquerette au ras du sol
-  for (let i = 0; i < 2; i++) parts.push(box(0.07, 0.004, 0.02, 0x568f3c, [0, 0.016, 0], [0, (i * Math.PI) / 2 + 0.7, 0]));
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + 0.7;
+    parts.push(box(0.05, 0.004, 0.018, 0x568f3c, [Math.cos(a) * 0.03, 0.016, Math.sin(a) * 0.03], [0, -a, 0]));
+  }
   return merge(parts);
 }
 

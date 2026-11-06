@@ -382,14 +382,16 @@ export function sanitize(input: unknown): GameState | null {
       status,
     });
   }
+  for (const h of s.hens) delete h.ship;
+  for (const h of s.petShop.birds) delete h.ship;
   const rawLoad = obj(raw.birdLoad);
   const loading = s.birdOrders.find((o) => o.id === rawLoad.orderId && o.status === 'loading');
   if (loading) {
     const eta = num(rawLoad.eta, s.clock.t, 0);
-    const ids = arr(rawLoad.henIds).filter((id): id is number => typeof id === 'number' && s.hens.some((h) => h.id === id));
+    const ids = arr(rawLoad.henIds).filter((id): id is number => typeof id === 'number' && s.petShop.birds.some((h) => h.id === id));
     s.birdLoad = { id: int(rawLoad.id, s.nextId++), orderId: loading.id, eta, called: bool(rawLoad.called, false), henIds: ids, loaded: int(rawLoad.loaded, 0, 0, loading.count), gone: [], nextT: num(rawLoad.nextT, eta, 0) };
     if (rawLoad.leave !== undefined) s.birdLoad.leave = num(rawLoad.leave, eta, 0);
-    for (const h of s.hens) if (ids.includes(h.id)) h.ship = true;
+    for (const h of s.petShop.birds) if (ids.includes(h.id)) h.ship = true;
   }
   // (une commande en cours de chargement sans son camion repart à zéro)
   for (const o of s.birdOrders) if (o.status === 'loading' && !s.birdLoad) o.status = 'active';
@@ -657,6 +659,7 @@ export function sanitize(input: unknown): GameState | null {
     autoGrainSack: str(set.autoGrainSack, 'small', 12),
     autoWater: bool(set.autoWater, false),
     staffRestock: bool(set.staffRestock, true),
+    ...(typeof set.lowGraphics === 'boolean' ? { lowGraphics: set.lowGraphics } : {}),
     autoWaterThreshold: int(set.autoWaterThreshold, 25, 0, 100),
     autoWholesale: bool(set.autoWholesale, false),
     autoWholesaleThreshold: int(set.autoWholesaleThreshold, 120, 0, 100000),

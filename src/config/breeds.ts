@@ -375,25 +375,34 @@ const GOLD_COLORS = {
   downBelly: 0xf8e394,
 };
 
-/** Plumage spécial : la poule légendaire, un phénix de basse-cour (quelle que soit sa race). */
+/** Plumage spécial : la poule légendaire, une énorme poule d'émeraude, de rose et de rouge (quelle que soit sa race). */
 export const LEGEND_SKIN = 97;
-/** Feu vivant : camail d'or, flancs orangés, ailes cramoisies, crête rouge vif. */
+/** Dos et flancs d'émeraude aux plumes bordées de rose, plastron rose, camail rouge, grande crête écarlate. */
 const LEGEND_COLORS = {
-  body: 0xe8481a,
-  breast: 0xff7a1c,
-  hackle: 0xffc53a,
-  cape: 0xff9a22,
-  tail: 0xb4181c,
-  tail2: 0xff6a12,
-  wing: 0xc4241a,
-  primaries: 0x7a1030,
-  comb: 0xe61e1e,
-  lobes: 0xffc53a,
-  legs: 0xf2b53c,
-  beak: 0xf7cf5c,
-  iris: 0xfff0a8,
-  down: 0xff9a2e,
-  downBelly: 0xffd36a,
+  body: 0x067a4e,
+  breast: 0xe02a7c,
+  chest: 0xc8143c,
+  fluff: 0xe8559a,
+  hackle: 0xc0102f,
+  cape: 0xdb1f5e,
+  tail: 0x086e48,
+  tail2: 0xe02a7c,
+  wing: 0x056a44,
+  primaries: 0xb00f2e,
+  comb: 0xe8142e,
+  lobes: 0xe8142e,
+  legs: 0xe9b43e,
+  beak: 0xf0c04e,
+  iris: 0xffe27a,
+  scales: 0xe8488e,
+  down: 0x5fd9a0,
+  downBelly: 0xffa8cf,
+  combType: 'big' as const,
+  tailUp: 0.5,
+  rumpless: false,
+  fluffy: false,
+  tufts: false,
+  featheredLegs: 0 as const,
 };
 
 /** Plumage d'une volaille (variante tirée à l'achat ; 0 = plumage de base de la race). */
@@ -401,7 +410,7 @@ export function skinLook(breed: BreedId, skin = 0): HenLook {
   const b = BREEDS[breed];
   if (skin === BLACK_SKIN) return { ...b.look, ...BLACK_COLORS, scales: undefined, chest: undefined, fluff: undefined };
   if (skin === GOLD_SKIN) return { ...b.look, ...GOLD_COLORS, scales: undefined, chest: undefined };
-  if (skin === LEGEND_SKIN) return { ...b.look, ...LEGEND_COLORS, scales: undefined, chest: undefined, fluff: undefined };
+  if (skin === LEGEND_SKIN) return { ...b.look, ...LEGEND_COLORS };
   return b.skins?.[skin]?.look ?? b.look;
 }
 /** Nom du plumage, s'il y en a plusieurs pour la race. */

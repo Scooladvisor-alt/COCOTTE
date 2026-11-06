@@ -2378,45 +2378,73 @@ export function townHall(): TownHall {
   const tz = -1.75;
   const TS = 1.5; // côté de la tour
   const T0 = 3.5;
-  const T1 = 5.2; // haut de l'étage de l'horloge
+  const T1 = 6.28; // haut de l'étage de l'horloge : le cadran passe bien au-dessus du toit
   const half = TS / 2;
   parts.push(box(TS, T1 - T0, TS, CREAM, [0, (T0 + T1) / 2, tz]));
   for (const sx of [-1, 1]) for (const sz of [-1, 1]) parts.push(box(0.18, T1 - T0, 0.18, TUFFEAU, [sx * (half - 0.05), (T0 + T1) / 2, tz + sz * (half - 0.05)]));
   parts.push(box(TS + 0.2, 0.08, TS + 0.2, TUFFEAU, [0, T1, tz]));
   parts.push(box(TS + 0.36, 0.06, TS + 0.36, TUFFEAU, [0, T1 + 0.07, tz]));
-  // cadrans (façade et côté)
-  const dialY = 4.72;
-  const R = 0.43;
-  const face = half + 0.012;
-  parts.push(cyl(R + 0.05, R + 0.05, 0.03, 28, GOLD, [0, dialY, tz + face], [Math.PI / 2, 0, 0]));
-  parts.push(cyl(R + 0.05, R + 0.05, 0.03, 28, GOLD, [face, dialY, tz], [0, 0, Math.PI / 2]));
-  const dialMat = new THREE.MeshBasicMaterial({ color: 0xfdf8ea });
-  const dials: THREE.BufferGeometry[] = [
-    new THREE.CircleGeometry(R, 28).translate(0, dialY, tz + face + 0.018),
-    new THREE.CircleGeometry(R, 28).rotateY(Math.PI / 2).translate(face + 0.018, dialY, tz),
-  ];
-  group.add(new THREE.Mesh(merge(dials), dialMat));
-  for (let k = 0; k < 12; k++) {
-    const a = (k / 12) * Math.PI * 2;
-    const len = k % 3 ? 0.05 : 0.09;
-    const r = R - 0.03 - len / 2;
-    parts.push(box(0.022, len, 0.008, 0x22262e, [Math.sin(a) * r, dialY + Math.cos(a) * r, tz + face + 0.022], [0, 0, -a]));
-    parts.push(box(0.008, len, 0.022, 0x22262e, [face + 0.022, dialY + Math.cos(a) * r, tz - Math.sin(a) * r], [-a, 0, 0]));
-  }
+  // l'horloge, sur les quatre faces : un vrai cadran en relief, dans son encadrement de pierre
+  const dialY = 5.5;
+  // un cordon de pierre sépare le pied de la tour de l'étage de l'horloge
+  parts.push(box(TS + 0.12, 0.09, TS + 0.12, TUFFEAU, [0, 4.78, tz]));
+  const R = 0.44;
+  const face = half;
+  const dialMat = new THREE.MeshBasicMaterial({ vertexColors: true });
+  const dials: THREE.BufferGeometry[] = [];
   const hands: Array<[THREE.Object3D, THREE.Object3D]> = [];
-  const clockPivot = (x: number, z: number, ry: number) => {
+  /** Une aiguille en fer de lance, de la base à la pointe (axe y). */
+  const handShape = (w: number, len: number) => {
+    const sh = new THREE.Shape();
+    sh.moveTo(-w * 0.32, -len * 0.14);
+    sh.lineTo(w * 0.32, -len * 0.14);
+    sh.lineTo(w * 0.3, len * 0.66);
+    sh.lineTo(w * 0.72, len * 0.76);
+    sh.lineTo(0, len);
+    sh.lineTo(-w * 0.72, len * 0.76);
+    sh.lineTo(-w * 0.3, len * 0.66);
+    sh.closePath();
+    return finalizeExport(new THREE.ExtrudeGeometry(sh, { depth: 0.01, bevelEnabled: false }), 0x20242c, [0, 0, 0]);
+  };
+  const clockFace = (ry: number) => {
+    const local: Parts = [];
+    // la pierre qui s'avance sur le mur, puis la moulure qui l'entoure
+    local.push(cyl(R + 0.15, R + 0.17, 0.12, 36, TUFFEAU, [0, 0, 0.06], [Math.PI / 2, 0, 0]));
+    local.push(finalizeExport(new THREE.TorusGeometry(R + 0.135, 0.028, 8, 40), ASHLAR, [0, 0, 0.115]));
+    // la lunette dorée, bien ronde et bombée
+    local.push(finalizeExport(new THREE.TorusGeometry(R + 0.025, 0.036, 10, 44), GOLD, [0, 0, 0.135]));
+    // les chiffres : un trait fort aux quarts, un plus fin aux heures
+    for (let k = 0; k < 12; k++) {
+      const a = (k / 12) * Math.PI * 2;
+      const big = k % 3 === 0;
+      const len = big ? 0.095 : 0.06;
+      const r = R - 0.045 - len / 2;
+      local.push(box(big ? 0.032 : 0.017, len, 0.008, 0x22262e, [Math.sin(a) * r, Math.cos(a) * r, 0.158], [0, 0, -a]));
+    }
+    // la minuterie
+    local.push(finalizeExport(new THREE.TorusGeometry(R - 0.03, 0.0035, 4, 44), 0x22262e, [0, 0, 0.155]));
+    parts.push(merge(local).rotateY(ry).translate(Math.sin(ry) * face, dialY, tz + Math.cos(ry) * face));
+    // le cadran, légèrement bombé comme un verre de montre
+    const dome = new THREE.SphereGeometry(1, 28, 8, 0, Math.PI * 2, 0, 0.5);
+    dome.rotateX(Math.PI / 2);
+    dome.translate(0, 0, -Math.cos(0.5));
+    dome.scale(R / Math.sin(0.5), R / Math.sin(0.5), 0.26);
+    dome.translate(0, 0, 0.135);
+    dials.push(finalizeExport(dome, 0xfff9e8, [0, 0, 0]).rotateY(ry).translate(Math.sin(ry) * face, dialY, tz + Math.cos(ry) * face));
+    // les aiguilles, au-dessus du verre, et leur axe doré
     const p = new THREE.Group();
-    p.position.set(x, dialY, z);
+    p.position.set(Math.sin(ry) * (face + 0.168), dialY, tz + Math.cos(ry) * (face + 0.168));
     p.rotation.y = ry;
-    const hour = new THREE.Mesh(merge([box(0.036, 0.25, 0.012, 0x20242c, [0, 0.09, 0])]), MAT_HANDS);
-    const minute = new THREE.Mesh(merge([box(0.024, 0.37, 0.012, 0x20242c, [0, 0.145, 0.012])]), MAT_HANDS);
-    const cap = new THREE.Mesh(merge([ico(0.028, 0, GOLD, [0, 0, 0.02])]), MAT_HANDS);
+    const hour = new THREE.Mesh(merge([handShape(0.05, 0.25)]), MAT_HANDS);
+    const minute = new THREE.Mesh(merge([handShape(0.034, 0.37)]), MAT_HANDS);
+    minute.position.z = 0.012;
+    const cap = new THREE.Mesh(merge([cyl(0.028, 0.028, 0.03, 12, GOLD, [0, 0, 0.018], [Math.PI / 2, 0, 0])]), MAT_HANDS);
     p.add(hour, minute, cap);
     group.add(p);
     hands.push([hour, minute]);
   };
-  clockPivot(0, tz + face + 0.032, 0);
-  clockPivot(face + 0.032, tz, Math.PI / 2);
+  for (const ry of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) clockFace(ry);
+  group.add(new THREE.Mesh(merge(dials), dialMat));
 
   // étage de la cloche, ajouré : quatre piliers, une cloche dorée
   const B0 = T1 + 0.1;

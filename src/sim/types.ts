@@ -88,7 +88,7 @@ export interface Hen {
   black?: boolean;
   /** Poule aux plumes d'or (encore dix fois plus rare) : elle pond des œufs d'or. */
   golden?: boolean;
-  /** La poule légendaire (phénix) : immortelle, elle pond des œufs de phénix et apaise tout le troupeau. */
+  /** La poule légendaire : immortelle, elle pond des œufs légendaires et apaise tout le troupeau. */
   legendary?: boolean;
   /** Coq qui s'est déjà mesuré aux autres coqs (un nouveau venu se bat dès qu'il les croise). */
   ranked?: boolean;
@@ -588,7 +588,7 @@ export interface Stats {
   /** Œufs d'or ramassés et vendus. */
   goldEggs?: number;
   goldEggsSold?: number;
-  /** Œufs de phénix ramassés (achetés aussitôt par le collectionneur). */
+  /** Œufs légendaires ramassés (achetés aussitôt par le collectionneur). */
   phoenixEggs?: number;
   coopsCleaned: number;
   feederFills: number;
@@ -677,6 +677,11 @@ export interface GameState {
     restock?: boolean;
     /** Poules qu'il laisse toujours à la ferme. */
     keep?: number;
+    /** La sorte de volaille qu'il met en vente d'abord (ou seule, en mode automatique). */
+    priority?: { breed: BreedId; male: boolean };
+    /** L'option achetée, et si elle est en marche : il gère seul la vente de cette race, commandes et camions compris. */
+    autoBought?: boolean;
+    autoOn?: boolean;
     /** Le joueur a été prévenu que l'emplacement est disponible. */
     announced?: boolean;
     soldDay?: number;
@@ -762,7 +767,7 @@ export type GameEvent =
   | { kind: 'incubated'; count: number; x: number; z: number }
   | { kind: 'crow'; x: number; z: number }
   | { kind: 'grownUp'; henId: number }
-  /** La poule légendaire renaît de ses cendres, ou pond : grande gerbe de flammes. */
+  /** La poule légendaire se relève, ou pond : gerbe d'éclats. */
   | { kind: 'phoenix'; x: number; z: number; big: boolean }
   | { kind: 'workerArrived'; workerId: number; x: number; z: number }
   | { kind: 'henGone'; henId: number; reason: 'died' | 'sold' | 'escaped' | 'moved' }

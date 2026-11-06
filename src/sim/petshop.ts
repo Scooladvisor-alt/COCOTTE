@@ -12,7 +12,7 @@ import { BUILDINGS, penGate, petLayout } from '../config/buildings';
 import { STAFF } from '../config/staff';
 import { currentDay, currentHour, emit, invalidateLayout, isShopOpen, newId, notify, pick, rand, randInt, randNormal, randRange } from './core';
 import { GATE_IN, RAMP_FOOT, TRUCK_Z, boardRoute, hatchTime, routeTime, truckBlockedBy } from './deliveries';
-import { addXp, earn, farmLevel, fmtMoney } from './economy';
+import { addXp, earn, farmLevel, fmtMoney, spend } from './economy';
 import { henValue, productivity } from './hens';
 import { coopFor, lvl } from './queries';
 import { hasRole } from './workers';
@@ -84,6 +84,8 @@ const weakestFirst = (a: Hen, b: Hen) => {
   const g = (h: Hen) => (h.genes ? h.genes.p + h.genes.r + h.genes.b : 9);
   return g(a) - g(b) || productivity(a) - productivity(b) || b.age - a.age;
 };
+export type SellTarget = { breed: BreedId; male: boolean };
+const isTarget = (t: SellTarget) => (h: Hen) => h.breed === t.breed && !!h.rooster === t.male && !h.black;
 export const flockOf = (s: GameState, breed: BreedId, male = false) => s.hens.filter((h) => h.breed === breed && !h.black && !!h.rooster === male && sellable(h)).sort(weakestFirst);
 
 function moveToShop(s: GameState, h: Hen) {
@@ -203,10 +205,118 @@ export const petSellerWage = (s: GameState) => (s.petShop.seller && petShopOf(s)
 /** Une volaille rare : le vendeur n'y touche jamais, même si le joueur peut la vendre lui-même. */
 export const isRareBird = (h: Hen) => !!h.golden || !!h.legendary || !!h.black || (h.genes ? Math.max(h.genes.p, h.genes.r, h.genes.b) >= PETSHOP.rareStars : false);
 
-/** Chaque heure, si la case est cochée : le vendeur remet en vitrine les volailles les moins performantes. */
-export function petShopHourly(s: GameState) {
-  if (!s.petShop.seller || !s.petShop.restock || !petShopOf(s)) return;
+/** La sorte de volaille que le vendeur met en vente d'abord. */
+export function setPetPriority(s: GameState, target: SellTarget | null) {
+  if (target) s.petShop.priority = target;
+  else delete s.petShop.priority;
+  petShopHourly(s);
+}
+/** Ce que le vendeur a le droit de mettre en vente de cette sorte, les moins performantes d'abord. */
+export function spareOf(s: GameState, t: SellTarget): Hen[] {
+  const goose = isGoose(t.breed);
+  const list = s.hens.filter((h) => isTarget(t)(h) && sellable(h) && !isRareBird(h)).sort(weakestFirst);
+  if (t.male) {
+    // il laisse toujours un mâle de l'espèce à la ferme : le meilleur, puisque les moins bons partent d'abord
+    const males = s.hens.filter((h) => h.rooster && !h.young && !h.black && isGoose(h.breed) === goose).length;
+    return males > list.length ? list : list.slice(0, Math.max(0, males - 1));
+  }
+  const flock = s.hens.filter((h) => isGoose(h.breed) === goose && !h.young && !h.rooster).length;
+  const keep = goose ? Math.min(petKeep(s), PETSHOP.keepGeese) : petKeep(s);
+  return list.slice(0, Math.max(0, flock - keep));
+}
+
+/** L'option des commandes automatiques est-elle à l'œuvre ? */
+export const sellerAutoOn = (s: GameState) => !!s.petShop.seller && !!s.petShop.autoBought && !!s.petShop.autoOn;
+export function buyPetAuto(s: GameState): ActionResult {
+  if (!s.petShop.seller) return fail('Embauchez d’abord le vendeur');
+  if (s.petShop.autoBought) return fail('Option déjà achetée');
+  if (!spend(s, PETSHOP.autoPrice, 'salaires', 'Vendeur de poules : commandes automatiques')) return fail('Fonds insuffisants');
+  s.petShop.autoBought = true;
+  s.petShop.autoOn = true;
+  petShopHourly(s);
+  return OK;
+}
+export function togglePetAuto(s: GameState) {
+  if (!s.petShop.autoBought) return;
+  s.petShop.autoOn = !s.petShop.autoOn;
+  petShopHourly(s);
+}
+
+/** Une commande correspond-elle à ce que le vendeur a pour mission de vendre ? */
+const matchesTarget = (o: BirdOrder, t: SellTarget) => !o.black && !!o.male === t.male && o.goose === isGoose(t.breed) && (!o.breed || o.breed === t.breed);
+
+/** Le vendeur gère seul : il met en vente, trouve un revendeur, accepte, et fait venir le camion. */
+function autoDealer(s: GameState, t: SellTarget) {
   let quota = PETSHOP.sellerPerHour;
+  for (const h of spareOf(s, t)) {
+    if (quota <= 0 || petRoom(s) <= 0) break;
+    moveToShop(s, h);
+    quota--;
+  }
+  // sans commis ou avec un camion qui ne passerait pas, il ne s'engage à rien
+  if (!birdOrdersOpen(s) || !hasRole(s, 'farmhand') || truckBlockedBy(s) >= 0) return;
+  const capacity = lvl(petShopOf(s)!).capacity;
+  const onSale = () => s.petShop.birds.filter((h) => !h.ship && isTarget(t)(h)).length;
+  const busy = () => s.birdOrders.filter((o) => o.status !== 'offer').length;
+  // rien pour cette race à l'horizon : il appelle un revendeur
+  const stock = onSale() + spareOf(s, t).length;
+  if (stock >= PETSHOP.autoMinLot && busy() < BIRD_ORDERS.maxActive && !s.birdOrders.some((o) => matchesTarget(o, t))) {
+    const goose = isGoose(t.breed);
+    const qty = t.male ? BIRD_ORDERS.maleQty : goose ? BIRD_ORDERS.gooseQty : BIRD_ORDERS.henQty;
+    const day = currentDay(s);
+    s.birdOrders.push({
+      id: newId(s),
+      client: pick(s, BIRD_ORDERS.clients),
+      goose,
+      ...(goose ? {} : { breed: t.breed }),
+      ...(t.male ? { male: true } : {}),
+      count: Math.min(pick(s, qty), stock, capacity),
+      unitPrice: to10(refPrice(t.breed, t.male) * randRange(s, BIRD_ORDERS.priceMin, BIRD_ORDERS.priceMax) * BIRD_ORDERS.breedBonus),
+      deadlineDay: day + randInt(s, BIRD_ORDERS.daysMin, BIRD_ORDERS.daysMax),
+      offerUntilDay: day + BIRD_ORDERS.offerDays,
+      status: 'offer',
+    });
+  }
+  // les offres pour cette race, s'il peut les honorer
+  for (const o of s.birdOrders) {
+    if (o.status !== 'offer' || !matchesTarget(o, t) || busy() >= BIRD_ORDERS.maxActive) continue;
+    if (freeStock(s, o) + spareOf(s, t).length < Math.min(o.count, capacity)) continue;
+    o.status = 'active';
+    notify(s, `Le vendeur accepte la commande de ${o.client} : ${orderLabel(o)}.`, 'info', '🚚');
+  }
+  // et dès que tout est prêt, le camion
+  for (const o of [...s.birdOrders]) {
+    if (o.status !== 'active' || !matchesTarget(o, t)) continue;
+    const have = freeStock(s, o);
+    const need = Math.min(o.count, capacity);
+    if (have < need && !spareOf(s, t).length) {
+      // des clients sont passés entre-temps : il livre ce qu'il reste, ou prévient le revendeur
+      if (have > 0) o.count = have;
+      else {
+        cancelBirdOrder(s, o.id);
+        continue;
+      }
+    }
+    if (checkCallTruck(s, o).ok) callTruck(s, o.id);
+  }
+}
+
+/** Chaque heure : le vendeur remet en vente ce qu'on lui a demandé, ou gère tout en mode automatique. */
+export function petShopHourly(s: GameState) {
+  if (!s.petShop.seller || !petShopOf(s)) return;
+  if (sellerAutoOn(s)) {
+    if (s.petShop.priority) autoDealer(s, s.petShop.priority);
+    return;
+  }
+  if (!s.petShop.restock) return;
+  let quota = PETSHOP.sellerPerHour;
+  // d'abord la race qu'on lui a demandée, puis le reste comme d'habitude
+  if (s.petShop.priority)
+    for (const h of spareOf(s, s.petShop.priority)) {
+      if (quota <= 0 || petRoom(s) <= 0) break;
+      moveToShop(s, h);
+      quota--;
+    }
   for (const goose of [false, true]) {
     const flock = s.hens.filter((h) => isGoose(h.breed) === goose && !h.young && !h.rooster);
     const keep = goose ? Math.min(petKeep(s), PETSHOP.keepGeese) : petKeep(s);
@@ -396,7 +506,8 @@ export const orderStock = (s: GameState, o: OrderKind) => s.petShop.birds.filter
 /** Comment la commande se nomme, sans jamais prendre une oie pour une poule. */
 export const orderWord = (o: OrderKind & { count: number }) => (o.black ? `coq${o.count > 1 ? 's' : ''} noir${o.count > 1 ? 's' : ''}` : birdWord(o.goose, o.count, !!o.male));
 export function orderLabel(o: OrderKind & { count: number }) {
-  if (o.black || o.male) return `${o.count} ${orderWord(o)}`;
+  if (o.black) return `${o.count} ${orderWord(o)}`;
+  if (o.male) return `${o.count} ${orderWord(o)}${o.breed ? ` ${BREEDS[o.breed].name}` : ''}`;
   if (o.goose) return `${o.count} ${birdWord(true, o.count)}`;
   return o.breed ? `${o.count} ${BREEDS[o.breed].name}` : `${o.count} ${birdWord(false, o.count)} pondeuses`;
 }
@@ -622,7 +733,10 @@ function finishLoad(s: GameState) {
 
 /** La volaille prend le chemin du camion. */
 function reserve(s: GameState, o: BirdOrder, need: number, ids: number[]) {
-  const list = s.petShop.birds.filter(orderHens(o)).sort(weakestFirst).slice(0, need);
+  // (en mode automatique, ce que le vendeur a pour mission de vendre part en premier)
+  const first = sellerAutoOn(s) ? s.petShop.priority : undefined;
+  const rank = (h: Hen) => (first && isTarget(first)(h) ? 0 : 1);
+  const list = s.petShop.birds.filter(orderHens(o)).sort((a, b) => rank(a) - rank(b) || weakestFirst(a, b)).slice(0, need);
   for (const h of list) {
     h.ship = true;
     ids.push(h.id);

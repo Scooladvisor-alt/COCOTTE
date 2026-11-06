@@ -289,12 +289,16 @@ export function eggGeometry(type: EggType) {
       const n = l.attributes.position.count;
       const arr = new Float32Array(n * 3);
       for (let i = 0; i < n; i++) (arr[i * 3] = c.r), (arr[i * 3 + 1] = c.g), (arr[i * 3 + 2] = c.b);
-      // l'œuf de phénix est un dégradé de braise : cramoisi en bas, doré en haut
+      // l'œuf légendaire : émeraude en bas, rose au milieu, rouge au sommet
       if (type === 'phenix') {
-        const low = new THREE.Color(0xb3160f);
-        const high = new THREE.Color(0xffc93a);
+        const low = new THREE.Color(0x12a06a);
+        const mid = new THREE.Color(0xf4569a);
+        const high = new THREE.Color(0xe0243e);
         const pos = l.attributes.position;
-        for (let i = 0; i < n; i++) low.clone().lerp(high, Math.min(1, pos.getY(i) / 0.22)).toArray(arr, i * 3);
+        for (let i = 0; i < n; i++) {
+          const k = Math.min(1, pos.getY(i) / 0.22);
+          (k < 0.5 ? low.clone().lerp(mid, k * 2) : mid.clone().lerp(high, k * 2 - 1)).toArray(arr, i * 3);
+        }
       }
       l.setAttribute('color', new THREE.BufferAttribute(arr, 3));
       l.deleteAttribute('uv');
@@ -307,8 +311,8 @@ export function eggGeometry(type: EggType) {
 export const EGG_MAT = new THREE.MeshLambertMaterial({ vertexColors: true });
 /** Œuf d'or : métal poli, reflets éclatants et légère lueur. */
 export const GOLD_EGG_MAT = new THREE.MeshPhongMaterial({ vertexColors: true, specular: 0xfff4c0, shininess: 110, emissive: 0x5a3c00 });
-/** Œuf de phénix : il rougeoie, comme une braise. */
-export const PHOENIX_EGG_MAT = new THREE.MeshPhongMaterial({ vertexColors: true, specular: 0xffe0a0, shininess: 80, emissive: 0x9c2c00 });
+/** Œuf légendaire : nacré, il accroche la lumière. */
+export const PHOENIX_EGG_MAT = new THREE.MeshPhongMaterial({ vertexColors: true, specular: 0xffffff, shininess: 90, emissive: 0x2a0a1c });
 /** Œufs oubliés au sol : ils ternissent puis verdissent avant de pourrir. */
 export const EGG_STALE_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, color: 0xc9bf98 });
 export const EGG_ROT_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, color: 0x8f9a5c });

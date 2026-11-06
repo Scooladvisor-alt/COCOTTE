@@ -48,6 +48,9 @@ import {
   unstockBirds,
   putBlackOnSale,
   cancelTruckCall,
+  buyPetAuto,
+  sellerAutoOn,
+  setPetPriority,
 } from '../src/sim/petshop';
 import { onlineIsNewer } from '../src/online/farms';
 import { canAfford, farmLevel, spend, today } from '../src/sim/economy';
@@ -4837,6 +4840,116 @@ describe('Commandes de revendeurs et camion', () => {
     expect(cancelTruckCall(s, b.id).ok).toBe(true);
     expect(b.status).toBe('active');
     expect(s.birdQueue).toEqual([c.id]);
+  });
+
+  describe('le vendeur : priorité et commandes automatiques', () => {
+    const mk = (s: GameState, breed: Hen['breed'], over: Partial<Hen> = {}) => {
+      const coop = buildingsOf(s, 'coop')[0];
+      const h = createHen(s, breed, coop, false, { at: [coop.x + 1, coop.z + 5] });
+      Object.assign(h, over);
+      s.hens.push(h);
+      return h;
+    };
+    const field = (seed: number) => {
+      const s = farm(seed);
+      s.hens.length = 0;
+      expect(hirePetSeller(s).ok).toBe(true);
+      setPetKeep(s, 0);
+      return s;
+    };
+
+    it('il met d’abord en vente la race qu’on lui indique, oies et coqs compris', () => {
+      const s = field(1650);
+      for (let i = 0; i < 10; i++) mk(s, 'rousse');
+      for (let i = 0; i < 4; i++) mk(s, 'leghorn');
+      for (let i = 0; i < 3; i++) mk(s, 'leghorn', { rooster: true });
+      for (let i = 0; i < 3; i++) mk(s, 'oie');
+      s.petShop.restock = true;
+      setPetPriority(s, { breed: 'leghorn', male: false });
+      // la première heure, les 4 leghorn passent avant les autres
+      expect(s.petShop.birds.filter((h) => h.breed === 'leghorn' && !h.rooster)).toHaveLength(4);
+      expect(s.petShop.birds.length).toBeLessThanOrEqual(PETSHOP.sellerPerHour);
+      // sans priorité, il ne touche jamais aux mâles ; avec, il laisse le dernier à la ferme
+      setPetPriority(s, { breed: 'leghorn', male: true });
+      expect(s.petShop.birds.filter((h) => h.rooster)).toHaveLength(2);
+      expect(s.hens.filter((h) => h.rooster)).toHaveLength(1);
+      s.petShop.birds.length = 0;
+      setPetPriority(s, { breed: 'oie', male: false });
+      expect(s.petShop.birds.filter((h) => h.breed === 'oie').length).toBeGreaterThan(0);
+    });
+
+    it('la priorité respecte le nombre à garder et les volailles rares', () => {
+      const s = field(1651);
+      for (let i = 0; i < 6; i++) mk(s, 'leghorn');
+      const rare = mk(s, 'leghorn', { genes: { p: 5, r: 3, b: 3 } });
+      setPetKeep(s, 4);
+      s.petShop.restock = true;
+      setPetPriority(s, { breed: 'leghorn', male: false });
+      expect(s.hens.filter((h) => !h.rooster && h.breed === 'leghorn')).toHaveLength(4);
+      expect(s.hens).toContain(rare);
+    });
+
+    it('l’option coûte 5 000 € et demande un vendeur', () => {
+      const s = farm(1652);
+      expect(buyPetAuto(s).ok).toBe(false);
+      hirePetSeller(s);
+      s.money = PETSHOP.autoPrice - 1;
+      expect(buyPetAuto(s).ok).toBe(false);
+      s.money = PETSHOP.autoPrice;
+      expect(PETSHOP.autoPrice).toBe(500000);
+      expect(buyPetAuto(s).ok).toBe(true);
+      expect(s.money).toBe(0);
+      expect(sellerAutoOn(s)).toBe(true);
+      expect(buyPetAuto(s).ok).toBe(false);
+      // elle reste acquise si on renvoie le vendeur, mais il n'y a plus personne pour s'en servir
+      firePetSeller(s);
+      expect(s.petShop.autoBought).toBe(true);
+      expect(sellerAutoOn(s)).toBe(false);
+      const back = deserialize(serialize(s))!;
+      expect(back.petShop.autoBought).toBe(true);
+    });
+
+    it('en automatique, il ne vend que cette race : il met en vente, accepte et fait venir le camion tout seul', () => {
+      const s = field(1653);
+      hire(s, 'farmhand');
+      run(s, 2 * HOUR);
+      for (let i = 0; i < 10; i++) mk(s, 'rousse', { rooster: true });
+      for (let i = 0; i < 12; i++) mk(s, 'leghorn', { rooster: true });
+      for (let i = 0; i < 6; i++) mk(s, 'rousse');
+      s.petShop.seller = true;
+      s.petShop.autoBought = true;
+      s.petShop.autoOn = true;
+      setPetPriority(s, { breed: 'leghorn', male: true });
+      // aucun clic sur une commande : il se débrouille
+      const done = () => s.stats.birdOrdersDone ?? 0;
+      for (let i = 0; i < 40000 && done() < 1; i++) run(s, 0.1);
+      expect(done()).toBeGreaterThan(0);
+      expect(s.stats.birdsSoldDealers ?? 0).toBeGreaterThan(0);
+      // seuls des coqs Leghorn ont quitté la ferme
+      expect(s.hens.filter((h) => h.breed === 'rousse' && h.rooster)).toHaveLength(10);
+      expect(s.hens.filter((h) => h.breed === 'rousse' && !h.rooster).length).toBe(6);
+      for (const h of s.petShop.birds) expect(h.breed === 'leghorn' && h.rooster).toBe(true);
+    });
+
+    it('il n’accepte ni la commande d’une autre race, ni un coq noir, et ne s’engage pas sans commis', () => {
+      const s = field(1654);
+      for (let i = 0; i < 8; i++) mk(s, 'leghorn');
+      const other = order(s, { id: 900200, status: 'offer', breed: 'rousse', count: 3 });
+      const black = order(s, { id: 900201, status: 'offer', black: true, count: 2 });
+      const same = order(s, { id: 900202, status: 'offer', breed: 'leghorn', count: 3 });
+      s.petShop.autoBought = true;
+      s.petShop.autoOn = true;
+      setPetPriority(s, { breed: 'leghorn', male: false });
+      // sans commis : il met en vente, mais n'accepte rien et n'appelle personne
+      expect(s.petShop.birds.length).toBeGreaterThan(0);
+      expect(same.status).toBe('offer');
+      expect(s.birdLoad).toBeNull();
+      hire(s, 'farmhand');
+      petShopHourly(s);
+      expect(same.status === 'loading' || same.status === 'queued').toBe(true);
+      expect(other.status).toBe('offer');
+      expect(black.status).toBe('offer');
+    });
   });
 
   it('sans commis, le camion repart à vide et la commande reste à livrer', () => {

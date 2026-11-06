@@ -361,6 +361,12 @@ export function sanitize(input: unknown): GameState | null {
     if (bool(pet.restock, false)) s.petShop.restock = true;
   }
   if (typeof pet.keep === 'number') s.petShop.keep = int(pet.keep, 30, 0, 100000);
+  const rawPriority = obj(pet.priority);
+  if (BREEDS[rawPriority.breed as BreedId]) s.petShop.priority = { breed: rawPriority.breed as BreedId, male: bool(rawPriority.male, false) };
+  if (bool(pet.autoBought, false)) {
+    s.petShop.autoBought = true;
+    if (bool(pet.autoOn, false)) s.petShop.autoOn = true;
+  }
   if (bool(pet.announced, false)) s.petShop.announced = true;
   if (typeof pet.soldDay === 'number') {
     s.petShop.soldDay = int(pet.soldDay, 0, 0);
@@ -410,7 +416,7 @@ export function sanitize(input: unknown): GameState | null {
   for (const re of arr(raw.worldEggs)) {
     const e = obj(re);
     const type = e.type as EggType;
-    // l'œuf d'or ou de phénix encore au pondoir ne se perd pas au rechargement
+    // l'œuf d'or ou légendaire encore au pondoir ne se perd pas au rechargement
     if (!EGG_TYPES[type]) continue;
     const id = int(e.id, -1);
     if (id < 0 || seen.has(id)) continue;

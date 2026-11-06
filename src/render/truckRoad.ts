@@ -108,7 +108,14 @@ export function nearTruckRoad(x: number, z: number, m = 1.5) {
 
 /** Touffes d'herbe du milieu du chemin et de ses bords (herbe du pré, ondulant au vent). */
 export function roadsideTufts(): Array<[number, number, number, number]> {
+  // (aucune touffe sur l'enrobé de la route)
   const out: Array<[number, number, number, number]> = [];
+  const edge = WORLD.ROAD_Z - WORLD.ROAD_HALF - 0.3;
+  const push = out.push.bind(out);
+  out.push = (...t) => {
+    for (const q of t) if (q[1] < edge) push(q);
+    return out.length;
+  };
   const seed = 3;
   for (let i = 4; i < branch.length - 2; i += 2) {
     const [x, z] = branch[i];
@@ -116,7 +123,7 @@ export function roadsideTufts(): Array<[number, number, number, number]> {
     const [nx, nz] = normalAt(branch, i);
     const k = i * 0.61 + seed;
     // au milieu : par touffes, là où les roues ne passent pas
-    if (wave(i * 0.11, seed) > 0.42) out.push([x + nx * (hash(k) - 0.5) * 0.2, z + nz * (hash(k) - 0.5) * 0.2, hash(k * 3) * 6.28, 0.55 + hash(k * 5) * 0.3]);
+    if (wave(i * 0.11, seed) > 0.42) out.push([x + nx * (hash(k) - 0.5) * 0.2, z + nz * (hash(k) - 0.5) * 0.2, hash(k * 3) * 6.28, 0.32 + hash(k * 5) * 0.14]);
     // sur les bords : plus hautes, plus serrées
     for (const sd of [-1, 1]) {
       const u = 1.32 + hash(k * sd + 11) * 0.5;

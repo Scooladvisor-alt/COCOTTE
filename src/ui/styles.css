@@ -3315,15 +3315,25 @@ kbd {
   border-radius: 50%;
   background: #e99a2c;
 }
-/* couveuse en marche : écriteau calme, bleuté (rien à faire, juste l'information) */
-.wl.todo.calm {
-  color: #2f4a8a;
-  background: rgba(240, 245, 255, 0.96);
-  box-shadow: 0 0 0 1.5px #b9cbf5, 0 2px 6px rgba(60, 50, 30, 0.12);
+/* œuf qui va pourrir : un petit point discret au-dessus de l'œuf (la zone cliquable reste plus large) */
+.wl.egg-warn {
+  padding: 5px;
+  background: none;
+  box-shadow: none;
 }
-.wl.todo.calm i {
-  background: #ffb25a;
-  box-shadow: 0 0 6px rgba(255, 178, 90, 0.9);
+.wl.egg-warn i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e5484d;
+  box-shadow: 0 0 0 1.5px rgba(255, 255, 255, 0.9);
+  animation: eggWarn 2.4s ease-in-out infinite;
+}
+@keyframes eggWarn {
+  50% {
+    opacity: 0.55;
+  }
 }
 .wl.todo.urgent {
   color: #b42328;
@@ -7979,6 +7989,10 @@ body {
 .seller-top small { opacity: 0.75; }
 .seller .toggle.restock { margin: 0; }
 .seller-keep { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 13px; }
+.seller-keep select { max-width: 62%; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(0, 0, 0, 0.18); background: #fff; font: inherit; font-weight: 700; }
+.seller-auto { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 8px; border-top: 1px solid rgba(47, 111, 78, 0.16); }
+.seller-auto span { display: flex; flex-direction: column; min-width: 0; }
+.seller-auto small { opacity: 0.75; }
 .seller-keep input { width: 92px; padding: 6px 8px; border-radius: 8px; border: 1px solid rgba(0, 0, 0, 0.18); background: #fff; font: inherit; font-weight: 700; text-align: right; }
 .worker-skills { margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
 .worker-skills h5 { margin: 0 0 2px; }

@@ -20,7 +20,7 @@ import { PREDATOR_INFO, livePredators, setPredatorsQuiet, shootPredator } from '
 import { getBuilding, lvl, storageCapacity, storedCount } from './sim/queries';
 import { deliverOrder } from './sim/market';
 import { createShowcase } from './sim/showcase';
-import { fertileStock, hatchesGeese, isIncubator, nextHatchIn } from './sim/breeding';
+import { fertileStock, hatchesGeese, isIncubator } from './sim/breeding';
 import { isTreasure } from './sim/eggs';
 import { advance, advanceRealtime, canSkipNight, simulateOffline, skipNight, type OfflineSummary } from './sim/simulation';
 import type { ActionResult, BuildingType, GameEvent, GameState, NotifyAction, ShowResult } from './sim/types';
@@ -642,10 +642,10 @@ export class Game {
         break;
       }
       case 'phoenix':
-        // gerbe de flammes : la poule légendaire pond, ou renaît de ses cendres
-        for (const col of [0xffd24a, 0xff8a1f, 0xff3d12]) R.particles.burst(e.x, 0.3, e.z, col, e.big ? 26 : 8, { speed: e.big ? 1.5 : 0.7, up: e.big ? 2.8 : 1.6, gravity: 1.2, life: e.big ? 1.8 : 1.1 });
+        // gerbe d'éclats vert, rose et rouge : la poule légendaire pond, ou se relève
+        for (const col of [0x4fd68f, 0xff7ab8, 0xff3d5a]) R.particles.burst(e.x, 0.3, e.z, col, e.big ? 26 : 8, { speed: e.big ? 1.5 : 0.7, up: e.big ? 2.8 : 1.6, gravity: 1.2, life: e.big ? 1.8 : 1.1 });
         if (e.big) {
-          R.labels.float(e.x, 1.4, e.z, 'Elle renaît !', 'egg');
+          R.labels.float(e.x, 1.4, e.z, 'Elle se relève !', 'egg');
           sound.play('crow');
         }
         break;
@@ -838,18 +838,11 @@ export class Game {
         text = 'À nettoyer';
         urgent = b.cleanliness < 20;
       } else if (b.type === 'nest' && b.eggIds.length >= L1.capacity) text = 'Plein · à ramasser';
-      else if (isIncubator(b) && (b.hatch?.length || fertileStock(s, hatchesGeese(b)) > 0)) {
-        // couveuse : combien d'œufs couvent et quand ils éclosent (ou des œufs qui attendent d'y entrer)
-        const n = b.hatch?.length ?? 0;
-        const left = nextHatchIn(s, b);
-        if (n) text = `${n} œuf${n > 1 ? 's' : ''} · ${left !== null && left < 1 ? 'éclosion imminente' : `${n > 1 ? '1re éclosion' : 'éclosion'} dans ${Math.ceil(left ?? 0)} j`}`;
-        else if (b.auto === false) {
-          const stock = fertileStock(s, hatchesGeese(b));
-          text = `${stock} œuf${stock > 1 ? 's' : ''} fécondé${stock > 1 ? 's' : ''} à placer`;
-        }
-        else continue;
+      else if (isIncubator(b) && !b.hatch?.length && b.auto === false && fertileStock(s, hatchesGeese(b)) > 0) {
+        // couveuse en mode manuel : des œufs attendent qu'on les y place (ce qu'elle couve se lit en cliquant dessus)
+        const stock = fertileStock(s, hatchesGeese(b));
         const c = buildingCenter(b);
-        L.set(`b${b.id}`, c.x, 1.25, c.z, `<i></i>${text}`, n ? 'todo calm' : 'todo');
+        L.set(`b${b.id}`, c.x, 1.25, c.z, `<i></i>${stock} œuf${stock > 1 ? 's' : ''} à placer`, 'todo');
         continue;
       }
       else if (b.type === 'storage' && storedCount(s) >= storageCapacity(s)) text = 'Stockage plein';
@@ -861,7 +854,7 @@ export class Game {
     // œufs pondus au sol qui vont bientôt pourrir
     for (const e of s.worldEggs) {
       if (e.where !== 'ground' || isTreasure(e.type) || s.clock.t - e.laidAt < FRESHNESS.groundWarnDays * TIME.DAY) continue;
-      L.set(`e${e.id}`, e.x, 0.55, e.z, '<i></i>Va pourrir', 'todo urgent');
+      L.set(`e${e.id}`, e.x, 0.42, e.z, '<i title="Cet œuf va pourrir : cliquez pour le ramasser"></i>', 'egg-warn');
     }
   }
 

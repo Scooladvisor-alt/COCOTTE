@@ -662,7 +662,7 @@ function HenCard({ h }: { h: Hen }) {
           )}
           <div class="chips">
             {!isGoose(h.breed) && <Chip>{b.name}</Chip>}
-            {h.legendary ? <Chip tone="warn">Poule légendaire · immortelle, un œuf de phénix tous les 4 jours</Chip> : h.golden ? <Chip tone="warn">Poule aux œufs d’or · un œuf d’or tous les 2 jours</Chip> : h.black ? <Chip tone="warn">Entièrement noir · rarissime</Chip> : h.skin ? <Chip>{skinName(h.breed, h.skin)}</Chip> : null}
+            {h.legendary ? <Chip tone="warn">Poule légendaire · immortelle, un œuf légendaire tous les 4 jours</Chip> : h.golden ? <Chip tone="warn">Poule aux œufs d’or · un œuf d’or tous les 2 jours</Chip> : h.black ? <Chip tone="warn">Entièrement noir · rarissime</Chip> : h.skin ? <Chip>{skinName(h.breed, h.skin)}</Chip> : null}
             {isGoose(h.breed) && growthStage(h) >= 3 ? <span class={`sex-chip ${h.rooster ? 'male' : 'female'}`}>{h.rooster ? '♂' : '♀'} {birdRole(h)}</span> : (h.rooster || h.young) && <Chip tone="blue">{birdRole(h)}</Chip>}
             <Chip tone={st.tone}>{st.label}</Chip>
           </div>

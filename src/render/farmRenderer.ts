@@ -244,7 +244,7 @@ const ray = new THREE.Raycaster();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -GRASS_TOP);
 
 /** Lueur dorée au sol (dégradé de la lanterne, teinté d'or, en mélange additif). */
-const LEGEND_GLOW = new THREE.MeshBasicMaterial({ map: LANTERN_GLOW.map, color: 0xff6a1e, transparent: true, opacity: 0.8, depthWrite: false, blending: THREE.AdditiveBlending });
+const LEGEND_GLOW = new THREE.MeshBasicMaterial({ map: LANTERN_GLOW.map, color: 0xff7ab8, transparent: true, opacity: 0.3, depthWrite: false, blending: THREE.AdditiveBlending });
 const GOLD_GLOW = new THREE.MeshBasicMaterial({ map: LANTERN_GLOW.map, color: 0xffc94a, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending });
 
 function hash(i: number) {
@@ -1243,9 +1243,9 @@ export class FarmRenderer {
       }
       v.key = key;
       this.animateHen(s, h, v, dt, alpha);
-      // la poule légendaire laisse monter des braises
-      if (h.legendary && v.root.visible && Math.random() < dt * 16) {
-        const ember = [0xffd24a, 0xff8a1f, 0xff4a12][Math.floor(Math.random() * 3)];
+      // autour de la poule légendaire, de temps en temps, un éclat vert, rose ou rouge
+      if (h.legendary && v.root.visible && Math.random() < dt * 1.2) {
+        const ember = [0x4fd68f, 0xff7ab8, 0xff4a62][Math.floor(Math.random() * 3)];
         this.particles.burst(v.root.position.x + (Math.random() - 0.5) * 0.5, 0.15 + Math.random() * 0.5, v.root.position.z + (Math.random() - 0.5) * 0.5, ember, 1, { speed: 0.25, up: 1.1, gravity: -0.1, size: 0.7, life: 1.3 });
       }
       // la poule aux œufs d'or scintille
@@ -1262,7 +1262,7 @@ export class FarmRenderer {
         }
         glow.visible = v.root.visible;
         glow.position.set(v.root.position.x, GRASS_TOP + 0.02, v.root.position.z);
-        glow.scale.setScalar((h.legendary ? 1.75 + Math.sin(this.time * 7 + h.id) * 0.1 : 0.9) + Math.sin(this.time * 2.3 + h.id) * 0.08);
+        glow.scale.setScalar((h.legendary ? 1.7 : 0.9) + Math.sin(this.time * 2.3 + h.id) * 0.08);
       }
       if (h.young) {
         v.headPivot.scale.setScalar(headScale(h));
@@ -1410,7 +1410,8 @@ export class FarmRenderer {
     v.vis = h.act === 'sleep' || coopWay?.inside ? 0 : 1;
     v.spawn = Math.min(1, v.spawn + dt * 2.5);
     const grow = v.spawn < 1 ? 0.3 + 0.7 * Math.sin((v.spawn * Math.PI) / 2) : 1;
-    v.root.scale.setScalar(v.size * growthScale(h) * grow * Math.max(0.001, v.vis) * (h.health < 30 ? 0.94 : 1));
+    // (la poule légendaire est nettement plus grosse que les autres)
+    v.root.scale.setScalar(v.size * (h.legendary ? 1.6 : 1) * growthScale(h) * grow * Math.max(0.001, v.vis) * (h.health < 30 ? 0.94 : 1));
     v.root.visible = v.vis > 0.03;
     if (!v.root.visible) return;
 

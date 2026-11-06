@@ -106,7 +106,7 @@ export class LabelLayer {
       const lw = p.l.w || 80;
       const lh = (p.l.h || 24) + 3;
       let target = 0;
-      if (!/bubble|mood|need|egg-dot/.test(p.l.cls)) {
+      if (!/bubble|mood|need|egg-dot|egg-warn/.test(p.l.cls)) {
         for (let k = 0; k < 6; k++) {
           const y1 = p.y + target;
           const y0 = y1 - lh;

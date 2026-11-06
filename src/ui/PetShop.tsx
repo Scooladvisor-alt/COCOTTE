@@ -9,6 +9,10 @@ import { fmtMoney, today } from '../sim/economy';
 import {
   acceptBirdOrder,
   birdPrice,
+  buyPetAuto,
+  sellerAutoOn,
+  setPetPriority,
+  togglePetAuto,
   birdWord,
   flockBlack,
   orderWord,
@@ -131,6 +135,7 @@ export function SellerCard() {
   const s = game.state;
   const P = s.petShop;
   const keep = petKeep(s);
+  const auto = sellerAutoOn(s);
   // (le temps de la saisie, le champ garde ce qu'on tape, même vide : la partie continue de tourner derrière)
   const [draft, setDraft] = useState<string | null>(null);
   return (
@@ -152,14 +157,17 @@ export function SellerCard() {
       </div>
       {P.seller && (
         <>
-          <label class="toggle restock">
-            <input type="checkbox" checked={!!P.restock} onChange={() => (togglePetRestock(s), game.changed())} />
-            <span>
-              <b>Il remet des volailles à vendre</b>
-              <small>Toujours les moins performantes, jamais une volaille rare (reproductrice {PETSHOP.rareStars} étoiles ou plus, poule d’or, légendaire).</small>
-            </span>
-          </label>
-          {P.restock && (
+          {!auto && (
+            <label class="toggle restock">
+              <input type="checkbox" checked={!!P.restock} onChange={() => (togglePetRestock(s), game.changed())} />
+              <span>
+                <b>Il remet des volailles à vendre</b>
+                <small>Toujours les moins performantes, jamais une volaille rare (reproductrice {PETSHOP.rareStars} étoiles ou plus, poule d’or, légendaire).</small>
+              </span>
+            </label>
+          )}
+          {(P.restock || auto) && <TargetPick auto={auto} />}
+          {(P.restock || auto) && (
             <label class="seller-keep">
               <span>Poules à garder au minimum à la ferme</span>
               <input
@@ -182,9 +190,67 @@ export function SellerCard() {
               />
             </label>
           )}
+          {P.autoBought ? (
+            <label class="toggle restock">
+              <input type="checkbox" checked={!!P.autoOn} onChange={() => (togglePetAuto(s), game.changed())} />
+              <span>
+                <b>Commandes automatiques</b>
+                <small>Il met en vente la race choisie et rien d’autre, accepte les commandes de cette race et appelle les camions tout seul.</small>
+              </span>
+            </label>
+          ) : (
+            <div class="seller-auto">
+              <span>
+                <b>Commandes automatiques</b>
+                <small>Il met en vente la race que vous choisissez, accepte les commandes de cette race et appelle les camions tout seul.</small>
+              </span>
+              <Btn kind="primary" small disabled={s.money < PETSHOP.autoPrice} title={s.money < PETSHOP.autoPrice ? 'Fonds insuffisants' : undefined} onClick={() => game.act(() => buyPetAuto(s), 'build')}>
+                Acheter · {fmtMoney(PETSHOP.autoPrice)}
+              </Btn>
+            </div>
+          )}
+          {auto && !P.priority && <small class="hint warn">Choisissez la race à vendre : il attend vos instructions.</small>}
+          {auto && !hasRole(s, 'farmhand') && <small class="hint warn">Il met en vente, mais il lui faut un commis de ferme pour charger les camions.</small>}
         </>
       )}
     </div>
+  );
+}
+
+/** Le choix de ce que le vendeur met en vente : chaque race de poules, d'oies, de coqs ou de jars. */
+function TargetPick({ auto }: { auto: boolean }) {
+  const game = useGame();
+  const s = game.state;
+  const P = s.petShop;
+  const groups: Array<[string, boolean, boolean]> = [
+    ['Poules', false, false],
+    ['Oies', true, false],
+    ['Coqs', false, true],
+    ['Jars', true, true],
+  ];
+  return (
+    <label class="seller-keep">
+      <span>{auto ? 'Race à vendre' : 'À vendre en priorité'}</span>
+      <select
+        value={P.priority ? `${P.priority.breed}|${P.priority.male ? 1 : 0}` : ''}
+        onChange={(e) => {
+          const [breed, male] = (e.target as HTMLSelectElement).value.split('|');
+          setPetPriority(s, breed ? { breed: breed as BreedId, male: male === '1' } : null);
+          game.changed();
+        }}
+      >
+        <option value="">{auto ? 'Choisir…' : 'Aucune en particulier'}</option>
+        {groups.map(([label, goose, male]) => (
+          <optgroup key={label} label={label}>
+            {BREED_ORDER.filter((b) => isGoose(b) === goose).map((b) => (
+              <option key={b} value={`${b}|${male ? 1 : 0}`}>
+                {goose ? label : BREEDS[b].name} ({flockOf(s, b, male).length})
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    </label>
   );
 }
 

@@ -106,9 +106,9 @@ export function createHen(s: GameState, breed: BreedId, coop: Building, quickFir
       h.legendary = true;
       notify(
         s,
-        `Légendaire ! ${h.name} est une poule phénix, la plus rare de toutes ! Immortelle, elle pondra des œufs de phénix (${fmtMoney(RARE.phoenixEggPrice)} pièce) et son aura apaisera tout le troupeau.`,
+        `Légendaire ! ${h.name} est la poule légendaire, la plus rare de toutes ! Immortelle, elle pondra des œufs légendaires (${fmtMoney(RARE.phoenixEggPrice)} pièce) et son aura apaisera tout le troupeau.`,
         'good',
-        '🔥',
+        '✨',
       );
     } else if (opts.golden ?? hatched < RARE.legendaryHenHatch + RARE.goldenHenHatch) {
       h.golden = true;
@@ -189,7 +189,7 @@ export function blackValue(h: Pick<Hen, 'id'>) {
 export function henValue(h: Hen) {
   const b = BREEDS[h.breed];
   if (h.legendary) {
-    // inestimable, ou presque : la santé n'y change rien, elle renaît toujours
+    // inestimable, ou presque : la santé n'y change rien, elle se relève toujours
     const grown = h.young ? 0.35 + 0.65 * (1 - h.young / BREEDING.growthDays) : 1;
     return Math.round((RARE.legendaryHenValue * grown) / 100) * 100;
   }
@@ -377,14 +377,14 @@ function vitalsTick(s: GameState, dt: number) {
       }
     }
     if (h.health <= 0 && h.legendary) {
-      // elle s'éteint… et renaît aussitôt de ses cendres
+      // elle s'effondre… et se relève aussitôt
       h.health = 100;
       h.satiety = 100;
       h.hydration = 100;
       h.wellbeing = Math.max(h.wellbeing, 80);
       h.sick = false;
       emit(s, { kind: 'phoenix', x: h.x, z: h.z, big: true });
-      notify(s, `${h.name} s’est éteinte… puis renaît de ses cendres, plus belle que jamais !`, 'good', '🔥');
+      notify(s, `${h.name} s’est effondrée… puis se relève, plus belle que jamais : on ne tue pas une légende !`, 'good', '✨');
     } else if (h.health <= 0) {
       const cause = h.hydration < HEALTH.starvingAt ? 'de soif' : h.satiety < HEALTH.starvingAt ? 'de faim' : h.sick ? 'de maladie' : 'de mauvaises conditions';
       dead.push([h, cause]);

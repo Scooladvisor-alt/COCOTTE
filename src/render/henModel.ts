@@ -66,30 +66,28 @@ GOLD_HEN_MAT.onBeforeCompile = (sh) => {
   );
 };
 
-/** Horloge des flammes de la poule légendaire (réglée à chaque image par le rendu). */
+/** Horloge des reflets de la poule légendaire (réglée à chaque image par le rendu). */
 export const LEGEND_TIME = { value: 0 };
 /**
- * Plumes de feu de la poule légendaire : des vagues de flammes montent sans cesse le long du
- * plumage, et le contour rougeoie (visibles de jour, éclatantes la nuit).
+ * Plumage de la poule légendaire : nacré comme celui d'un paon, un reflet vert et rose glisse doucement sur
+ * le contour de la poule, sans jamais changer ses couleurs. De jour comme de nuit, elle se détache du pré.
  */
-export const LEGEND_HEN_MAT = new THREE.MeshPhongMaterial({ vertexColors: true, specular: 0xffd9a0, shininess: 40, emissive: 0x3a0a00 });
+export const LEGEND_HEN_MAT = new THREE.MeshPhongMaterial({ vertexColors: true, specular: 0x4a4048, shininess: 26, emissive: 0x000000 });
 LEGEND_HEN_MAT.onBeforeCompile = (sh) => {
   sh.uniforms.uRim = HEN_RIM;
-  sh.uniforms.uFlame = LEGEND_TIME;
+  sh.uniforms.uShine = LEGEND_TIME;
   sh.vertexShader = sh.vertexShader
-    .replace('#include <common>', '#include <common>\nvarying vec3 vFlame;')
-    .replace('#include <begin_vertex>', '#include <begin_vertex>\n      vFlame = position;');
+    .replace('#include <common>', '#include <common>\nvarying vec3 vShine;')
+    .replace('#include <begin_vertex>', '#include <begin_vertex>\n      vShine = position;');
   sh.fragmentShader = sh.fragmentShader
-    .replace('#include <common>', '#include <common>\nuniform float uRim;\nuniform float uFlame;\nvarying vec3 vFlame;')
+    .replace('#include <common>', '#include <common>\nuniform float uRim;\nuniform float uShine;\nvarying vec3 vShine;')
     .replace(
       '#include <emissivemap_fragment>',
       `#include <emissivemap_fragment>
       vec3 rimV = isOrthographic ? vec3( 0.0, 0.0, 1.0 ) : normalize( vViewPosition );
-      float rimK = pow( 1.0 - saturate( dot( normal, rimV ) ), 2.0 );
-      float wave = sin( vFlame.y * 46.0 + vFlame.z * 18.0 - uFlame * 5.2 + sin( vFlame.x * 30.0 + uFlame * 1.7 ) * 1.5 ) * 0.5 + 0.5;
-      float lick = pow( wave, 3.0 );
-      totalEmissiveRadiance += mix( vec3( 0.95, 0.2, 0.02 ), vec3( 1.0, 0.72, 0.16 ), lick ) * ( 0.1 + lick * 0.62 );
-      totalEmissiveRadiance += vec3( 1.0, 0.45, 0.08 ) * rimK * ( 0.55 + uRim );`,
+      float rimK = pow( 1.0 - saturate( dot( normal, rimV ) ), 2.2 );
+      float shift = sin( vShine.y * 7.0 + vShine.z * 6.0 + vShine.x * 5.0 + uShine * 0.9 ) * 0.5 + 0.5;
+      totalEmissiveRadiance += mix( vec3( 0.1, 0.8, 0.5 ), vec3( 1.0, 0.3, 0.62 ), shift ) * rimK * ( 0.1 + uRim * 0.6 );`,
     );
 };
 
@@ -1027,42 +1025,44 @@ function chickGeometry(breed: BreedId, stage: number, skin = 0): HenGeo {
   return { body, head, wingL: wing(1), wingR: wing(-1), leg: legGeo(L, false, 0, true), eyes: merge(eyeParts), eyeAt: [eyeY, eyeZ] };
 }
 
-// ========================================================= POULE PHÉNIX ====
-/** Dégradé d'une plume de feu : cramoisi à la base, orangé, puis pointe dorée. */
-const flamePlume = (t: number, _a: number, c: THREE.Color) => {
-  c.setHex(0xa3141c);
-  mixIn(c, 0xff5a12, ss(0.08, 0.5, t));
-  mixIn(c, 0xffc62e, ss(0.55, 0.92, t));
-};
-
-/** Longue traîne de la poule légendaire : sept plumes qui montent, s'arrondissent et retombent. */
-function phoenixPlumes(growth: number): THREE.BufferGeometry[] {
+// ===================================================== POULE LÉGENDAIRE ====
+/** Une grande queue en éventail, comme une poule qui fait la roue : plumes larges, émeraude, roses et rouges. */
+function legendFan(growth: number): THREE.BufferGeometry[] {
   const parts: THREE.BufferGeometry[] = [];
   const g = Math.max(0.15, growth);
-  for (let k = -3; k <= 3; k++) {
-    const a = k / 3;
-    const b: V3 = [a * 0.03, 0.36 - Math.abs(a) * 0.02, -0.17];
+  const COLORS: Array<[number, number]> = [
+    [0x086e48, 0x12b070],
+    [0xe02a7c, 0xff6aa8],
+    [0xb00f2e, 0xee2a44],
+  ];
+  // de l'extérieur vers le centre : celles du milieu passent devant
+  for (const k of [-5, 5, -4, 4, -3, 3, -2, 2, -1, 1, 0]) {
+    const a = k / 5;
+    const b: V3 = [a * 0.05, 0.37 - Math.abs(a) * 0.035, -0.17];
     const at = (x: number, y: number, z: number): V3 => [b[0] + (x - b[0]) * g, b[1] + (y - b[1]) * g, b[2] + (z - b[2]) * g];
-    const drop = Math.abs(a) * 0.07;
-    const pts: V3[] = [b, at(a * 0.075, 0.47 - drop * 0.3, -0.26), at(a * 0.14, 0.52 - drop, -0.42), at(a * 0.19, 0.44 - drop * 1.2, -0.58), at(a * 0.22, 0.3 - drop * 1.2, -0.68)];
-    parts.push(ribbon(pts, (t) => (0.016 + 0.024 * ss(0.35, 0.85, t)) * featherW(t), [1, 0, a * 0.4], flamePlume, 14, 0.16));
+    const drop = a * a * 0.17;
+    const [c0, c1] = COLORS[Math.abs(k) % 3];
+    const pts: V3[] = [b, at(a * 0.11, 0.48 - drop * 0.4, -0.235), at(a * 0.22, 0.585 - drop, -0.285), at(a * 0.3, 0.655 - drop * 1.25, -0.31)];
+    parts.push(ribbon(pts, (t) => 0.056 * featherW(t), [1, a * 0.5, a * 0.35], (t, j, c) => {
+      c.setHex(c0);
+      mixIn(c, c1, ss(0.35, 0.82, t));
+      // un liseré d'or au bout de chaque plume
+      mixIn(c, 0xf2c23e, ss(0.88, 0.98, t));
+      if (j === 0) c.multiplyScalar(1.08);
+    }, 12, 0.14));
   }
   return parts;
 }
 
-/** Aigrette dorée sur la tête (repère du cou) : cinq brins terminés par une goutte de feu. */
-function phoenixCrown(): THREE.BufferGeometry[] {
+/** Une petite huppe bien fournie derrière la crête (repère du cou), rose et verte. */
+function legendCrest(): THREE.BufferGeometry[] {
   const parts: THREE.BufferGeometry[] = [];
-  for (let k = -2; k <= 2; k++) {
-    const a = k / 2;
-    const b: V3 = [a * 0.012, 0.19, 0.055 - Math.abs(a) * 0.01];
-    const tip: V3 = [a * 0.062, 0.312 - Math.abs(a) * 0.022, 0.012 - Math.abs(a) * 0.012];
-    parts.push(ribbon([b, [a * 0.034, 0.25, 0.038], tip], (t) => 0.005 + 0.004 * t, [1, 0, 0], grad(0xffb02e, 0xffe27a), 6, 0.1));
-    parts.push(blob([0.013, 0.019, 0.012], tip, (p, n, c) => {
-      c.setHex(0xff6a12);
-      mixIn(c, 0xffe27a, ss(tip[1] - 0.012, tip[1] + 0.016, p.y));
-      occlude(c, n, 0.1);
-    }, 8));
+  for (let k = -3; k <= 3; k++) {
+    const a = k / 3;
+    const b: V3 = [a * 0.03, 0.175, 0.025 - Math.abs(a) * 0.012];
+    const tip: V3 = [a * 0.105, 0.262 - Math.abs(a) * 0.04, -0.075 + Math.abs(a) * 0.01];
+    const mid: V3 = [a * 0.07, 0.25 - Math.abs(a) * 0.02, -0.015];
+    parts.push(ribbon([b, mid, tip], (t) => 0.021 * featherW(t), [1, 0, a * 0.3], grad(k % 2 ? 0xe02a7c : 0xc8143c, k % 2 ? 0xff6aa8 : 0x12b070), 7, 0.1));
   }
   return parts;
 }
@@ -1106,15 +1106,17 @@ export function henGeometry(breed: BreedId, kind: HenKind = 'hen', stage = ADULT
     else body.push(...henTail(L, J));
   }
   const legend = skin === LEGEND_SKIN;
-  if (legend) body.push(...phoenixPlumes(J.tail));
+  if (legend) body.push(...legendFan(J.tail));
   const bodyGeo = merge(body);
   bodyGeo.translate(0, -HEN_PIVOT.body, 0);
+  // une poule bien en chair, large de poitrine
+  if (legend) bodyGeo.scale(1.14, 1.1, 1.08);
 
   const g: HenGeo = {
     body: bodyGeo,
     ...(() => {
       const hg = headGeo(L, breed, rooster, J, stage, combCol);
-      return { head: legend && stage >= 5 ? merge([hg.head, ...phoenixCrown()]) : hg.head, eyes: hg.eyes, eyeAt: EYE_AT };
+      return { head: legend && stage >= 5 ? merge([hg.head, ...legendCrest()]) : hg.head, eyes: hg.eyes, eyeAt: EYE_AT };
     })(),
     wingL: wingGeo(L, 1, !!L.fluffy),
     wingR: wingGeo(L, -1, !!L.fluffy),

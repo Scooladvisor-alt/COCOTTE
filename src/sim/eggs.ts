@@ -8,7 +8,7 @@ import { getBuilding, lvl, storage, storageFree } from './queries';
 import type { BreedId, Building, EggType, GameState, Grade, Hen, WorldEgg } from './types';
 import { fertilize } from './breeding';
 
-/** Œuf d'or ou de phénix : il ne s'abîme pas et ne passe ni par le stockage ni par le marché. */
+/** Œuf d'or ou légendaire : il ne s'abîme pas et ne passe ni par le stockage ni par le marché. */
 export const isTreasure = (type: EggType) => type === 'or' || type === 'phenix';
 
 export function eggQuality(s: GameState, h: Hen, nest: Building | null): number {
@@ -41,7 +41,7 @@ export function layEgg(s: GameState, h: Hen, nest: Building | null): WorldEgg {
     z: h.z,
     laidAt: s.clock.t,
   };
-  // un coq dans la basse-cour : l'œuf peut être fécondé (pas un œuf d'or ni de phénix)
+  // un coq dans la basse-cour : l'œuf peut être fécondé (pas un œuf d'or ni légendaire)
   const chick = h.golden || h.legendary ? null : fertilize(s, h);
   if (chick) {
     egg.fertile = chick.breed;
@@ -69,9 +69,9 @@ export function addToStorage(s: GameState, type: EggType, grade: Grade, freshnes
     // le collectionneur guette ces œufs : il l'achète à l'instant où on le ramasse
     s.stats.phoenixEggs = (s.stats.phoenixEggs ?? 0) + count;
     const amount = RARE.phoenixEggPrice * count;
-    earn(s, amount, 'reventes', count > 1 ? `${count} œufs de phénix (collectionneur)` : 'Œuf de phénix (collectionneur)');
+    earn(s, amount, 'reventes', count > 1 ? `${count} œufs légendaires (collectionneur)` : 'Œuf légendaire (collectionneur)');
     addXp(s, 25 * count);
-    notify(s, `Un œuf de phénix ! Le collectionneur accourt et vous l’achète ${fmtMoney(amount)} !`, 'good', '🔥');
+    notify(s, `Un œuf légendaire ! Le collectionneur accourt et vous l’achète ${fmtMoney(amount)} !`, 'good', '✨');
     return count;
   }
   if (type === 'or') {
@@ -112,7 +112,7 @@ export function collectEggs(s: GameState, eggs: WorldEgg[], silent = false): num
   let collected = 0;
   for (const egg of [...eggs]) {
     if (!s.worldEggs.includes(egg)) continue; // déjà ramassé : jamais deux fois
-    // l'or et le phénix ne prennent pas de place au stockage
+    // l'or et les œufs légendaires ne prennent pas de place au stockage
     if (storageFree(s) <= 0 && !isTreasure(egg.type)) continue;
     removeWorldEgg(s, egg);
     collected += addToStorage(s, egg.type, gradeOf(egg.quality), egg.freshness, 1, egg.fertile, egg.genes);

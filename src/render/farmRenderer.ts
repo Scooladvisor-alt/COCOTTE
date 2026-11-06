@@ -1302,7 +1302,7 @@ export class FarmRenderer {
       if (!g) {
         // elle sort de son parc : c'est la même volaille, qui continue depuis là où elle est
         const pet = this.petBirds.get(b.seed);
-        const hen = pet?.hen ?? ({ id: b.seed, breed: b.breed, skin: b.skin, x: b.x, z: b.z, heading: 0, act: 'walk', actT: 5, targetId: -1, health: 100 } as unknown as Hen);
+        const hen = pet?.hen ?? ({ id: b.seed, breed: b.breed, skin: b.skin, rooster: b.rooster, black: b.black, x: b.x, z: b.z, heading: 0, act: 'walk', actT: 5, targetId: -1, health: 100 } as unknown as Hen);
         hen.act = 'walk';
         g = { hen, view: pet?.view ?? this.birdView(hen), fx: hen.x, fz: hen.z };
         g.view.root.rotation.order = 'YXZ';

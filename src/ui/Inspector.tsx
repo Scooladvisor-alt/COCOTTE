@@ -17,7 +17,7 @@ import { farmLevel, fmtMoney, maxParcelsOf } from '../sim/economy';
 import { parcelGrass } from '../sim/grass';
 import { actLabel, eggsPerDayOf, henStatus, henValue, productivity } from '../sim/hens';
 import { hostedIncubators, incubatorSeat, nurseryCount, nurseryPlan, readyToLeave } from '../sim/nursery';
-import { petPrice, petRoom, petShopOf, sellable, stockBird, unstockBird } from '../sim/petshop';
+import { birdPrice, birdWord, petRoom, petShopOf, sellable, stockBird, unstockBird } from '../sim/petshop';
 import { customersPerDay, lostToday, queueLength, standCounters } from '../sim/market';
 import { buildingsOf, coopOccupancy, getBuilding, getHen, lvl, storageCapacity, storedCount } from '../sim/queries';
 import { GRASS } from '../config/balance';
@@ -211,6 +211,7 @@ function PetBirdCard({ h }: { h: Hen }) {
   const s = game.state;
   const def = BREEDS[h.breed];
   const goose = isGoose(h.breed);
+  const who = `${h.rooster ? 'Ce' : 'Cette'} ${birdWord(goose, 1, !!h.rooster)}`;
   return (
     <div class="insp">
       <div class="insp-head">
@@ -225,10 +226,10 @@ function PetBirdCard({ h }: { h: Hen }) {
       </div>
       {h.genes && <GeneStars h={h} />}
       <div class="kv">
-        <span>Prix en boutique</span>
-        <b>{fmtMoney(petPrice(s, h.breed))}</b>
+        <span>{h.black ? 'Valeur, pour un revendeur' : 'Prix en boutique'}</span>
+        <b>{fmtMoney(birdPrice(s, h))}</b>
       </div>
-      <p class="hint">{h.ship ? `${goose ? 'Cette oie part' : 'Cette poule part'} avec le camion du revendeur.` : `${goose ? 'Cette oie attend' : 'Cette poule attend'} un client dans son parc. Vous pouvez encore changer d’avis.`}</p>
+      <p class="hint">{h.ship ? `${who} part avec le camion du revendeur.` : h.black ? 'Ce coq noir attend le camion d’un revendeur, le seul à payer ce qu’il vaut. Vous pouvez encore changer d’avis.' : `${who} attend un client dans son parc. Vous pouvez encore changer d’avis.`}</p>
       <div class="actions">
         <Btn
           kind="primary"
@@ -759,8 +760,8 @@ function HenCard({ h }: { h: Hen }) {
           </Btn>
         )}
         {petShopOf(s) && sellable(h) && (
-          <Btn kind="soft" disabled={petRoom(s) <= 0} title={petRoom(s) <= 0 ? 'Les parcs sont pleins' : `Vendue ${fmtMoney(petPrice(s, h.breed))} à la vente de poules pondeuses`} onClick={() => game.act(() => stockBird(s, h.id), 'pop')}>
-            Mettre en vente · {fmtMoney(petPrice(s, h.breed))}
+          <Btn kind="soft" disabled={petRoom(s) <= 0} title={petRoom(s) <= 0 ? 'Les parcs sont pleins' : h.black ? 'Il attendra dans son parc le camion d’un revendeur' : `${fmtMoney(birdPrice(s, h))} à la vente de poules pondeuses`} onClick={() => game.act(() => stockBird(s, h.id), 'pop')}>
+            Mettre en vente · {fmtMoney(birdPrice(s, h))}
           </Btn>
         )}
         {!confirm ? (

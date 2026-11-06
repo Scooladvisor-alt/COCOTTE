@@ -183,6 +183,8 @@ function yardGate(scene: THREE.Object3D) {
  * celui du revendeur. Le rendu la dessine exactement comme les poules de la ferme.
  */
 export interface BirdOnTheWay {
+  rooster?: boolean;
+  black?: boolean;
   seed: number;
   breed: BreedId;
   skin: number;
@@ -416,7 +418,7 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
         const k = (t - q.t) / dur;
         const p = alongPath(boardPath(q.x, q.z), k);
         const up = rampProgress(q.x, q.z, k);
-        draw({ seed: q.id, breed: q.breed, skin: q.skin ?? 0, x: p.x, z: p.z, dx: p.dx, dz: p.dz, lift: up * 0.6, slope: up > 0 && up < 1 ? 0.5 : 0, age: t - q.t });
+        draw({ seed: q.id, breed: q.breed, skin: q.skin ?? 0, rooster: q.rooster, black: q.black, x: p.x, z: p.z, dx: p.dx, dz: p.dz, lift: up * 0.6, slope: up > 0 && up < 1 ? 0.5 : 0, age: t - q.t });
       }
     },
   };

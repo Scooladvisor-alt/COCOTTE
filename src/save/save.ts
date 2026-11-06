@@ -354,6 +354,8 @@ export function sanitize(input: unknown): GameState | null {
   }
   const petPrices = obj(pet.prices);
   for (const b of Object.keys(BREEDS) as BreedId[]) if (typeof petPrices[b] === 'number') s.petShop.prices[b] = int(petPrices[b], BREEDS[b].price, 10, BREEDS[b].price * 4);
+  const malePrices = obj(pet.malePrices);
+  for (const b of Object.keys(BREEDS) as BreedId[]) if (typeof malePrices[b] === 'number') (s.petShop.malePrices ??= {})[b] = int(malePrices[b], BREEDS[b].price, 10, BREEDS[b].price * 6);
   if (bool(pet.seller, false)) {
     s.petShop.seller = true;
     if (bool(pet.restock, false)) s.petShop.restock = true;
@@ -375,6 +377,8 @@ export function sanitize(input: unknown): GameState | null {
       client: str(o.client, 'Revendeur', 40),
       goose: bool(o.goose, false),
       ...(BREEDS[breed] ? { breed } : {}),
+      ...(bool(o.male, false) ? { male: true } : {}),
+      ...(bool(o.black, false) ? { black: true } : {}),
       count: int(o.count, 1, 1, 1000),
       unitPrice: int(o.unitPrice, 100, 1, 1e7),
       deadlineDay: int(o.deadlineDay, 1, 0),

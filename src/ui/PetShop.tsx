@@ -1,6 +1,6 @@
 // La vente de poules pondeuses (poules et oies en vente, au prix qu'on veut) et les commandes des revendeurs.
 import { useState } from 'preact/hooks';
-import { BIRD_ORDERS, HOUR, PETSHOP, TIME } from '../config/balance';
+import { BIRD_ORDERS, BREEDING, HOUR, PETSHOP, TIME } from '../config/balance';
 import { BREEDS, BREED_ORDER, isGoose } from '../config/breeds';
 import { BUILDINGS, PET_POS } from '../config/buildings';
 import * as A from '../sim/actions';
@@ -8,6 +8,13 @@ import { currentDay } from '../sim/core';
 import { fmtMoney, today } from '../sim/economy';
 import {
   acceptBirdOrder,
+  birdPrice,
+  birdWord,
+  flockBlack,
+  orderWord,
+  putBlackOnSale,
+  stockBlack,
+  takeBlackBack,
   callTruck,
   cancelBirdOrder,
   checkCallTruck,
@@ -36,7 +43,7 @@ import {
 import { lvl } from '../sim/queries';
 import { hasRole } from '../sim/workers';
 import type { BreedId, BirdOrder } from '../sim/types';
-import { buildingThumb, henThumb } from '../render/thumbs';
+import { birdThumb, buildingThumb, henThumb, roosterThumb } from '../render/thumbs';
 import { Btn, Icon, useGame } from './common';
 
 function speedOf(p: number) {
@@ -180,32 +187,34 @@ export function SellerCard() {
   );
 }
 
-function BirdRow({ breed }: { breed: BreedId }) {
+function BirdRow({ breed, male = false }: { breed: BreedId; male?: boolean }) {
   const game = useGame();
   const s = game.state;
   const def = BREEDS[breed];
   const goose = isGoose(breed);
-  const price = petPrice(s, breed);
-  const [lo, hi] = priceBounds(breed);
-  const chance = petBuyChance(s, breed, price);
+  const price = petPrice(s, breed, male);
+  const [lo, hi] = priceBounds(breed, male);
+  const chance = petBuyChance(s, breed, price, male);
   const sp = speedOf(chance);
-  const flock = flockOf(s, breed).length;
-  const stock = stockOf(s, breed).length;
+  const flock = flockOf(s, breed, male).length;
+  const stock = stockOf(s, breed, male).length;
   const room = petRoom(s);
-  const word = goose ? 'oie' : 'poule';
+  const word = birdWord(goose, 1, male);
+  // un coq ou un jars s'achète plus cher qu'une femelle
+  const buy = def.price * (male ? BREEDING.roosterPriceMult : 1);
   const set = (v: number) => {
-    setPetPrice(s, breed, v);
+    setPetPrice(s, breed, v, male);
     game.changed();
   };
-  const put = (n: number) => game.act(() => stockBirds(s, breed, n), 'pop');
+  const put = (n: number) => game.act(() => stockBirds(s, breed, n, male), 'pop');
   const presets: Array<[string, number]> = [
-    ['Écouler', Math.round((def.price * 0.35) / 10) * 10],
-    ['Conseillé', suggestedPrice(breed)],
-    ['Cher', Math.round((def.price * 0.75) / 10) * 10],
+    ['Écouler', Math.round((buy * 0.35) / 10) * 10],
+    ['Conseillé', suggestedPrice(breed, male)],
+    ['Cher', Math.round((buy * 0.75) / 10) * 10],
   ];
   return (
     <div class="pcard2">
-      <img class="pc-egg" src={henThumb(breed)} alt="" />
+      <img class="pc-egg" src={male ? roosterThumb(breed) : henThumb(breed)} alt="" />
       <div class="pc-main">
         <div class="pc-top">
           <b>{def.name}</b>
@@ -236,7 +245,7 @@ function BirdRow({ breed }: { breed: BreedId }) {
               + {n}
             </Btn>
           ))}
-          <Btn kind="ghost" small disabled={!stock} title={`Reprendre une ${word} à la ferme`} onClick={() => game.act(() => unstockBirds(s, breed, 1), 'pop')}>
+          <Btn kind="ghost" small disabled={!stock} title={`Reprendre ${male ? 'un' : 'une'} ${word} à la ferme`} onClick={() => game.act(() => unstockBirds(s, breed, 1, male), 'pop')}>
             Reprendre
           </Btn>
         </div>
@@ -244,7 +253,7 @@ function BirdRow({ breed }: { breed: BreedId }) {
       <div class="pc-price">
         <b>{fmtMoney(price)}</b>
         <small>par {word}</small>
-        <span class="mkt">Achat {fmtMoney(def.price)}</span>
+        <span class="mkt">Achat {fmtMoney(buy)}</span>
         <div class="seg">
           {presets.map(([label, v]) => (
             <button key={label} class={price === v ? 'on' : ''} onClick={() => set(v)}>
@@ -252,6 +261,46 @@ function BirdRow({ breed }: { breed: BreedId }) {
             </button>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Les coqs noirs : pas de prix à régler ni de client au comptoir, ils partent par lots avec les revendeurs. */
+function BlackRow() {
+  const game = useGame();
+  const s = game.state;
+  const flock = flockBlack(s);
+  const stock = stockBlack(s);
+  const sample = flock[0] ?? stock[0];
+  if (!sample) return null;
+  const all = [...flock, ...stock];
+  const value = all.reduce((a, h) => a + birdPrice(s, h), 0) / all.length;
+  return (
+    <div class="pcard2">
+      <img class="pc-egg" src={birdThumb(sample)} alt="" />
+      <div class="pc-main">
+        <div class="pc-top">
+          <b>Coqs noirs</b>
+          <small>
+            {flock.length} à la ferme · <b>{stock.length}</b> en vente
+          </small>
+        </div>
+        <p class="hint">Trop rares pour le comptoir : les revendeurs les prennent par petits lots, à leur vraie valeur (voir l’onglet des commandes).</p>
+        <div class="row-btns pet-moves">
+          {[1, 5].map((n) => (
+            <Btn key={n} kind="soft" small disabled={!flock.length || !petRoom(s)} onClick={() => game.act(() => putBlackOnSale(s, n), 'pop')}>
+              + {n}
+            </Btn>
+          ))}
+          <Btn kind="ghost" small disabled={!stock.length} title="Reprendre un coq noir à la ferme" onClick={() => game.act(() => takeBlackBack(s, 1), 'pop')}>
+            Reprendre
+          </Btn>
+        </div>
+      </div>
+      <div class="pc-price">
+        <b>≈ {fmtMoney(value)}</b>
+        <small>par coq noir</small>
       </div>
     </div>
   );
@@ -267,6 +316,9 @@ export function PetShopTab() {
   const up = A.checkUpgrade(s, shop.id);
   const hens = BREED_ORDER.filter((b) => !isGoose(b) && (flockOf(s, b).length > 0 || stockOf(s, b).length > 0));
   const geese = BREED_ORDER.filter((b) => isGoose(b) && (flockOf(s, b).length > 0 || stockOf(s, b).length > 0));
+  const males = (goose: boolean) => BREED_ORDER.filter((b) => isGoose(b) === goose && (flockOf(s, b, true).length > 0 || stockOf(s, b, true).length > 0));
+  const coqs = males(false);
+  const jars = males(true);
   const sold = s.petShop.soldDay === currentDay(s) ? s.petShop.soldToday ?? 0 : 0;
   const cashed = today(s).income.animalerie ?? 0;
   return (
@@ -292,7 +344,7 @@ export function PetShopTab() {
         </div>
       </div>
       <p class="hint">
-        {s.petShop.seller ? `Ouverte de ${TIME.SHOP_OPEN} h à ${TIME.SHOP_CLOSE} h.` : 'Fermée tant que vous n’avez pas de vendeur.'} Les clients viennent avec leur carton et repartent avec {Math.min(...PETSHOP.wantChoices)} à {Math.max(...PETSHOP.wantChoices)} volailles. Cliquez sur une volaille dans son parc pour la reprendre à la ferme. Les jeunes, les coqs, les jars et les spécimens rares ne se vendent pas ici.
+        {s.petShop.seller ? `Ouverte de ${TIME.SHOP_OPEN} h à ${TIME.SHOP_CLOSE} h.` : 'Fermée tant que vous n’avez pas de vendeur.'} Les clients viennent avec leur carton et repartent avec {Math.min(...PETSHOP.wantChoices)} à {Math.max(...PETSHOP.wantChoices)} volailles. Cliquez sur une volaille dans son parc pour la reprendre à la ferme. Les coqs et les jars aussi ont leurs clients ; les jeunes, la poule d’or et la légendaire ne se vendent pas ici.
       </p>
       <SellerCard />
       <div class="row-btns pet-top">
@@ -315,6 +367,23 @@ export function PetShopTab() {
           ))}
         </>
       )}
+      {(coqs.length > 0 || flockBlack(s).length > 0 || stockBlack(s).length > 0) && (
+        <>
+          <h5>Coqs</h5>
+          {coqs.map((b) => (
+            <BirdRow key={b} breed={b} male />
+          ))}
+          <BlackRow />
+        </>
+      )}
+      {jars.length > 0 && (
+        <>
+          <h5>Jars</h5>
+          {jars.map((b) => (
+            <BirdRow key={b} breed={b} male />
+          ))}
+        </>
+      )}
     </>
   );
 }
@@ -330,8 +399,8 @@ function LoadCard({ o }: { o: BirdOrder }) {
       ? 'Chargement terminé : le camion repart.'
       : left > 0
         ? !L.called
-          ? `Le camion passera vers ${Math.floor((L.eta % TIME.DAY) / HOUR)} h : les ${o.goose ? 'oies' : 'poules'} se mettront en route à temps.`
-          : `Le camion arrive dans ${Math.ceil((left / TIME.DAY) * 24 * 10) / 10} h. Les ${o.goose ? 'oies' : 'poules'} attendent au portillon de leur parc.`
+          ? `Le camion passera vers ${Math.floor((L.eta % TIME.DAY) / HOUR)} h : les ${orderWord({ ...o, count: 2 })} se mettront en route à temps.`
+          : `Le camion arrive dans ${Math.ceil((left / TIME.DAY) * 24 * 10) / 10} h. Les ${orderWord({ ...o, count: 2 })} attendent au portillon de leur parc.`
         : helpers
           ? `Chargement : ${L.loaded} / ${o.count} · ${helpers} commis poussent les volailles`
           : hasRole(s, 'farmhand')
@@ -355,7 +424,7 @@ export function DealersTab() {
   return (
     <>
       <p class="hint">
-        Des revendeurs et des associations cherchent des poules et des oies pour des particuliers. Une fois la commande acceptée, mettez les volailles dans les parcs de la vente de poules, puis appelez leur camion : seules celles-là partent, les moins bonnes d’abord. Il quitte la route par le chemin de terre, entre par le grand portail de la parcelle {BIRD_ORDERS.parcelName}, et les commis de ferme guident les volailles jusqu’à sa rampe. Vous êtes payé quand il repart.
+        Des revendeurs et des associations cherchent des poules, des oies, et très souvent des coqs et des jars, pour des particuliers. Les coqs noirs partent par petits lots, à leur vraie valeur. Une fois la commande acceptée, mettez les volailles dans les parcs de la vente de poules, puis appelez leur camion : seules celles-là partent, les moins bonnes d’abord. Il quitte la route par le chemin de terre, entre par le grand portail de la parcelle {BIRD_ORDERS.parcelName}, et les commis de ferme guident les volailles jusqu’à sa rampe. Vous êtes payé quand il repart.
       </p>
       {!commis && (
         <div class="notice">
@@ -377,13 +446,13 @@ export function DealersTab() {
             <div class="o-main">
               <b>{o.client}</b>
               <span>
-                {o.goose ? '🪿' : '🐔'} {orderLabel(o)} à {fmtMoney(o.unitPrice)} pièce
+                {o.goose ? '🪿' : o.male || o.black ? '🐓' : '🐔'} {orderLabel(o)} à {fmtMoney(o.unitPrice)} pièce
               </span>
               {o.status === 'loading' ? (
                 <LoadCard o={o} />
               ) : (
                 <small class={o.deadlineDay - day <= 0 ? 'neg' : ''}>
-                  Avant la fin du jour {o.deadlineDay} · {have} / {o.count} {o.goose ? 'oies' : 'poules'} en vente
+                  Avant la fin du jour {o.deadlineDay} · {have} / {o.count} {orderWord({ ...o, count: 2 })} en vente
                 </small>
               )}
             </div>
@@ -411,7 +480,7 @@ export function DealersTab() {
           <div class="o-main">
             <b>{o.client}</b>
             <span>
-              {o.goose ? '🪿' : '🐔'} {orderLabel(o)} à {fmtMoney(o.unitPrice)} pièce
+              {o.goose ? '🪿' : o.male || o.black ? '🐓' : '🐔'} {orderLabel(o)} à {fmtMoney(o.unitPrice)} pièce
             </span>
             <small>
               Délai : jour {o.deadlineDay} · offre valable jusqu’au jour {o.offerUntilDay} · {orderStock(s, o)} en vente

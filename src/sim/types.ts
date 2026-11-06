@@ -448,6 +448,10 @@ export interface BirdOrder {
   goose: boolean;
   /** Race demandée (toutes races sinon). */
   breed?: BreedId;
+  /** Des coqs ou des jars plutôt que des femelles. */
+  male?: boolean;
+  /** Des coqs noirs, payés à leur vraie valeur. */
+  black?: boolean;
   count: number;
   unitPrice: number;
   deadlineDay: number;
@@ -466,7 +470,7 @@ export interface BirdLoad {
   henIds: number[];
   loaded: number;
   /** Volailles parties vers le camion, pour le rendu (instant et point de départ). */
-  gone: Array<{ t: number; id: number; breed: BreedId; skin?: number; x: number; z: number }>;
+  gone: Array<{ t: number; id: number; breed: BreedId; skin?: number; rooster?: boolean; black?: boolean; x: number; z: number }>;
   nextT: number;
   lastT?: number;
   warned?: boolean;
@@ -663,6 +667,8 @@ export interface GameState {
   petShop: {
     birds: Hen[];
     prices: Partial<Record<BreedId, number>>;
+    /** Prix des coqs et des jars. */
+    malePrices?: Partial<Record<BreedId, number>>;
     /** Vendeur embauché (salaire quotidien) ; il remet des volailles en vitrine si restock est coché. */
     seller?: boolean;
     restock?: boolean;

@@ -340,6 +340,8 @@ export const PETSHOP = {
   servePerBird: 0.45,
   maxQueue: 3,
   patience: [8, 16] as [number, number],
+  /** Part des clients venus pour un coq ou un jars (ils n'en prennent qu'un ou deux). */
+  maleShare: 0.35,
   /** Le vendeur, sans qui la boutique ne vend rien : son salaire, et ce qu'il remet en vente à chaque heure. */
   sellerWage: 1500,
   sellerPerHour: 8,
@@ -359,13 +361,20 @@ export const WORKER_SKILLS = {
 /** Les commandes de revendeurs et d'associations, et le grand camion qui vient les chercher. */
 export const BIRD_ORDERS = {
   reqLevel: 15,
-  maxOffers: 2,
-  maxActive: 2,
+  maxOffers: 3,
+  maxActive: 3,
   offerDays: 3,
   daysMin: 3,
   daysMax: 6,
   henQty: [12, 20, 30, 40, 60, 80, 120],
   gooseQty: [4, 6, 8, 12, 16],
+  /** Commandes de coqs et de jars, fréquentes : c'est le moyen de se débarrasser des mâles en trop. */
+  maleShare: 0.8,
+  maleQty: [3, 5, 8, 12, 20, 30, 50],
+  jarsShare: 0.3,
+  /** Coqs noirs : par petits lots, au prix qu'ils valent vraiment. */
+  blackShare: 0.6,
+  blackQty: [2, 3, 5],
   gooseShare: 0.25,
   /** Part des commandes de poules qui demandent une race précise (un peu mieux payées). */
   breedShare: 0.35,

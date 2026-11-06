@@ -46,6 +46,7 @@ import {
   togglePetRestock,
   unstockBird,
   unstockBirds,
+  putBlackOnSale,
 } from '../src/sim/petshop';
 import { onlineIsNewer } from '../src/online/farms';
 import { canAfford, farmLevel, spend, today } from '../src/sim/economy';
@@ -4020,7 +4021,7 @@ describe('Vente de poules pondeuses', () => {
     expect(isWalkable(s, back.x, back.z)).toBe(true);
   });
 
-  it('les coqs, les jars, les jeunes et les spécimens rares ne vont pas en vitrine', () => {
+  it('coqs et jars vont en vente, mais ni les jeunes ni les trésors de la ferme', () => {
     const s = farm(1504);
     open(s);
     buildGooseHouse(s);
@@ -4028,8 +4029,8 @@ describe('Vente de poules pondeuses', () => {
     flock(s, 'oie', 1, true);
     const coq = s.hens.at(-2)!;
     const jars = s.hens.at(-1)!;
-    expect(stockBird(s, coq.id).ok).toBe(false);
-    expect(stockBird(s, jars.id).reason).toMatch(/jars/);
+    expect(stockBird(s, coq.id).ok).toBe(true);
+    expect(stockBird(s, jars.id).ok).toBe(true);
     const chick = s.hens.find((h) => h.young)!;
     expect(stockBird(s, chick.id).ok).toBe(false);
     flock(s, 'rousse', 1);
@@ -4500,11 +4501,154 @@ describe('Commandes de revendeurs et camion', () => {
       expect(stockBird(s, h.id).ok).toBe(true);
       expect(h.nursery).toBeUndefined();
     }
-    // les jeunes, les coqs et les deux trésors restent à part
-    for (const h of [mk({ young: 3 }), mk({ rooster: true }), mk({ golden: true }), mk({ legendary: true })]) expect(sellable(h)).toBe(false);
+    // les jeunes et les deux trésors restent à part
+    for (const h of [mk({ young: 3 }), mk({ golden: true }), mk({ legendary: true })]) expect(sellable(h)).toBe(false);
     // le vendeur, lui, ne met jamais une rareté en vente de lui-même
     const rare = mk({ black: true });
     expect(isRareBird(rare)).toBe(true);
+  });
+
+  it('coqs et jars se mettent en vente à leur propre prix, sans se mêler aux femelles', () => {
+    const s = farm(1630);
+    s.hens.length = 0;
+    const coop = buildingsOf(s, 'coop')[0];
+    const mk = (breed: Hen['breed'], over: Partial<Hen>) => {
+      const h = createHen(s, breed, coop, false, { at: [coop.x + 1, coop.z + 5] });
+      Object.assign(h, over);
+      s.hens.push(h);
+      return h;
+    };
+    for (let i = 0; i < 3; i++) mk('rousse', {});
+    for (let i = 0; i < 2; i++) mk('rousse', { rooster: true });
+    mk('oie', { rooster: true });
+    expect(flockOf(s, 'rousse', true).length).toBe(2);
+    expect(flockOf(s, 'rousse').length).toBe(3);
+    expect(suggestedPrice('rousse', true)).toBeGreaterThan(suggestedPrice('rousse'));
+    setPetPrice(s, 'rousse', 900, true);
+    expect(petPrice(s, 'rousse', true)).not.toBe(petPrice(s, 'rousse'));
+    expect(stockBirds(s, 'rousse', 5, true).ok).toBe(true);
+    expect(stockBirds(s, 'oie', 1, true).ok).toBe(true);
+    expect(stockOf(s, 'rousse', true).length).toBe(2);
+    expect(stockOf(s, 'rousse').length).toBe(0);
+    expect(s.petShop.birds.length).toBe(3);
+    // une commande de poules ne prend pas les coqs, une commande de coqs pas les jars
+    expect(orderStock(s, { goose: false })).toBe(0);
+    expect(orderStock(s, { goose: false, male: true })).toBe(2);
+    expect(orderStock(s, { goose: true, male: true })).toBe(1);
+    // le vendeur ne touche pas aux coqs de lui-même
+    expect(unstockBirds(s, 'rousse', 2, true).ok).toBe(true);
+    s.petShop.seller = true;
+    s.petShop.restock = true;
+    s.petShop.keep = 0;
+    petShopHourly(s);
+    expect(s.petShop.birds.filter((h) => h.rooster && !isGoose(h.breed)).length).toBe(0);
+    expect(stockOf(s, 'rousse').length).toBe(3);
+  });
+
+  it('la sauvegarde garde les prix des coqs et les commandes de coqs noirs', () => {
+    const s = farm(1633);
+    setPetPrice(s, 'rousse', 900, true);
+    s.birdOrders.push({ id: 987, client: 'Volailles du Val', goose: false, male: true, black: true, count: 2, unitPrice: 60000, deadlineDay: 9, offerUntilDay: 5, status: 'offer' });
+    const back = deserialize(serialize(s))!;
+    expect(petPrice(back, 'rousse', true)).toBe(petPrice(s, 'rousse', true));
+    const o = back.birdOrders.find((x) => x.id === 987)!;
+    expect(o.male).toBe(true);
+    expect(o.black).toBe(true);
+  });
+
+  it('les clients achètent aussi des coqs', () => {
+    const s = farm(1631);
+    s.hens.length = 0;
+    const coop = buildingsOf(s, 'coop')[0];
+    for (let i = 0; i < 40; i++) {
+      const h = createHen(s, 'rousse', coop, false, { at: [coop.x + 1, coop.z + 5] });
+      h.rooster = true;
+      s.hens.push(h);
+    }
+    expect(stockBirds(s, 'rousse', 40, true).ok).toBe(true);
+    setPetPrice(s, 'rousse', priceBounds('rousse', true)[0], true);
+    expect(hirePetSeller(s).ok).toBe(true);
+    const before = s.money;
+    for (let i = 0; i < 2400 && s.petShop.birds.length === 40; i++) run(s, 0.1);
+    for (let i = 0; i < 4000 && s.petShop.birds.length === 40; i++) run(s, 0.1);
+    expect(s.petShop.birds.length).toBeLessThan(40);
+    expect(s.money).not.toBe(before);
+  });
+
+  it('les commandes de coqs reviennent souvent, à la mesure de ce que la ferme en a', () => {
+    let males = 0;
+    let days = 0;
+    for (let seed = 0; seed < 60; seed++) {
+      const s = farm(1700 + seed);
+      const coop = buildingsOf(s, 'coop')[0];
+      for (let i = 0; i < 7; i++) {
+        const h = createHen(s, 'rousse', coop, false, { at: [coop.x + 1, coop.z + 5] });
+        h.rooster = true;
+        s.hens.push(h);
+      }
+      s.birdOrders.length = 0;
+      generateBirdOrders(s);
+      days++;
+      const o = s.birdOrders.find((x) => x.male);
+      if (o) {
+        males++;
+        expect(o.count).toBeLessThanOrEqual(s.hens.filter((h) => h.rooster && !h.young).length);
+      }
+    }
+    expect(males / days).toBeGreaterThan(0.7);
+  });
+
+  it('le camion emmène un lot de coqs noirs à leur prix, et ne touche pas aux poules en vente', () => {
+    const s = farm(1632);
+    hire(s, 'farmhand');
+    run(s, 2 * HOUR);
+    flock(s, 'rousse', 4);
+    const coop = buildingsOf(s, 'coop')[0];
+    for (let i = 0; i < 3; i++) {
+      const h = createHen(s, 'rousse', coop, false, { at: [coop.x + 1, coop.z + 5] });
+      h.rooster = true;
+      h.black = true;
+      s.hens.push(h);
+    }
+    expect(putBlackOnSale(s, 3).ok).toBe(true);
+    const o = order(s, { count: 2, unitPrice: 60000, black: true });
+    const money = s.money;
+    expect(callTruck(s, o.id).ok).toBe(true);
+    for (let i = 0; i < 1200 && s.birdLoad; i++) run(s, 0.1);
+    expect(s.birdLoad).toBeNull();
+    expect(s.money - money).toBeGreaterThanOrEqual(2 * 60000 - 5000);
+    expect(s.petShop.birds.filter((h) => h.black)).toHaveLength(1);
+    expect(s.petShop.birds.filter((h) => !h.black)).toHaveLength(4);
+  });
+
+  it('les coqs noirs partent par lots, à leur vraie valeur, et avec les revendeurs seulement', () => {
+    let found = false;
+    for (let seed = 0; seed < 40 && !found; seed++) {
+      const s = farm(1800 + seed);
+      s.hens.length = 0;
+      const coop = buildingsOf(s, 'coop')[0];
+      for (let i = 0; i < 6; i++) {
+        const h = createHen(s, 'rousse', coop, false, { at: [coop.x + 1, coop.z + 5] });
+        h.rooster = true;
+        h.black = true;
+        s.hens.push(h);
+      }
+      const value = henValue(s.hens[0]);
+      s.birdOrders.length = 0;
+      generateBirdOrders(s);
+      const o = s.birdOrders.find((x) => x.black);
+      if (!o) continue;
+      found = true;
+      expect(o.count).toBeGreaterThanOrEqual(2);
+      expect(o.unitPrice).toBeGreaterThan(value * 0.8);
+      expect(o.unitPrice).toBeLessThan(value * 1.2);
+      // les clients n'y ont pas accès, et une commande de coqs ordinaires non plus
+      expect(putBlackOnSale(s, 3).ok).toBe(true);
+      expect(stockOfKind(s, false).length).toBe(0);
+      expect(orderStock(s, { goose: false, male: true })).toBe(0);
+      expect(orderStock(s, o)).toBe(3);
+    }
+    expect(found).toBe(true);
   });
 
   it('sans commis, le camion repart à vide et la commande reste à livrer', () => {

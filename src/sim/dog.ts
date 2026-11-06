@@ -2,17 +2,18 @@
 // Il patrouille alors tout autour de l'enclos, toujours à l'extérieur (il n'entre jamais chez
 // les poules), dort dans sa niche près de la maison la nuit, et dès qu'un renard ou une buse
 // approche, il fonce en aboyant et le fait détaler.
-import { DOG, GRID_H, GRID_W, GRID_Z0, GRID_Z1 } from '../config/balance';
-import { STAND_POS } from '../config/buildings';
-import { cellIndex, currentDay, currentHour, emit, inGrid, isNightHour, notify, pick, rand, randRange, rt } from './core';
+import { DOG, GRID_H, GRID_W, GRID_Z0, GRID_Z1, WORLD } from '../config/balance';
+import { HALL_BODY, HALL_DOOR, HALL_STEPS } from '../config/buildings';
+import { cellIndex, currentDay, currentHour, emit, inGrid, isNightHour, notify, parcelCenter, pick, rand, randRange, rt } from './core';
+import { ringTrees, wildPlants } from './wild';
 import { buyLevel, spend } from './economy';
 import { PREDATOR_INFO, distanceToFarm, scarePredator } from './predators';
 import type { ActionResult, GameState, GuardDog } from './types';
 
 /** Où dort le chien de la maison (devant le perron) et sa niche. */
-export const HOUSE_DOG: [number, number] = [-5.1, 27.4];
+export const HOUSE_DOG: [number, number] = [HALL_DOOR[0] - 2, 27.6];
 export function kennelPoint(_s?: GameState): [number, number] {
-  return [-3.9, 28.3];
+  return [HALL_DOOR[0] - 3.2, 27.7];
 }
 
 export function checkBuyDog(s: GameState): ActionResult {
@@ -35,11 +36,28 @@ export function buyDog(s: GameState): ActionResult {
 
 // ------------------------------------------------- Terrain de la ronde ----
 // Grille propre au chien, un peu plus grande que la ferme : tout ce qui n'est ni le terrain des
-// poules, ni la maison, ni l'étal.
-const OX = -6;
+// poules, ni un bâtiment, ni un arbre.
+const OX = -18;
 const OZ = GRID_Z0 - 4;
-const NW = GRID_W + 10;
+const NW = GRID_W + 22;
 const NH = GRID_H + 6;
+/** Ce que le chien contourne autour de la ferme : le décor qu'il ne doit jamais traverser. */
+const OBSTACLES: Array<{ x0: number; x1: number; z0: number; z1: number }> = [
+  HALL_BODY,
+  HALL_STEPS,
+  { x0: -17, x1: -10, z0: 12.5, z1: 18.5 }, // le moulin
+  { x0: -16.5, x1: -4.8, z0: 2.6, z1: 12.5 }, // la mare
+  { x0: -15.7, x1: -7.3, z0: 29.1, z1: 33.6 }, // le potager
+  { x0: -4.2, x1: -0.6, z0: 15.4, z1: 20.1 }, // le tracteur et ses bottes de foin
+  { x0: -2.4, x1: -1, z0: 28.1, z1: 29.6 }, // le puits
+  { x0: -3.7, x1: -0.5, z0: 30.3, z1: 31.2 }, // le massif de fleurs
+];
+const inRect = (r: { x0: number; x1: number; z0: number; z1: number }, x: number, z: number, m: number) => x > r.x0 - m && x < r.x1 + m && z > r.z0 - m && z < r.z1 + m;
+const cellOf = (x: number, z: number) => {
+  const i = Math.floor(x) - OX;
+  const j = Math.floor(z) - OZ;
+  return i < 0 || j < 0 || i >= NW || j >= NH ? -1 : j * NW + i;
+};
 interface DogNav {
   version: number;
   free: Uint8Array;
@@ -63,21 +81,30 @@ function nav(s: GameState) {
       // jamais dans l'enclos, ni contre le grillage : une case de marge tout autour, sinon le
       // museau ou la queue (le berger fait près d'un mètre) traversent la clôture
       for (let dz = -1; dz <= 1 && ok; dz++) for (let dx = -1; dx <= 1 && ok; dx++) if (fenced(x + dx, z + dz)) ok = false;
-      if (cx > -9.6 && cx < -3.2 && cz > 22 && cz < 27.3) ok = false; // la maison
-      if (cx > 15.4 && cx < 24.6 && cz > STAND_POS.z - 1.2) ok = false; // l'étal, ou le magasin qu'il deviendra
+      if (ok && OBSTACLES.some((o) => inRect(o, cx, cz, 0.6))) ok = false;
+      // la place de l'étal, le parking et la vente de poules, le long du trottoir
+      if (cx > 9 && cz > GRID_Z1) ok = false;
       if (cz > GRID_Z1 + 1.8) ok = false; // pas sur la route
       free[j * NW + i] = ok ? 1 : 0;
     }
+  // les arbres et les buissons qui poussent sur les parcelles à vendre et autour de la ferme
+  const block = (x: number, z: number) => {
+    const c = cellOf(x, z);
+    if (c >= 0) free[c] = 0;
+  };
+  for (let c = 0; c < WORLD.COLS; c++)
+    for (let row = 0; row < WORLD.ROWS; row++) {
+      if (s.parcels.includes(`${c},${row}`)) continue;
+      for (const p of wildPlants(c, row)) block(p.x, p.z);
+      const [px, pz] = parcelCenter(c, row);
+      block(px, pz); // l'écriteau « À vendre »
+    }
+  for (const [x, z] of ringTrees()) block(x, z);
   n = { version, free };
   navs.set(s, n);
   return n;
 }
 
-const cellOf = (x: number, z: number) => {
-  const i = Math.floor(x) - OX;
-  const j = Math.floor(z) - OZ;
-  return i < 0 || j < 0 || i >= NW || j >= NH ? -1 : j * NW + i;
-};
 const center = (c: number): [number, number] => [(c % NW) + OX + 0.5, Math.floor(c / NW) + OZ + 0.5];
 
 function nearestFree(n: DogNav, x: number, z: number) {
@@ -250,12 +277,14 @@ export function updateDog(s: GameState, dt: number) {
   const [kx, kz] = kennelPoint(s);
   if (night) {
     // il rentre dormir devant sa niche
-    const bx = kx;
-    const bz = kz + 0.6;
+    const bx = kx + 0.9;
+    const bz = kz + 0.3;
     if (Math.hypot(bx - d.x, bz - d.z) > 0.25) {
-      if (!d.path.length) d.path = dogPath(s, d.x, d.z, bx, bz) ?? [bx, bz];
+      if (!d.path.length) d.path = dogPath(s, d.x, d.z, bx, bz) ?? [];
       d.act = 'walk';
       follow(d, DOG.walk, dt);
+      // (aucun passage pour l'instant : il attend sur place plutôt que de traverser quoi que ce soit)
+      if (!d.path.length && d.spd === 0) d.act = 'sit';
     } else {
       d.act = 'sleep';
       d.spd = 0;

@@ -3,11 +3,12 @@
 // bordée de saules, une route plantée de peupliers et quelques fermes voisines. Aucun bord vide : où
 // que l'on regarde, le paysage continue. Presque tout est instancié et fusionné.
 import * as THREE from 'three';
-import { PET_POS } from '../config/buildings';
+import { HALL_COURT, PET_POS } from '../config/buildings';
 import { GRID_W, GRID_Z0, GRID_Z1, WORLD } from '../config/balance';
 import { C, MAT, box, cone, cyl, merge, mergeChunks, mesh, prism, sph } from './geo';
 import { FieldKit, type CropKind, type Rect } from './fields';
 import { grassPatchGeometry } from './models';
+import { nearTruckRoad, roadsideTufts } from './truckRoad';
 import { GROUND_MAT, MEADOW_FLOWERS, MEADOW_GRASS, SHADOW_RADIUS, Soup, WATER_MAT, contactShadows, lump, plant, pondGeometry, reed, speciesGeometry, type Plant, type Species } from './nature';
 
 function hash(i: number) {
@@ -45,6 +46,7 @@ const RESERVED: Rect[] = [
   { x0: -27.8, x1: -17.5, z0: 10.5, z1: 33 }, // le verger de la mairie
   { x0: -23, x1: 65, z0: WORLD.ROAD_Z + 2.6, z1: WORLD.ROAD_Z + 31.1 }, // le village
   { x0: GRID_W + 12, x1: GRID_W + 15, z0: -200, z1: WORLD.ROAD_Z }, // le chemin de la ferme voisine
+  { x0: GRID_W, x1: GRID_W + 12.5, z0: 14, z1: WORLD.ROAD_Z }, // le chemin de terre du camion et son aire de demi-tour
 ];
 /** Fermes voisines : un corps de ferme au milieu de ses prés. */
 const NEIGHBOURS: Array<{ x: number; z: number; ry: number }> = [
@@ -475,7 +477,7 @@ export function buildCountryside(scene: THREE.Scene) {
     for (let x = WORLD.ROAD_MIN_X; x < WORLD.ROAD_MAX_X; x += 4.6) {
       if (x > -30 && x < GRID_W + 12) continue;
       if (Math.abs(x - bridge) < 6) continue;
-      for (const s of [-1, 1]) stands.poplar.push([x + s * 1.1, RZ + s * (WORLD.ROAD_HALF + 1.5), hash(x) * 6, 0.92 + hash(x * 3 + s) * 0.22]);
+      for (const s of [-1, 1]) if (s > 0 || x > GRID_W + 18) stands.poplar.push([x + s * 1.1, RZ + s * (WORLD.ROAD_HALF + 1.5), hash(x) * 6, 0.92 + hash(x * 3 + s) * 0.22]);
     }
   }
 
@@ -515,6 +517,7 @@ export function buildCountryside(scene: THREE.Scene) {
   // arbres : seuls les blocs à l'écran sont dessinés, et leur modèle s'allège quand on dézoome
   const shadows: Array<[number, number, number]> = [];
   for (const sp of Object.keys(stands) as Species[]) {
+    stands[sp] = stands[sp].filter(([x, z]) => !nearTruckRoad(x, z, 2.6));
     plant(scene, speciesGeometry(sp), speciesGeometry(sp, true), stands[sp], { cast: true, spread: sp === 'pine' ? 0.07 : 0.12 });
     for (const [x, z, , sc] of stands[sp]) shadows.push([x, z, SHADOW_RADIUS[sp] * sc]);
   }
@@ -531,13 +534,15 @@ export function buildCountryside(scene: THREE.Scene) {
   const onHard = (x: number, z: number) =>
     (z > GRID_Z1 + 0.1 && x > 10.6 && x < 42.6 && z < WORLD.ROAD_Z + WORLD.ROAD_HALF + 1.6) || // place et parking
     (z > WORLD.WALK_Z - 0.8 && z < WORLD.ROAD_Z + WORLD.ROAD_HALF + 1.7) || // trottoirs et route
-    (x > -11.6 && x < -0.5 && z > 16.5 && z < 29) || // mairie et sa cour
+    (x > HALL_COURT.x0 - 0.3 && x < HALL_COURT.x1 + 0.3 && z > HALL_COURT.z0 - 0.3 && z < HALL_COURT.z1 + 0.3) || // la mairie et sa cour
+    (x > -4.4 && x < -0.3 && z > 15.2 && z < 20.2) || // le tracteur et ses bottes de foin
+    (x > -2.7 && x < -0.7 && z > 27.8 && z < 29.8) || // le puits
     (x > -15.2 && x < -5.3 && z > 3.6 && z < 11.6) || // mare
     (x > -6.8 && x < -5.2 && z > 28 && z < 38) || // allée
     (x > -6 && x < 12 && z > 30.8 && z < 31.9) || // chemin du personnel
     (x > -15.8 && x < -7.2 && z > 28.9 && z < 33.7) || // potager
-    (x > 42.2 && x < PET_POS.x + 39 && z > 30.1 && z < 37.4) || // parcelle de l'animalerie (au plus grand)
-    (x > -0.5 && x < 3.6 && z > 30 && z < 37.4) || // chemin du camion
+    (x > 42.2 && x < PET_POS.x + 39 && z > 30.1 && z < 37.4) || // la vente de poules (au plus grand)
+    nearTruckRoad(x, z, 1.75) || // le chemin de terre du camion (ses touffes à lui sont posées à part)
     (x > -15 && x < -11 && z > 13.5 && z < 21); // moulin
   const fieldAt = (x: number, z: number) => z < GRID_Z0 - 7.7 && z > GRID_Z0 - 16.3 && x > -10.3 && x < 86.3;
   const tufts: Plant[] = [];
@@ -560,6 +565,7 @@ export function buildCountryside(scene: THREE.Scene) {
     const sort = Math.floor(vnoise(x * 0.06 + 70, z * 0.06 + 5) * 4) % 4;
     blooms[sort].push([x, z, hash(i * 3) * 6.28, 0.75 + hash(i * 2) * 0.55]);
   }
+  tufts.push(...roadsideTufts());
   plant(scene, grassPatchGeometry(true, 2, false), null, tufts, { mat: MEADOW_GRASS, chunk: 26, spread: 0.08, detail: true });
   const flowerSets = [wildflowers(0xdf3a2c, 0x2f2622), wildflowers(0xfbfaf6, 0xf4c43a), wildflowers(0x5f7fe0, 0xe8e0a0), wildflowers(0xf2cf2b, 0xe0a81f)];
   blooms.forEach((list, k) => list.length && plant(scene, flowerSets[k], null, list, { mat: MEADOW_FLOWERS, chunk: 40, spread: 0.03, detail: true }));

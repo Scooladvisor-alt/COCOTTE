@@ -1,6 +1,6 @@
 // Toutes les commandes du joueur. Chaque action valide ses préconditions AVANT de
 // modifier l'état : une action refusée ne laisse aucune trace (ni argent, ni objet).
-import { AUTO_DOOR, BREEDING, COSTS, DELIVERY, GRAIN_BINS, GRID_W, GRID_Z0, GRID_Z1, HEN_PACKS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
+import { AUTO_DOOR, BIRD_ORDERS, BREEDING, CLEARING, COSTS, DELIVERY, GRAIN_BINS, GRID_W, GRID_Z0, GRID_Z1, HEN_PACKS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
 import { grainCapacity, takeGrain, takeWater, waterCapacity } from './stocks';
 import { BREEDS, ROOSTER_TITLES, isGoose } from '../config/breeds';
 import { BUILDINGS, PET_POS, sizeOf } from '../config/buildings';
@@ -16,6 +16,7 @@ import { freeSeats, hostedIncubators, nurseryPlan, nurseryWithSeat, seatIncubato
 import { autoEnclose } from './fences';
 import { adultCount, buildingsOf, coopFor, coopOccupancy, getBuilding, getHen, landCapacity, lvl, shelterType, storageFree } from './queries';
 import { makeBuilding } from './state';
+import { wildPlants } from './wild';
 import type { ActionResult, BreedId, Building, BuildingType, GameState, Hen } from './types';
 
 const fail = (reason: string): ActionResult => ({ ok: false, reason });
@@ -445,6 +446,7 @@ export function checkBuild(s: GameState, type: BuildingType): ActionResult {
   if (!def.buildable) return fail('Non constructible');
   const L = def.levels[0];
   if (def.strictLevel ? farmLevel(s) < L.reqLevel : !levelReached(s, L.reqLevel)) return fail(`Débloqué au niveau ${L.reqLevel}`);
+  if (type === 'petshop' && !s.parcels.includes(BIRD_ORDERS.parcel)) return fail(`Achetez d’abord la parcelle ${BIRD_ORDERS.parcelName}, en bas à droite : c’est là qu’arrive le chemin de terre`);
   if (countOfType(s, type) >= maxCount(s, type)) return fail(`Maximum atteint (${maxCount(s, type)})`);
   // une couveuse s'installe uniquement sur un emplacement libre d'une poussinière
   if (type === 'incubator' && !nurseryWithSeat(s)) return fail(buildingsOf(s, 'nursery').length ? 'Plus d’emplacement libre : améliorez ou construisez une poussinière' : 'Il faut d’abord une poussinière');
@@ -530,7 +532,7 @@ export function offerNursery(s: GameState, spots: Array<[number, number]> = [], 
   return b;
 }
 
-/** Ouvre l'animalerie : elle a sa place à elle, le long du trottoir, à droite du parking. */
+/** Construit la vente de poules pondeuses : elle a sa place à elle, le long du trottoir, à droite du parking. */
 export function openPetShop(s: GameState): ActionResult {
   const chk = checkBuild(s, 'petshop');
   if (!chk.ok) return chk;
@@ -626,6 +628,8 @@ export function upgrade(s: GameState, id: number): ActionResult {
     seatIncubators(s);
   }
   if (isShelter(b)) b.cleanliness = Math.max(b.cleanliness, 90);
+  // (leurs effets sur la parcelle sont gardés en mémoire jusqu'au prochain changement)
+  if (b.type === 'dustbath' || b.type === 'pond') invalidateLayout(s);
   emit(s, { kind: 'upgrade', buildingId: b.id });
   addXp(s, 8 + b.level * 4);
   return OK;
@@ -692,12 +696,18 @@ export function rotate(s: GameState, id: number): ActionResult {
 
 export function demolishRefund(s: GameState, id: number) {
   const b = getBuilding(s, id);
-  return b ? Math.round(b.invested * COSTS.demolishRefund) : 0;
+  return b && !clearingCost(b) ? Math.round(b.invested * COSTS.demolishRefund) : 0;
+}
+
+/** Ce que coûte le retrait d'une plante (0 pour un bâtiment). */
+export function clearingCost(b: { type: BuildingType }) {
+  return b.type === 'tree' ? CLEARING.tree : b.type === 'bush' ? CLEARING.bush : 0;
 }
 
 export function checkDemolish(s: GameState, id: number): ActionResult {
   const b = getBuilding(s, id);
   if (!b) return fail('Bâtiment introuvable');
+  if (clearingCost(b)) return s.money >= clearingCost(b) ? OK : fail('Fonds insuffisants');
   if (b.type === 'petshop') return s.petShop.birds.length ? fail('Reprenez ou vendez d’abord ses volailles') : OK;
   if (BUILDINGS[b.type].unique) return fail('Installation indispensable');
   if (isShelter(b)) {
@@ -720,6 +730,7 @@ export function demolish(s: GameState, id: number): ActionResult {
   const chk = checkDemolish(s, id);
   if (!chk.ok) return chk;
   const b = getBuilding(s, id)!;
+  if (clearingCost(b) && !spend(s, clearingCost(b), 'entretien', b.type === 'tree' ? 'Abattage d’un arbre' : 'Arrachage d’un buisson')) return fail('Fonds insuffisants');
   if (isShelter(b)) {
     for (const h of s.hens.filter((x) => x.coopId === b.id)) {
       const others = s.buildings.filter((c) => c.type === b.type && c.id !== b.id && (b.type === 'goosehouse' || c.level >= BREEDS[h.breed].reqCoop));
@@ -749,7 +760,7 @@ export function demolish(s: GameState, id: number): ActionResult {
     // les œufs restés dans le pondoir tombent au sol à côté
     for (const e of s.worldEggs) if (e.nestId === b.id) (e.where = 'ground'), (e.nestId = -1), (e.z += 1);
   }
-  const refund = Math.round(b.invested * COSTS.demolishRefund);
+  const refund = demolishRefund(s, b.id);
   s.buildings.splice(s.buildings.indexOf(b), 1);
   if (refund > 0) earn(s, refund, 'reventes', `Démontage : ${lvl(b).name}`);
   for (const h of s.hens) if (h.targetId === b.id) (h.act = 'idle'), (h.actT = 0), (h.targetId = -1);
@@ -801,11 +812,22 @@ export function buyParcel(s: GameState, key: string): ActionResult {
   const price = parcelPrice(s.parcels.length);
   if (!spend(s, price, 'terrain', `Parcelle ${key}`)) return fail('Fonds insuffisants');
   s.parcels.push(key);
+  // ses arbres et ses buissons restent : ils font désormais partie de la ferme
+  const [c, r] = parcelCoords(key);
+  for (const p of wildPlants(c, r)) {
+    const cx = Math.floor(p.x);
+    const cz = Math.floor(p.z);
+    const b = makeBuilding(newId(s), p.kind, cx, cz, s.clock.t);
+    b.wild = { sp: p.sp, sc: p.sc, ox: p.x - cx, oz: p.z - cz };
+    b.invested = 0;
+    s.buildings.push(b);
+  }
   invalidateLayout(s);
   autoEnclose(s); // la clôture s'agrandit d'elle-même autour de la nouvelle parcelle
   emit(s, { kind: 'parcel', key });
   addXp(s, 15);
   notify(s, `Nouvelle parcelle ! Capacité du terrain : ${landCapacity(s)} poules.`, 'good', '🌱');
+  if (key === BIRD_ORDERS.parcel) notify(s, 'Le chemin de terre arrive sur votre terrain : le grand portail est à vous, vous pouvez vendre vos poules au niveau 15.', 'good', '🚚');
   return OK;
 }
 

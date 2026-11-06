@@ -2,7 +2,7 @@
 // mares (fraîcheur, eau gratuite), arbres d'ombrage (ombre, abri contre les buses). Le compost,
 // lui, agit sur chaque poule qui s'y régale (voir COMPOST et protéines).
 import { NATURE } from '../config/balance';
-import { buildingCenter, parcelKeyOfCell } from './core';
+import { buildingCenter, parcelKeyOfCell, rt } from './core';
 import { lvl } from './queries';
 import { seasonIndex } from './seasons';
 import type { GameState } from './types';
@@ -22,18 +22,19 @@ export interface Perks {
 const NONE: Perks = { wellbeing: 0, sick: 1, thirst: 1, dust: 0, pond: 0, shade: 0, trees: 0 };
 
 interface Cache {
-  sig: string;
+  version: number;
+  season: number;
   map: Map<string, Perks>;
   trees: Array<[number, number]>;
 }
 const caches = new WeakMap<GameState, Cache>();
 
 function cache(s: GameState): Cache {
-  const parts: string[] = [];
-  for (const b of s.buildings) if (b.type === 'dustbath' || b.type === 'pond' || b.type === 'tree') parts.push(`${b.type}${b.level}@${b.x},${b.z}`);
-  const sig = `${seasonIndex(s)}|${parts.join(';')}`;
+  // (recalculé seulement quand la ferme ou la saison change : il peut y avoir des centaines d'arbres)
+  const version = rt(s).version;
+  const season = seasonIndex(s);
   let c = caches.get(s);
-  if (c && c.sig === sig) return c;
+  if (c && c.version === version && c.season === season) return c;
   const map = new Map<string, Perks>();
   const trees: Array<[number, number]> = [];
   const get = (key: string) => {
@@ -41,7 +42,7 @@ function cache(s: GameState): Cache {
     if (!p) map.set(key, (p = { ...NONE }));
     return p;
   };
-  const summer = seasonIndex(s) === 1;
+  const summer = season === 1;
   for (const b of s.buildings) {
     if (b.type !== 'dustbath' && b.type !== 'pond' && b.type !== 'tree') continue;
     const ctr = buildingCenter(b);
@@ -66,7 +67,7 @@ function cache(s: GameState): Cache {
     p.thirst *= 1 - treeThirst;
     p.wellbeing = p.dust + p.pond + p.shade;
   }
-  c = { sig, map, trees };
+  c = { version, season, map, trees };
   caches.set(s, c);
   return c;
 }

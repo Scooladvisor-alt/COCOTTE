@@ -1,6 +1,7 @@
 // Vignettes de la boutique et des listes : photos des vrais modèles 3D du jeu (rendu hors
 // écran une seule fois, puis mis en cache sous forme d'image).
 import * as THREE from 'three';
+import { petLayout } from '../config/buildings';
 import { BLACK_SKIN, BREEDS, GOLD_SKIN, LEGEND_SKIN } from '../config/breeds';
 import type { BreedId, BuildingType, EggType, Hen, WorkerRole } from '../sim/types';
 import { C, SNOW_UNIFORM, box, cyl, merge, mesh, sph } from './geo';
@@ -101,9 +102,11 @@ export const buildingThumb = (type: BuildingType, level = 1) =>
         else if (v.fillMode === 'heap') v.fill.scale.set(1, v.fillHeight ?? 0.5, 1);
         else v.fill.position.y = (v.fillBase ?? 0) + (v.fillHeight ?? 0.1);
       }
+      // l'animalerie s'allonge beaucoup : la photo se cadre sur la boutique
+      if (type === 'petshop') v.group.position.set(-(0.3 + petLayout(level).bw / 2), 0, -3);
       return v.group;
     },
-    { elev: 0.55 },
+    type === 'petshop' ? { elev: 0.55, frame: { y: 1.3, r: petLayout(level).bw * 0.62 + 0.9 } } : { elev: 0.55 },
   );
 export const eggThumb = (type: EggType) =>
   snapshot(

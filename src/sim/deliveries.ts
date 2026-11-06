@@ -3,7 +3,7 @@
 // sautent du hayon une à une, trottinent sur le trottoir jusqu'au portail et entrent dans la
 // ferme à la file. Tout l'horaire se lit sur le temps simulé : la simulation fait apparaître
 // chaque poule au portail à l'instant où le rendu la montre arriver (render/delivery.ts).
-import { BIRD_ORDERS, DELIVERY, TRUCK_BAY, WORLD } from '../config/balance';
+import { BIRD_ORDERS, DELIVERY, TRUCK_BAY, TRUCK_COURT, WORLD } from '../config/balance';
 import { GATE, cellIndex, rt } from './core';
 import type { Delivery, GameState } from './types';
 
@@ -34,34 +34,34 @@ export function pathLength(p: Array<[number, number]>) {
 }
 
 // ------------------------------------------------------- Le camion du revendeur ----
-/** Axe du chemin de terre, de la route jusque dans l'enclos. */
-export const TRUCK_X = BIRD_ORDERS.laneX;
-/** Arrière du camion garé dans l'enclos, et pied de sa rampe (côté portail). */
-export const TRUCK_REAR = BIRD_ORDERS.rearZ;
+/** Ligne du camion garé, arrière de la caisse et pied de sa rampe (côté portail). */
+export const TRUCK_Z = BIRD_ORDERS.yardZ;
+export const TRUCK_REAR = BIRD_ORDERS.rearX;
 export const RAMP_FOOT = TRUCK_REAR + 1.1;
 /** Un bâtiment (d'une ancienne partie) gêne-t-il l'entrée du camion ? */
 export function truckBlockedBy(s: GameState) {
   const r = rt(s);
-  for (let z = TRUCK_BAY.z0; z <= TRUCK_BAY.z1; z++)
-    for (let x = TRUCK_BAY.x0; x <= TRUCK_BAY.x1; x++) {
-      const id = r.occupant[cellIndex(x, z)];
-      if (id >= 0) return id;
-    }
+  for (const A of [TRUCK_BAY, TRUCK_COURT])
+    for (let z = A.z0; z <= A.z1; z++)
+      for (let x = A.x0; x <= A.x1; x++) {
+        const id = r.occupant[cellIndex(x, z)];
+        if (id >= 0) return id;
+      }
   return -1;
 }
 /** Trajet d'une volaille : jusqu'au pied de la rampe, puis elle monte et disparaît dans le camion. */
 export function boardPath(x: number, z: number): Array<[number, number]> {
   return [
     [x, z],
-    [TRUCK_X, RAMP_FOOT],
-    [TRUCK_X, TRUCK_REAR],
-    [TRUCK_X, TRUCK_REAR - 0.5],
+    [RAMP_FOOT, TRUCK_Z],
+    [TRUCK_REAR, TRUCK_Z],
+    [TRUCK_REAR - 0.5, TRUCK_Z],
   ];
 }
 export const boardTime = (x: number, z: number) => pathLength(boardPath(x, z)) / DELIVERY.henSpeed;
 /** Hauteur de la volaille sur la rampe, à la fraction k de son trajet (0 au sol, 1 dans le camion). */
 export function rampProgress(x: number, z: number, k: number) {
-  const before = Math.hypot(x - TRUCK_X, z - RAMP_FOOT);
+  const before = Math.hypot(x - RAMP_FOOT, z - TRUCK_Z);
   const walked = k * pathLength(boardPath(x, z));
   return Math.max(0, Math.min(1, (walked - before) / (RAMP_FOOT - TRUCK_REAR)));
 }

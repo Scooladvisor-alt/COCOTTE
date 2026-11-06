@@ -71,7 +71,7 @@ export function closeDay(s: GameState, day: number) {
     spend(s, c.upkeep, 'entretien', 'Entretien des installations', true);
     spend(s, c.land, 'foncier', 'Taxe foncière', true);
     for (const w of s.workers) spend(s, ROLES[w.role].wage, 'salaires', `Salaire de ${w.name}`, true);
-    if (petSellerWage(s)) spend(s, petSellerWage(s), 'salaires', 'Salaire du vendeur de l’animalerie', true);
+    if (petSellerWage(s)) spend(s, petSellerWage(s), 'salaires', 'Salaire du vendeur de poules', true);
     if (s.money < 0) spend(s, Math.max(1, Math.round(-s.money * COSTS.overdraftRate)), 'agios', 'Agios (découvert)', true);
     today(s).cashEnd = s.money;
   });

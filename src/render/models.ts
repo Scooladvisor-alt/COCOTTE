@@ -2,8 +2,8 @@
 import * as THREE from 'three';
 import { EGG_TYPES } from '../config/balance';
 import { BREEDS } from '../config/breeds';
-import { COOP_SCALE, STORAGE_SCALE, petLayout, sizeOf } from '../config/buildings';
-import { GROUND_MAT, TREE_MAT, WATER_MAT, pondGeometry, reed, speciesGeometry } from './nature';
+import { COOP_SCALE, PET_POS, STORAGE_SCALE, petLayout, sizeOf } from '../config/buildings';
+import { GROUND_MAT, TREE_MAT, WATER_MAT, pondGeometry, reed, speciesGeometry, MEADOW_GRASS, plant, type Plant } from './nature';
 import { HEN_MAT, HEN_PIVOT, type HenGeo } from './henModel';
 import type { BreedId, BuildingType, EggType } from '../sim/types';
 import { C, CREATURE_MAT, MAT, box, cone, cyl, finalizeExport, ico, merge, mesh, prism, sph } from './geo';
@@ -222,8 +222,7 @@ export class HenFarBatch {
     this.n = 0;
   }
 
-  /** (pitch : il penche la tête pour picorer.) */
-  push(x: number, y: number, z: number, heading: number, scale: number, tint: THREE.Color, pitch = 0) {
+  push(x: number, y: number, z: number, heading: number, scale: number, tint: THREE.Color) {
     const m = this.mesh;
     if (this.n >= this.cap) {
       this.cap *= 2;
@@ -241,19 +240,17 @@ export class HenFarBatch {
     const o = this.n * 16;
     const c = Math.cos(heading) * scale;
     const s = Math.sin(heading) * scale;
-    const cp = Math.cos(pitch);
-    const sp = Math.sin(pitch);
     a[o] = c;
     a[o + 1] = 0;
     a[o + 2] = -s;
     a[o + 3] = 0;
-    a[o + 4] = s * sp;
-    a[o + 5] = scale * cp;
-    a[o + 6] = c * sp;
+    a[o + 4] = 0;
+    a[o + 5] = scale;
+    a[o + 6] = 0;
     a[o + 7] = 0;
-    a[o + 8] = s * cp;
-    a[o + 9] = -scale * sp;
-    a[o + 10] = c * cp;
+    a[o + 8] = s;
+    a[o + 9] = 0;
+    a[o + 10] = c;
     a[o + 11] = 0;
     a[o + 12] = x;
     a[o + 13] = y;
@@ -1372,22 +1369,33 @@ function pondModel(level: number): BuildingView {
   return { group: groupOf(parts, water), fill: water, fillBase: 0.045, fillHeight: 0.05, fillMode: 'move', eggSlots: [], eggMeshes: [], key: `pond${level}` };
 }
 
-/** Arbre d'ombrage : un beau feuillu au houppier large, racines apparentes. */
-function shadeTreeModel(): BuildingView {
-  const parts: THREE.BufferGeometry[] = [];
-  parts.push(cyl(0.11, 0.17, 1.35, 7, C.trunk, [0.5, 0.67, 0.5]));
-  for (const a of [0.3, 2.4, 4.4]) parts.push(cyl(0.03, 0.07, 0.4, 5, C.trunk, [0.5 + Math.cos(a) * 0.14, 0.08, 0.5 + Math.sin(a) * 0.14], [Math.sin(a) * 1.1, 0, -Math.cos(a) * 1.1]));
-  parts.push(cyl(0.035, 0.05, 0.6, 5, C.trunk, [0.62, 1.35, 0.5], [0, 0, -0.7]));
-  parts.push(ico(0.78, 1, 0x8fc56f, [0.5, 1.95, 0.5], [1.1, 0.85, 1.1]));
-  parts.push(ico(0.52, 1, C.leafDark, [0.95, 1.72, 0.62], [1, 0.85, 1]));
-  parts.push(ico(0.5, 1, 0xa8d68a, [0.12, 1.8, 0.35], [1, 0.85, 1]));
-  parts.push(ico(0.44, 1, C.leaf, [0.55, 2.38, 0.3], [1, 0.85, 1]));
-  // ombre portée au sol, plus fraîche (herbe plus verte au pied)
-  parts.push(cyl(0.95, 0.95, 0.012, 18, 0x86b862, [0.5, 0.034, 0.55]));
-  return { group: groupOf(parts), eggSlots: [], eggMeshes: [], key: 'tree1' };
+/** Arbre ou buisson posé par le joueur : le même que ceux de la campagne, sans rien de dessiné au sol. */
+function plantModel(sp: 'oak' | 'bush'): BuildingView {
+  const g = new THREE.Group();
+  const m = new THREE.Mesh(speciesGeometry(sp), TREE_MAT);
+  m.position.set(0.5, 0, 0.5);
+  m.rotation.y = 0.6;
+  m.castShadow = true;
+  m.receiveShadow = true;
+  g.add(m);
+  return { group: g, eggSlots: [], eggMeshes: [], key: sp };
 }
 
-/** Petit panneau écrit à la main : les enseignes de l'animalerie. */
+/**
+ * Arbre ou buisson resté d'une parcelle achetée : il est dessiné avec ceux des parcelles à vendre, au même
+ * endroit (voir farmRenderer). Il ne reste ici qu'un volume invisible, pour pouvoir cliquer dessus.
+ */
+export function wildPlantHit(type: BuildingType, ox: number, oz: number): BuildingView {
+  const g = new THREE.Group();
+  const h = type === 'tree' ? 2.4 : 0.8;
+  const r = type === 'tree' ? 0.75 : 0.5;
+  const m = new THREE.Mesh(new THREE.BoxGeometry(r * 2, h, r * 2), new THREE.MeshBasicMaterial({ visible: false }));
+  m.position.set(ox, h / 2, oz);
+  g.add(m);
+  return { group: g, eggSlots: [], eggMeshes: [], key: `wild${type}` };
+}
+
+/** Petit panneau écrit à la main : les enseignes de la vente de poules. */
 export function textPanel(text: string, w: number, h: number, bg: number, fg: string) {
   const c = document.createElement('canvas');
   const px = 220;
@@ -1404,8 +1412,9 @@ export function textPanel(text: string, w: number, h: number, bg: number, fg: st
   g.fillStyle = fg;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.font = `800 ${Math.round(c.height * 0.56)}px 'Nunito', system-ui, sans-serif`;
-  g.fillText(text, c.width / 2, c.height * 0.54, c.width * 0.88);
+  const lines = text.split('\n');
+  g.font = `800 ${Math.round(c.height * (lines.length > 1 ? 0.36 : 0.56))}px 'Nunito', system-ui, sans-serif`;
+  lines.forEach((l, i) => g.fillText(l, c.width / 2, c.height * (lines.length > 1 ? 0.3 + i * 0.42 : 0.54), c.width * 0.88));
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
   t.anisotropy = 4;
@@ -1439,14 +1448,48 @@ function birdHut(parts: THREE.BufferGeometry[], x: number, z: number, goose = fa
   parts.push(box(goose ? 0.4 : 0.24, 0.025, 0.4, C.woodDark, [x, 0.14, z + 0.54], [0.42, 0, 0]));
 }
 
+/** Pelouse d'un parc : les teintes se fondent doucement l'une dans l'autre, comme un vrai pré. */
+function lawnGeometry(x0: number, x1: number, z0: number, z1: number, y: number) {
+  const STEP = 0.5;
+  const nx = Math.max(2, Math.round((x1 - x0) / STEP));
+  const nz = Math.max(2, Math.round((z1 - z0) / STEP));
+  const pos: number[] = [];
+  const nor: number[] = [];
+  const col: number[] = [];
+  const idx: number[] = [];
+  const A = new THREE.Color(0x7db458);
+  const B = new THREE.Color(0x93c56c);
+  const c = new THREE.Color();
+  const noise = (u: number, v: number) => (Math.sin(u * 0.71 + 1.3) + Math.sin(v * 0.93 + u * 0.37) + Math.sin(u * 0.29 - v * 0.47 + 2.1) + Math.sin(u * 2.3 + v * 1.9) * 0.35) / 3.35;
+  for (let j = 0; j <= nz; j++)
+    for (let i = 0; i <= nx; i++) {
+      const x = x0 + ((x1 - x0) * i) / nx;
+      const z = z0 + ((z1 - z0) * j) / nz;
+      pos.push(x, y, z);
+      nor.push(0, 1, 0);
+      c.copy(A).lerp(B, 0.5 + 0.5 * noise(x, z));
+      col.push(c.r, c.g, c.b);
+      if (i < nx && j < nz) {
+        const q = j * (nx + 1) + i;
+        idx.push(q, q + nx + 1, q + 1, q + 1, q + nx + 1, q + nx + 2);
+      }
+    }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.setIndex(idx);
+  return g;
+}
+
 /**
- * L'animalerie : la boutique et son dallage à l'ouest, puis de vrais parcs en herbe ; plus elle grandit,
- * plus ils s'allongent le long du trottoir. Les poules ont leurs cabanes, leur paille, leur coin de bain
- * de poussière et des pommiers ; les oies, plus loin, ont leur mare et ses roseaux.
+ * La vente de poules pondeuses : la boutique et son dallage à l'ouest, puis de vrais parcs en herbe ; plus
+ * elle grandit, plus ils s'allongent le long du trottoir. Les poules ont leurs cabanes, leur paille, leur
+ * coin de bain de poussière et des pommiers ; les oies, plus loin, ont leur mare et ses roseaux.
  */
 function petShopModel(level: number): BuildingView {
   const L = petLayout(level);
-  const { w, bw, hens, geese } = L;
+  const { bw, hens, geese } = L;
   const windows: THREE.Mesh[] = [];
   const parts: THREE.BufferGeometry[] = [];
   // le dallage, de la haie du parking jusqu'au trottoir
@@ -1461,95 +1504,117 @@ function petShopModel(level: number): BuildingView {
     parts.push(ico(0.3, 1, 0x6ea84f, [x, 0.52, 6.15], [1, 0.75, 1]));
     for (let k = 0; k < 7; k++) parts.push(ico(0.05, 0, [0xe85d75, 0xf5c542, 0xfaf6ee][k % 3], [x + Math.cos(k * 2.4) * 0.22, 0.56 + Math.sin(k * 1.7) * 0.1, 6.15 + Math.sin(k * 2.4) * 0.22]));
   }
-  // un banc sous la façade et l'ardoise des prix
+  // l'ardoise des prix
   parts.push(box(0.06, 0.6, 0.04, C.woodDark, [fx - 0.42, 0.36, 4.8], [0.14, 0, 0]), box(0.5, 0.5, 0.03, 0x2f3b34, [fx - 0.42, 0.44, 4.84], [0.14, 0, 0]), box(0.56, 0.56, 0.02, C.wood, [fx - 0.42, 0.44, 4.82], [0.14, 0, 0]));
-  const zone = (a: { x0: number; x1: number; z0: number; z1: number }, grass: number) => {
-    const pw = a.x1 - a.x0;
-    const pd = a.z1 - a.z0;
-    const cx = (a.x0 + a.x1) / 2;
-    const cz = (a.z0 + a.z1) / 2;
-    parts.push(box(pw, 0.07, pd, grass, [cx, 0.035, cz]));
-    // l'herbe n'est jamais d'un seul ton : plaques plus vertes et quelques fleurs
-    const n = Math.round(pw * pd * 0.32);
-    for (let k = 0; k < n; k++) {
-      const h1 = (Math.sin(k * 12.9898 + cx) * 43758.5453) % 1;
-      const h2 = (Math.sin(k * 78.233 + cz) * 12543.123) % 1;
-      const x = a.x0 + 0.4 + Math.abs(h1) * (pw - 0.8);
-      const z = a.z0 + 0.4 + Math.abs(h2) * (pd - 0.8);
-      parts.push(box(0.4 + Math.abs(h2) * 0.5, 0.004, 0.3 + Math.abs(h1) * 0.4, k % 2 ? 0x82b45b : 0xa3cc77, [x, 0.072, z], [0, k, 0]));
-      if (k % 3 === 0) parts.push(box(0.035, 0.05, 0.035, [0xf5c542, 0xfaf6ee, 0xe85d75][k % 9 === 0 ? 2 : k % 2], [x + 0.1, 0.095, z - 0.08]));
-    }
-    whitePickets(parts, a.x0, a.z1, a.x1, a.z1);
-    whitePickets(parts, a.x0, a.z0, a.x1, a.z0);
-    whitePickets(parts, a.x0, a.z0, a.x0, a.z1);
-    whitePickets(parts, a.x1, a.z0, a.x1, a.z1);
+  // ------ les parcs : leur sol est à la hauteur de l'herbe de la ferme, tout y est posé dessus
+  const FLOOR = 0.1;
+  const pen: THREE.BufferGeometry[] = [];
+  const zone = (a: { x0: number; x1: number; z0: number; z1: number }) => {
+    pen.push(box(a.x1 - a.x0, FLOOR - 0.035, a.z1 - a.z0, 0x7a9a55, [(a.x0 + a.x1) / 2, (FLOOR - 0.035) / 2, (a.z0 + a.z1) / 2]));
+    whitePickets(pen, a.x0, a.z1, a.x1, a.z1);
+    whitePickets(pen, a.x0, a.z0, a.x1, a.z0);
+    whitePickets(pen, a.x0, a.z0, a.x0, a.z1);
+    whitePickets(pen, a.x1, a.z0, a.x1, a.z1);
   };
-  zone(hens, 0x94c36b);
-  zone(geese, 0x8cbd66);
+  zone(hens);
+  zone(geese);
   // côté poules : cabanes en rang le long du fond, mangeoires, paille, bain de poussière
   const hw = hens.x1 - hens.x0;
   const huts = Math.max(1, Math.round(hw / 5));
   for (let k = 0; k < huts; k++) {
     const x = hens.x0 + ((k + 0.5) * hw) / huts;
-    birdHut(parts, x, hens.z0 + 0.46);
-    parts.push(box(0.8, 0.04, 0.16, 0x8e939b, [x + 1.1, 0.13, hens.z0 + 0.32]), box(0.72, 0.02, 0.09, C.grain, [x + 1.1, 0.155, hens.z0 + 0.32]));
-    for (const dx of [-0.32, 0.32]) parts.push(box(0.04, 0.09, 0.2, 0x6d7076, [x + 1.1 + dx, 0.09, hens.z0 + 0.32]));
+    birdHut(pen, x, hens.z0 + 0.46);
+    pen.push(box(0.8, 0.04, 0.16, 0x8e939b, [x + 1.1, 0.13, hens.z0 + 0.32]), box(0.72, 0.02, 0.09, C.grain, [x + 1.1, 0.155, hens.z0 + 0.32]));
+    for (const dx of [-0.32, 0.32]) pen.push(box(0.04, 0.09, 0.2, 0x6d7076, [x + 1.1 + dx, 0.09, hens.z0 + 0.32]));
   }
   // abreuvoir, botte de paille et son tas, coin de poussière
-  parts.push(cyl(0.16, 0.18, 0.16, 12, 0xc9ccd1, [hens.x0 + 0.42, 0.15, hens.z1 - 0.45]), cyl(0.13, 0.13, 0.01, 12, 0x7cc7ee, [hens.x0 + 0.42, 0.232, hens.z1 - 0.45]));
-  parts.push(box(0.56, 0.26, 0.34, C.straw, [hens.x1 - 0.5, 0.2, hens.z1 - 0.34]), box(0.57, 0.02, 0.35, 0xd8b85a, [hens.x1 - 0.5, 0.25, hens.z1 - 0.34]));
-  parts.push(ico(0.36, 1, 0xdcc272, [hens.x1 - 1.2, 0.11, hens.z1 - 0.46], [1.1, 0.36, 0.9]));
-  parts.push(ico(0.5, 1, 0xcbb38a, [hens.x0 + 1.5, 0.05, hens.z1 - 0.72], [1.25, 0.12, 0.85]));
+  pen.push(cyl(0.16, 0.18, 0.16, 12, 0xc9ccd1, [hens.x0 + 0.42, 0.15, hens.z1 - 0.45]), cyl(0.13, 0.13, 0.01, 12, 0x7cc7ee, [hens.x0 + 0.42, 0.232, hens.z1 - 0.45]));
+  pen.push(box(0.56, 0.26, 0.34, C.straw, [hens.x1 - 0.5, 0.2, hens.z1 - 0.34]), box(0.57, 0.02, 0.35, 0xd8b85a, [hens.x1 - 0.5, 0.25, hens.z1 - 0.34]));
+  pen.push(ico(0.36, 1, 0xdcc272, [hens.x1 - 1.2, 0.11, hens.z1 - 0.46], [1.1, 0.36, 0.9]));
+  pen.push(ico(0.5, 1, 0xcbb38a, [hens.x0 + 1.5, 0.05, hens.z1 - 0.72], [1.25, 0.12, 0.85]));
   // côté oies : leur grande cabane et de l'herbe à brouter ; la mare est à part
   const gw = geese.x1 - geese.x0;
-  birdHut(parts, geese.x0 + Math.min(0.7, gw * 0.32), geese.z0 + 0.5, true);
+  birdHut(pen, geese.x0 + Math.min(0.7, gw * 0.32), geese.z0 + 0.5, true);
   const rx = Math.min(2.4, gw * 0.34);
   const rz = Math.min(1.75, 0.8 + gw * 0.12);
-  const gx = geese.x1 - rx * 1.32;
-  const gz = geese.z1 - rz * 1.32 - 0.1;
+  // (la berge et son herbe restent dans le parc, sans déborder de la clôture)
+  const gx = geese.x1 - rx * 1.5;
+  const gz = geese.z1 - rz * 1.5 - 0.05;
   for (let k = 0; k < 16; k++) {
     const a = k * 2.399;
     if (Math.sin(a) > -0.3 && Math.cos(a) < 0.2) continue;
-    reed(gx + Math.cos(a) * rx * 1.02, gz + Math.sin(a) * rz * 1.02, 0.34 + (k % 3) * 0.08, parts, 0.03 * ((k % 3) - 1), k % 2 === 0);
+    reed(gx + Math.cos(a) * rx * 1.02, gz + Math.sin(a) * rz * 1.02, 0.34 + (k % 3) * 0.08, pen, 0.03 * ((k % 3) - 1), k % 2 === 0);
   }
+  const penG = merge(pen);
+  penG.translate(0, 0.03, 0);
+  parts.push(penG);
   const g = groupOf(parts, ...windows);
+  // la pelouse de chaque parc, ses touffes d'herbe et quelques fleurs des champs
+  for (const a of [hens, geese]) {
+    const lawn = new THREE.Mesh(lawnGeometry(a.x0, a.x1, a.z0, a.z1, FLOOR), GROUND_MAT);
+    lawn.receiveShadow = true;
+    lawn.userData.noGlow = true;
+    g.add(lawn);
+  }
+  const leafy = new THREE.Group();
+  leafy.position.y = FLOOR - 0.01;
+  const tufts: Plant[] = [];
+  const rnd = (k: number) => {
+    const v = Math.sin(k * 12.9898 + level * 3.1) * 43758.5453;
+    return v - Math.floor(v);
+  };
+  for (const a of [hens, geese]) {
+    const n = Math.round((a.x1 - a.x0) * (a.z1 - a.z0) * 1.6);
+    for (let k = 0; k < n; k++) {
+      const x = a.x0 + 0.12 + rnd(k * 1.1 + a.x0) * (a.x1 - a.x0 - 0.24);
+      const z = a.z0 + 0.12 + rnd(k * 1.7 + a.z1 + a.x1) * (a.z1 - a.z0 - 0.24);
+      if (a === geese && Math.hypot((x - gx) / (rx * 1.15), (z - gz) / (rz * 1.15)) < 1) continue;
+      tufts.push([x, z, rnd(k * 2.3) * 6.28, 0.6 + rnd(k * 3.7) * 0.5]);
+    }
+  }
+  plant(leafy, grassPatchGeometry(true, 2, false), null, tufts, { mat: MEADOW_GRASS, chunk: 1000, spread: 0.06 });
+  g.add(leafy);
   const pond = pondGeometry(gx, gz, rx, rz, level, 0x8cbd66);
   for (const [geo, mat] of [
     [pond.bank, GROUND_MAT],
     [pond.water, WATER_MAT],
   ] as const) {
     const m = new THREE.Mesh(geo, mat);
-    m.position.y = 0.018;
+    m.position.y = 0.05;
     m.receiveShadow = true;
+    m.userData.noGlow = true;
     g.add(m);
   }
   // quelques pommiers le long du fond, pour l'ombre
   const trees: THREE.BufferGeometry[] = [];
   const nt = Math.floor(hw / 7);
-  for (let k = 0; k < nt; k++) trees.push(speciesGeometry('apple').clone().scale(0.62, 0.62, 0.62).rotateY(k * 1.3).translate(hens.x0 + ((k + 1) * hw) / (nt + 1) - 0.2, 0.05, hens.z0 + 1.15));
+  for (let k = 0; k < nt; k++) trees.push(speciesGeometry('apple').clone().scale(0.9, 0.9, 0.9).rotateY(k * 1.3).translate(hens.x0 + ((k + 1) * hw) / (nt + 1) - 0.2, 0.08, hens.z0 + 1.15));
   if (trees.length) {
     const m = new THREE.Mesh(trees.length > 1 ? merge(trees) : trees[0], TREE_MAT);
     m.castShadow = true;
+    m.userData.noGlow = true;
     g.add(m);
   }
   // l'enseigne de la boutique, en grand, sur le bas du toit
-  const sw = Math.min(bw * 0.8, level >= 5 ? 3.2 : 5.2);
-  const sh = level >= 3 ? 0.62 : 0.5;
-  const sign = textPanel(level === 5 ? 'MAISON DES VOLAILLES' : 'ANIMALERIE', sw, sh, 0x2f6f4e, '#fbf6e8');
+  const sw = level >= 5 ? 3.5 : Math.min(bw * 0.84, 5.4);
+  const sh = level >= 5 ? 0.74 : level >= 3 ? 0.62 : 0.52;
+  const sign = textPanel(level === 5 ? 'MAISON DES POULES\nPONDEUSES' : 'VENTE DE POULES PONDEUSES', sw, sh, 0x2f6f4e, '#fbf6e8');
   const sy = y1 + sh / 2 + 0.04;
   const sz = level === 5 ? 3.26 : 3.22;
   sign.position.set(0.3 + bw / 2, sy, sz);
   g.add(sign, mesh(merge([box(sw + 0.14, sh + 0.12, 0.05, C.woodDark, [0.3 + bw / 2, sy, sz - 0.04]), box(0.06, sy, 0.06, C.woodDark, [0.3 + bw / 2 - sw / 2 + 0.2, sy / 2, sz - 0.06]), box(0.06, sy, 0.06, C.woodDark, [0.3 + bw / 2 + sw / 2 - 0.2, sy / 2, sz - 0.06])])));
   // l'écriteau de chaque parc, sur la clôture côté trottoir
   const label = (text: string, a: { x0: number; x1: number; z1: number }, bg: number) => {
-    const x = a.x0 + Math.min(1, (a.x1 - a.x0) / 2);
+    let x = a.x0 + Math.min(1, (a.x1 - a.x0) / 2);
+    // (pas derrière un lampadaire du trottoir : il y en a un tous les 9 m)
+    const lamp = (((PET_POS.x + x + 12) % 9) + 9) % 9;
+    if (lamp < 1.1 || lamp > 7.9) x += 2.2;
     const m = textPanel(text, 1.1, 0.36, bg, '#fbf6e8');
     m.position.set(x, 0.74, a.z1 + 0.05);
     g.add(m, mesh(merge([box(0.05, 0.56, 0.04, C.woodDark, [x - 0.4, 0.4, a.z1 + 0.02]), box(0.05, 0.56, 0.04, C.woodDark, [x + 0.4, 0.4, a.z1 + 0.02])])));
   };
   label('POULES', hens, 0xb5573b);
   label('OIES', geese, 0x3f6f9e);
-  void w;
   return { group: g, eggSlots: [], eggMeshes: [], key: `petshop${level}` };
 }
 
@@ -1573,7 +1638,9 @@ export function buildingModel(type: BuildingType, level: number): BuildingView {
     case 'pond':
       return pondModel(level);
     case 'tree':
-      return shadeTreeModel();
+      return plantModel('oak');
+    case 'bush':
+      return plantModel('bush');
     case 'coop':
       return coopModel(level);
     case 'goosehouse':

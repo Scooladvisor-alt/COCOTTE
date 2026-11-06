@@ -1,7 +1,7 @@
 // Rendu de la ferme : synchronise l'état de simulation avec la scène three.js.
 import * as THREE from 'three';
-import { inTruckBay, FRESHNESS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, NEEDS, TIME, WORLD, clamp, smoothstep } from '../config/balance';
-import { COOP_SCALE, PET_POS, STAND_POS, petLayout, sizeOf, standLayout, HALL_DOOR, HALL_FRONT } from '../config/buildings';
+import { BIRD_ORDERS, inTruckBay, FRESHNESS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, NEEDS, TIME, WORLD, clamp, smoothstep } from '../config/balance';
+import { COOP_SCALE, PET_POS, STAND_POS, petLayout, sizeOf, standLayout, HALL_ALLEY, HALL_COURT, HALL_DOOR, HALL_FRONT } from '../config/buildings';
 import { nurseryPlan, incubatorSeat } from '../sim/nursery';
 import { nurseryGateOpen } from '../sim/hens';
 import { feedPose, type FeedPose } from '../sim/feeding';
@@ -22,6 +22,8 @@ import { buildVillage, type Village } from './village';
 import { buildStreet, type Street } from './street';
 import { buildWildlife, type Wildlife } from './wildlife';
 import { buildDeliveryTruck, type DeliveryTruck } from './delivery';
+import { nearTruckRoad } from './truckRoad';
+import { ringTrees, wildPlants } from '../sim/wild';
 import { Droppings } from './droppings';
 import { createRobotView, type RobotView } from './robotModel';
 import { applyDogPose, createDogView, dogPose, type DogView } from './dogModel';
@@ -35,7 +37,6 @@ import { sound } from '../audio/sound';
 import { buildCountryside } from './countryside';
 import { townHall, type TownHall } from './farmBuildings';
 import { buildDecor, inDecorZone, type Decor } from './decor';
-import { henSolidGeometry } from './delivery';
 import { SHADOW_RADIUS, contactShadows, plant, setNatureSeason, setVegetationQuality, setVegetationZoom, speciesGeometry, type Plant, type Species } from './nature';
 import { LabelLayer } from './labels';
 import {
@@ -75,6 +76,7 @@ import {
   createWorkerView,
   type WorkerView,
   type PersonView,
+  wildPlantHit,
 } from './models';
 
 export type PickResult =
@@ -124,7 +126,12 @@ const CAM_DIR = new THREE.Vector3(Math.sin(AZIM) * Math.cos(ELEV), Math.sin(ELEV
 const GRASS_TOP = 0.1;
 /** Zooms où les oiseaux changent de modèle : d'un seul tenant de loin, tout le détail en gros plan. */
 const HEN_FAR_ZOOM = 0.85;
+/** Foule à l'écran : au-delà de tant d'oiseaux visibles, la silhouette simple s'applique jusqu'à ce zoom. */
+const HEN_CROWD_ON = 350;
+const HEN_CROWD_OFF = 220;
+const HEN_CROWD_ZOOM = 1.9;
 const WHITE = new THREE.Color(1, 1, 1);
+const BLOB_MAT = new THREE.MeshBasicMaterial({ color: 0x18240f, transparent: true, opacity: 0.26, depthWrite: false });
 const HEN_FULL_ZOOM = 3;
 const colLush = new THREE.Color(0x67a93f);
 const colDry = new THREE.Color(0xa7ae5f);
@@ -286,6 +293,8 @@ export class FarmRenderer {
   private grassMinZoom = 1.1;
   /** En dessous de ce zoom, les oiseaux passent au modèle d'un seul tenant. */
   private henFarZoom = HEN_FAR_ZOOM;
+  private henOnScreen = 0;
+  private henCrowd = false;
   private bG = new THREE.Group();
   private eggsG = new THREE.Group();
   private peopleG = new THREE.Group();
@@ -297,9 +306,13 @@ export class FarmRenderer {
   private buildings = new Map<number, BState>();
   private eggs = new Map<number, THREE.Mesh>();
   private people = new Map<number, PersonView & { px: number; pz: number; phase: number; carton?: THREE.Object3D }>();
-  private petBirds = new Map<number, { x: number; z: number; tx: number; tz: number; wait: number; k: number; hd: number }>();
-  private petBatches = new Map<string, HenFarBatch>();
-  private petSeller: PersonView | null = null;
+  /** Les volailles dans les parcs de la vente de poules : une copie pour le rendu, qui vit sa vie de poule. */
+  private petBirds = new Map<number, { hen: Hen; view: HenState; tx: number; tz: number; wait: number; k: number }>();
+  /** Les volailles qui marchent entre un camion et la ferme. */
+  private ghosts = new Map<number, { hen: Hen; view: HenState }>();
+  /** Ombres toutes simples sous les oiseaux vus de loin. */
+  private blobs = new HenFarBatch(new THREE.CircleGeometry(0.2, 8).rotateX(-Math.PI / 2), BLOB_MAT);
+  private petSeller: ReturnType<typeof createWorkerView> | null = null;
   private staffG = new THREE.Group();
   private staff = new Map<number, WorkerView & { walk: number; role: string; sweepT: number }>();
   private predG = new THREE.Group();
@@ -317,6 +330,7 @@ export class FarmRenderer {
   private dogView: DogView | null = null;
   private fenceVersion = -1;
   private layoutKey = '';
+  private wildKey = 0;
   private grassTimer = 0;
   private selRing: THREE.Mesh;
   private selBox: THREE.LineSegments;
@@ -403,6 +417,8 @@ export class FarmRenderer {
     this.scene.add(this.halo);
     this.selRing.visible = false;
     this.scene.add(this.selRing);
+    this.blobs.mesh.renderOrder = 1;
+    this.scene.add(this.blobs.mesh);
     this.selBox = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 0.05, 1)), new THREE.LineBasicMaterial({ color: C.blue }));
     this.selBox.visible = false;
     this.scene.add(this.selBox);
@@ -433,9 +449,9 @@ export class FarmRenderer {
     this.wildlife = buildWildlife(this.scene, (text) => this.onWildlife?.(text));
     // allée de la maison jusqu'au trottoir, chemin de ferme le long de la clôture jusqu'au portail
     const statics: THREE.BufferGeometry[] = [];
-    statics.push(box(10.6, 0.04, 8.2, 0xe7dcc6, [-6, 0.025, 24.7]));
+    statics.push(box(HALL_COURT.x1 - HALL_COURT.x0, 0.04, HALL_COURT.z1 - HALL_COURT.z0, 0xe7dcc6, [(HALL_COURT.x0 + HALL_COURT.x1) / 2, 0.025, (HALL_COURT.z0 + HALL_COURT.z1) / 2]));
     const walkN = WORLD.WALK_Z - 0.6;
-    statics.push(box(1.0, 0.05, walkN - 28.35, 0xe6d7b8, [-6.0, 0.03, (walkN + 28.35) / 2]));
+    statics.push(box(1.0, 0.05, walkN - 28.35, 0xe6d7b8, [HALL_ALLEY, 0.03, (walkN + 28.35) / 2]));
     statics.push(box(11.2 + 5.5, 0.05, 0.8, 0xe6d7b8, [(11.2 - 5.5) / 2, 0.03, GRID_Z1 + 1.4]));
     const st = mesh(merge(statics), false, true);
     this.scene.add(st);
@@ -468,24 +484,12 @@ export class FarmRenderer {
     }
 
     // arbres autour du domaine
-    const treeSpots: Array<[number, number, number]> = [];
-    let k = 0;
-    for (let x = -12; x <= GRID_W + 12; x += 3.1) {
-      treeSpots.push([x + hash(k++) * 1.5, GRID_Z0 - 3.2 - hash(k++) * 3, k]);
-      // alignement d'arbres côté village, entre le trottoir et les maisons (sauf la ruelle et l'abribus)
-      const tx = x + hash(k++) * 1.2;
-      const tz = WORLD.ROAD_Z + WORLD.ROAD_HALF + 1.7 + hash(k++) * 2.2;
-      if (Math.abs(tx - 20) > 2.2 && Math.abs(tx - 5) > 2.2) treeSpots.push([tx, tz, k]);
-    }
-    for (let z = GRID_Z0 - 2; z <= GRID_Z1 + 1; z += 3.3) {
-      treeSpots.push([GRID_W + 3 + hash(k++) * 2.5, z + hash(k++), k]);
-      if (z < 17) treeSpots.push([-3.2 - hash(k++) * 3, z + hash(k++), k]);
-    }
+    const treeSpots = ringTrees();
     const ringSpecies: Species[] = ['oak', 'lime', 'birch', 'pine'];
     const ring: Plant[][] = [[], [], [], []];
     const contact: Array<[number, number, number]> = [];
     treeSpots
-      .filter(([x, z]) => !inDecorZone(x, z))
+      .filter(([x, z]) => !inDecorZone(x, z) && !nearTruckRoad(x, z, 2.6))
       .forEach(([x, z], i) => {
         const v = Math.floor(hash(i * 7.3) * 4) % 4;
         const sc = 0.92 + hash(x + z * 1.7) * 0.42;
@@ -499,7 +503,7 @@ export class FarmRenderer {
       const x = side === 0 ? -1.6 - hash(i) : side === 1 ? GRID_W + 1.3 + hash(i) : hash(i * 2) * (GRID_W + 10) - 8;
       const z = side === 2 ? (i % 2 ? GRID_Z0 - 1.6 : WORLD.ROAD_Z + WORLD.ROAD_HALF + 2.6) - hash(i) * 0.5 : GRID_Z0 + hash(i * 3) * GRID_H;
       // pas dans la cour de la mairie ni sur le chemin qui longe la clôture
-      if (x < 0 && z > 16 && z < 33) continue;
+      if ((x < 0 && z > 16 && z < 33) || nearTruckRoad(x, z, 2)) continue;
       const sc = 0.8 + hash(i * 9) * 0.6;
       hedges.push([x, z, hash(i * 5) * 6, sc]);
       contact.push([x, z, SHADOW_RADIUS.bush * sc]);
@@ -572,7 +576,7 @@ export class FarmRenderer {
     this.camera.right = halfH * aspect;
     this.camera.top = halfH;
     this.camera.bottom = -halfH;
-    this.target.x = clamp(this.target.x, -10, GRID_W + 6);
+    this.target.x = clamp(this.target.x, -16, GRID_W + 6);
     this.target.z = clamp(this.target.z, GRID_Z0 - 4, GRID_Z1 + 23);
     this.camera.position.copy(this.target).addScaledVector(CAM_DIR, 80);
     this.camera.lookAt(this.target);
@@ -700,11 +704,11 @@ export class FarmRenderer {
       }
     }
     if (best >= 0) return { kind: 'hen', id: best };
-    // les volailles dans les parcs de l'animalerie
+    // les volailles dans les parcs de la vente de poules
     best = -1;
     bestD = radius;
     for (const [id, v] of this.petBirds) {
-      tmpV.set(v.x, 0.32, v.z).project(this.camera);
+      tmpV.set(v.hen.x, 0.32, v.hen.z).project(this.camera);
       const d = Math.hypot((tmpV.x * 0.5 + 0.5) * r.width + r.left - clientX, (-tmpV.y * 0.5 + 0.5) * r.height + r.top - clientY);
       if (d < bestD) {
         bestD = d;
@@ -724,7 +728,7 @@ export class FarmRenderer {
       while (o && o.userData.buildingId === undefined) o = o.parent;
       if (o) return { kind: 'building', id: o.userData.buildingId };
     }
-    // l'emplacement de l'animalerie, tant qu'elle n'est pas construite
+    // l'emplacement de la vente de poules, tant qu'elle n'est pas construite
     if (this.decor.petPlot.visible && ray.intersectObject(this.decor.petPlot, true).length) return { kind: 'petplot' };
     const g = this.groundAt(clientX, clientY);
     if (!g) return null;
@@ -761,36 +765,32 @@ export class FarmRenderer {
     for (const m of this.wildGroup.children) (m as THREE.InstancedMesh).dispose?.();
     this.wildGroup.clear();
     const wildTrees: Array<Array<[number, number, number]>> = [[], [], [], []];
-    const wildBushes: Array<[number, number]> = [];
+    const wildBushes: Array<[number, number, number]> = [];
     for (let c = 0; c < WORLD.COLS; c++)
       for (let r = 0; r < WORLD.ROWS; r++) {
         if (owned.has(`${c},${r}`)) continue;
-        const [ox, oz] = parcelCenter(c, r);
-        const P = WORLD.PARCEL;
-        const copses = 1 + Math.floor(hash(c * 31 + r * 7) * 2);
-        for (let k = 0; k < copses; k++) {
-          const bx = ox + (hash(c * 13 + r * 5 + k * 3) - 0.5) * (P - 6);
-          const bz = oz + (hash(c * 17 + r * 11 + k * 7) - 0.5) * (P - 6);
-          // l'écriteau « À vendre » reste dégagé, au centre
-          if (Math.hypot(bx - ox, bz - oz) < 3) continue;
-          const n = 4 + Math.floor(hash(c + r * 9 + k) * 5);
-          for (let t = 0; t < n; t++) {
-            const a = hash(c * 3 + r * 29 + k * 11 + t) * 6.28;
-            const d = Math.sqrt(hash(c * 7 + r * 3 + k + t * 13)) * 2.4;
-            const v = hash(t * 5 + k + c) < 0.25 ? 3 : Math.floor(hash(t + r * 3 + k) * 3);
-            wildTrees[v].push([bx + Math.cos(a) * d, bz + Math.sin(a) * d, 0.7 + hash(t * 9 + c) * 0.5]);
-          }
+        for (const p of wildPlants(c, r)) {
+          if (p.kind === 'tree') wildTrees[p.sp].push([p.x, p.z, p.sc]);
+          else wildBushes.push([p.x, p.z, p.sc]);
         }
-        for (let k = 0; k < 7; k++) wildBushes.push([ox + (hash(c * 41 + r * 3 + k) - 0.5) * (P - 2), oz + (hash(c * 43 + r * 19 + k) - 0.5) * (P - 2)]);
       }
+    // ceux des parcelles achetées restent à leur place tant qu'on ne les enlève pas
+    for (const b of s.buildings) {
+      if (!b.wild) continue;
+      const x = b.x + b.wild.ox;
+      const z = b.z + b.wild.oz;
+      if (b.type === 'tree') wildTrees[b.wild.sp].push([x, z, b.wild.sc]);
+      else wildBushes.push([x, z, b.wild.sc]);
+    }
     const wildSpecies: Species[] = ['oak', 'lime', 'birch', 'pine'];
     const wildContact: Array<[number, number, number]> = [];
     wildTrees.forEach((list, v) => {
-      plant(this.wildGroup, speciesGeometry(wildSpecies[v]), null, list.map(([x, z, sc]) => [x, z, hash(x * 3 + z) * 6, sc * 1.1] as Plant), { cast: true, spread: 0.11, chunk: 1000 });
-      for (const [x, z, sc] of list) wildContact.push([x, z, SHADOW_RADIUS[wildSpecies[v]] * sc * 1.1]);
+      if (!list.length) return;
+      plant(this.wildGroup, speciesGeometry(wildSpecies[v]), null, list.map(([x, z, sc]) => [x, z, hash(x * 3 + z) * 6, sc] as Plant), { cast: true, spread: 0.11, chunk: 1000 });
+      for (const [x, z, sc] of list) wildContact.push([x, z, SHADOW_RADIUS[wildSpecies[v]] * sc]);
     });
     if (wildBushes.length) {
-      const list = wildBushes.map(([x, z]) => [x, z, hash(x + z) * 6, 0.7 + hash(x * 2 + z) * 0.6] as Plant);
+      const list = wildBushes.map(([x, z, sc]) => [x, z, hash(x + z) * 6, sc] as Plant);
       plant(this.wildGroup, speciesGeometry('bush'), null, list, { spread: 0.12, chunk: 1000 });
       for (const [x, z, , sc] of list) wildContact.push([x, z, SHADOW_RADIUS.bush * sc]);
     }
@@ -835,6 +835,8 @@ export class FarmRenderer {
     const parkLawn = new Set<number>();
     for (const b of s.buildings) {
       if (isShelter(b)) for (const [cx, cz] of coopDoorCells(b)) if (inGrid(cx, cz)) doorway.add(cellIndex(cx, cz));
+      // l'herbe pousse au pied des arbres et des buissons
+      if ((b.type === 'tree' || b.type === 'bush') && inGrid(b.x, b.z)) parkLawn.add(cellIndex(b.x, b.z));
       if (b.type !== 'nursery') continue;
       const { house, seats } = nurseryPlan(b.level);
       const fp = sizeOf(b.type, b.level, b.rot);
@@ -967,8 +969,8 @@ export class FarmRenderer {
       let v = this.buildings.get(b.id);
       if (!v || v.level !== b.level || v.type !== b.type) {
         if (v) this.bG.remove(v.group);
-        const m = buildingModel(b.type, b.level);
-        v = { ...m, id: b.id, type: b.type, level: b.level, bounce: v ? 1 : this.layoutKey ? 1 : 0 };
+        const m = b.wild ? wildPlantHit(b.type, b.wild.ox, b.wild.oz) : buildingModel(b.type, b.level);
+        v = { ...m, id: b.id, type: b.type, level: b.level, bounce: b.wild ? 0 : v ? 1 : this.layoutKey ? 1 : 0 };
         v.group.userData.buildingId = b.id;
         this.bG.add(v.group);
         this.buildings.set(b.id, v);
@@ -1167,8 +1169,11 @@ export class FarmRenderer {
   private syncHens(s: GameState, dt: number) {
     const stamp = ++this.henStamp;
     const alpha = simAlpha(s);
-    // niveau de détail selon le zoom : de loin, une seule pièce par oiseau, sans squelette
-    const far = this.zoom < this.henFarZoom;
+    // niveau de détail selon le zoom : de loin, une seule pièce par oiseau, sans squelette ;
+    // et plus tôt quand ils sont très nombreux à l'écran (avec une marge, pour ne pas clignoter)
+    if (this.henCrowd ? this.henOnScreen < HEN_CROWD_OFF : this.henOnScreen > HEN_CROWD_ON) this.henCrowd = !this.henCrowd;
+    const far = this.zoom < this.henFarZoom || (this.henCrowd && this.zoom < HEN_CROWD_ZOOM);
+    let onScreen = 0;
     const full = this.zoom >= HEN_FULL_ZOOM;
     // cadre visible, en coordonnées du sol : ce qui est hors champ n'est ni animé ni dessiné
     const e = this.camera.matrixWorld.elements;
@@ -1182,6 +1187,7 @@ export class FarmRenderer {
     const hh = this.camera.top / this.camera.zoom + 1.2;
     for (const b of this.batches.values()) b.begin();
     for (const b of this.farBatches.values()) b.begin();
+    this.blobs.begin();
     for (const h of s.hens) {
       let v = this.hens.get(h.id);
       if (!v) {
@@ -1205,6 +1211,7 @@ export class FarmRenderer {
         if (glow) glow.visible = false;
         continue;
       }
+      onScreen++;
       const key = henKey(h);
       if (far && !h.golden && !h.legendary && h.id !== this.selectedHen) {
         v.key = key;
@@ -1217,6 +1224,7 @@ export class FarmRenderer {
         while (hd > Math.PI) hd -= Math.PI * 2;
         while (hd < -Math.PI) hd += Math.PI * 2;
         this.farBatch(key).push(x, GRASS_TOP, z, r.ph + hd * alpha, v.size * growthScale(h), v.tint);
+        this.blobs.push(x, GRASS_TOP + 0.008, z, 0, v.size * growthScale(h), WHITE);
         continue;
       }
       // il change de plumage : quelques brins de duvet s'envolent (jamais de transformation « magique »)
@@ -1270,8 +1278,54 @@ export class FarmRenderer {
         this.hens.delete(id);
       }
     }
+    // les volailles hors du troupeau, dessinées exactement comme les autres : en vente dans leur parc, ou
+    // qui marchent entre un camion et la ferme (mêmes modèles selon le zoom, même ombre, mêmes gestes)
+    const drawBird = (h: Hen, v: HenState, lift = 0) => {
+      const dx = h.x - tx;
+      const dz = h.z - tz;
+      if (Math.abs(dx * rx + dz * rz) > hw || Math.abs(dx * ux + dz * uz) > hh) return;
+      onScreen++;
+      const key = henKey(h);
+      const selected = h.id === this.selectedPetBird;
+      if (far && !selected) {
+        this.farBatch(key).push(h.x, GRASS_TOP + lift, h.z, h.heading, v.size, v.tint);
+        this.blobs.push(h.x, GRASS_TOP + 0.008 + lift, h.z, 0, v.size, WHITE);
+        return;
+      }
+      this.animateHen(s, h, v, dt, 1);
+      if (lift) v.root.position.y += lift;
+      const lot = this.batch(key, full || selected);
+      if (selected) lot.push(v, this.selTint.copy(v.tint).multiplyScalar(1.25 + 0.15 * Math.sin(this.time * 3.6)));
+      else lot.push(v);
+    };
+    this.syncPetBirds(s, dt, drawBird);
+    this.truck.birds(s, (b) => {
+      let g = this.ghosts.get(b.seed);
+      if (!g) {
+        const hen = { id: b.seed, breed: b.breed, skin: b.skin, x: b.x, z: b.z, heading: 0, act: 'walk', actT: 5, targetId: -1, health: 100 } as unknown as Hen;
+        g = { hen, view: this.birdView(hen) };
+        g.view.root.rotation.order = 'YXZ';
+        this.ghosts.set(b.seed, g);
+      }
+      g.view.stamp = stamp;
+      const hen = g.hen;
+      hen.x = b.x;
+      hen.z = b.z;
+      if (b.dx || b.dz) hen.heading = Math.atan2(b.dx, b.dz);
+      const r = rtHen(hen);
+      r.px = hen.x;
+      r.pz = hen.z;
+      r.ph = hen.heading;
+      r.spd = 1;
+      // sur la rampe : le corps suit la pente
+      g.view.root.rotation.x = -b.slope;
+      drawBird(hen, g.view, b.lift);
+    });
+    for (const [id, g] of this.ghosts) if (g.view.stamp !== stamp) this.ghosts.delete(id);
     for (const b of this.batches.values()) b.end();
     for (const b of this.farBatches.values()) b.end();
+    this.blobs.end();
+    this.henOnScreen = onScreen;
   }
 
   /** Lot des vues d'ensemble : l'ombre portée n'est gardée que tant qu'il y a peu d'oiseaux à l'écran. */
@@ -1588,14 +1642,19 @@ export class FarmRenderer {
   }
 
   // ------------------------------------------------------------- Clients ----
-  /** Les volailles de l'animalerie : chacune dans le parc de son espèce, elles picorent et font quelques pas. */
-  private syncPetBirds(s: GameState, dt: number) {
+  /** Vue d'une volaille dessinée hors du troupeau (mêmes taille et teinte que dans la ferme). */
+  private birdView(h: Hen): HenState {
+    return { ...createHenView(h.breed, h.id), breed: h.breed, key: henKey(h), walk: 0, vis: 1, spawn: 1, yawT: 0, yaw: 0, tilt: 0, y: GRASS_TOP, blinkT: 1 + Math.random() * 4, stamp: 0, drawnFar: false, ship: false };
+  }
+
+  /** Les volailles en vente : chacune dans le parc de son espèce, elles se promènent, picorent, grattent. */
+  private syncPetBirds(s: GameState, dt: number, draw: (h: Hen, v: HenState) => void) {
     const shop = s.buildings.find((b) => b.type === 'petshop');
     const seen = new Set<number>();
-    const far = this.zoom < this.henFarZoom;
-    for (const b of this.petBatches.values()) b.begin();
     if (shop) {
       const L = petLayout(shop.level);
+      const hour = currentHour(s);
+      const night = hour < 6.4 || hour > 20.6;
       const shown = { hens: 0, geese: 0 };
       for (const h of s.petShop.birds) {
         const goose = isGoose(h.breed);
@@ -1609,52 +1668,66 @@ export class FarmRenderer {
         // (elles restent devant les cabanes, en bas du parc)
         const m = 0.35;
         const pick = (k: number): [number, number] => [PET_POS.x + pen.x0 + m + hash(k * 1.7 + h.id) * (pen.x1 - pen.x0 - 2 * m), PET_POS.z + pen.z0 + 0.95 + hash(k * 2.3 + h.id * 3) * (pen.z1 - pen.z0 - 0.95 - m)];
-        let v = this.petBirds.get(h.id);
-        if (!v) {
+        let b = this.petBirds.get(h.id);
+        if (!b) {
           const [x, z] = pick(1);
-          v = { x, z, tx: x, tz: z, wait: hash(h.id * 7) * 3, k: 2, hd: hash(h.id) * 6.28 };
-          this.petBirds.set(h.id, v);
+          const hen: Hen = { ...h, x, z, heading: hash(h.id) * 6.28, act: 'idle', actT: 0, targetId: -1 };
+          b = { hen, view: this.birdView(hen), tx: x, tz: z, wait: hash(h.id * 7) * 3, k: 2 };
+          this.petBirds.set(h.id, b);
         }
-        v.wait -= dt;
-        const dx = v.tx - v.x;
-        const dz = v.tz - v.z;
+        const g = b.hen;
+        // la boutique a grandi et les parcs se sont décalés : on la retrouve dans le sien
+        if (g.x < PET_POS.x + pen.x0 || g.x > PET_POS.x + pen.x1 || g.z < PET_POS.z + pen.z0 || g.z > PET_POS.z + pen.z1) {
+          [g.x, g.z] = pick(b.k);
+          b.tx = g.x;
+          b.tz = g.z;
+        }
+        b.wait -= dt;
+        const r = rtHen(g);
+        const dx = b.tx - g.x;
+        const dz = b.tz - g.z;
         const d = Math.hypot(dx, dz);
-        let y = 0.07;
-        let pitch = 0;
-        if (d > 0.03) {
-          const step = Math.min(d, dt * 0.55);
-          v.x += (dx / d) * step;
-          v.z += (dz / d) * step;
-          v.hd = Math.atan2(dx, dz);
-          y += Math.abs(Math.sin(this.time * 11 + h.id)) * 0.018;
+        if (night) {
+          g.act = 'rest';
+          r.spd = 0;
+        } else if (d > 0.05) {
+          g.act = 'walk';
+          const step = Math.min(d, dt * 0.5);
+          g.x += (dx / d) * step;
+          g.z += (dz / d) * step;
+          let dh = Math.atan2(dx, dz) - g.heading;
+          while (dh > Math.PI) dh -= Math.PI * 2;
+          while (dh < -Math.PI) dh += Math.PI * 2;
+          g.heading += clamp(dh, -6 * dt, 6 * dt);
+          r.spd = 0.5;
         } else {
-          // sur place : elle picore, puis repart ailleurs
-          pitch = Math.max(0, Math.sin(this.time * 2.4 + h.id * 1.3)) * 0.42;
-          if (v.wait <= 0) {
-            v.k++;
-            [v.tx, v.tz] = pick(v.k);
-            v.wait = 2 + hash(v.k * 3.1 + h.id) * 5;
+          r.spd = 0;
+          if (g.act === 'walk' || g.act === 'rest') g.act = 'idle';
+          if (b.wait <= 0) {
+            b.k++;
+            const next = hash(b.k * 1.3 + h.id);
+            if (next < 0.42) [b.tx, b.tz] = pick(b.k);
+            else g.act = next < 0.72 ? 'peck' : next < 0.84 ? 'scratch' : next < 0.92 ? 'preen' : 'idle';
+            b.wait = 1.5 + hash(b.k * 3.1 + h.id) * 4;
           }
         }
-        const key = `${h.breed}#${h.skin ?? 0}#${far ? 'far' : 'mid'}`;
-        let lot = this.petBatches.get(key);
-        if (!lot) {
-          lot = new HenFarBatch(far ? henGeometryFar(h.breed, 'hen', ADULT_STAGE, h.skin ?? 0) : henSolidGeometry(h.breed, h.skin ?? 0));
-          lot.mesh.castShadow = !far;
-          this.petBatches.set(key, lot);
-          this.scene.add(lot.mesh);
-        }
-        const tint = h.id === this.selectedPetBird ? this.selTint.setScalar(1.3 + 0.2 * Math.sin(this.time * 3.6)) : WHITE;
-        lot.push(v.x, y, v.z, v.hd, BREEDS[h.breed].scale, tint, pitch);
+        r.px = g.x;
+        r.pz = g.z;
+        r.ph = g.heading;
+        draw(g, b.view);
       }
     }
-    for (const b of this.petBatches.values()) b.end();
     for (const id of this.petBirds.keys()) if (!seen.has(id)) this.petBirds.delete(id);
-    // le vendeur, derrière son comptoir : il va à celui où quelqu'un attend
+  }
+
+  /** Le vendeur de poules : devant la boutique, au bout de l'auvent ; il rejoint le client qu'on sert. */
+  private syncPetSeller(s: GameState, dt: number) {
+    const shop = s.buildings.find((b) => b.type === 'petshop');
     const hired = !!shop && !!s.petShop.seller;
     if (hired && !this.petSeller) {
-      this.petSeller = createPerson(41);
-      this.petSeller.root.position.set(petLayout(shop!.level).cx, 0.05, PET_POS.z + 3.24);
+      const L = petLayout(shop!.level);
+      this.petSeller = createWorkerView('seller', ROLES.seller.outfit, 41, false);
+      this.petSeller.root.position.set(L.cx + L.gap * L.counters * 0.5 + 1.1, 0.06, PET_POS.z + 4.1);
       this.peopleG.add(this.petSeller.root);
     } else if (!hired && this.petSeller) {
       this.peopleG.remove(this.petSeller.root);
@@ -1663,12 +1736,19 @@ export class FarmRenderer {
     if (this.petSeller) {
       const L = petLayout(shop!.level);
       const c = s.petCustomers.find((o) => o.state === 'shopping' && (o.counter ?? -1) >= 0);
-      const tx = c ? L.cx + (c.counter! - (L.counters - 1) / 2) * L.gap : L.cx;
+      const tx = c ? L.cx + (c.counter! - (L.counters - 1) / 2) * L.gap + 0.55 : L.cx + L.gap * L.counters * 0.5 + 1.1;
+      const tz = c ? L.stopZ - 0.1 : PET_POS.z + 4.1;
       const p = this.petSeller.root.position;
       const dx = tx - p.x;
-      const moving = Math.abs(dx) > 0.03;
-      if (moving) p.x += Math.sign(dx) * Math.min(Math.abs(dx), dt * 1.6);
-      this.petSeller.root.rotation.y = moving ? Math.sign(dx) * (Math.PI / 2) : 0;
+      const dz = tz - p.z;
+      const d = Math.hypot(dx, dz);
+      const moving = d > 0.04;
+      if (moving) {
+        const step = Math.min(d, dt * 1.6);
+        p.x += (dx / d) * step;
+        p.z += (dz / d) * step;
+        this.petSeller.root.rotation.y = Math.atan2(dx, dz);
+      } else this.petSeller.root.rotation.y = c ? -Math.PI / 2 : Math.PI * 0.15;
       const sw = moving ? Math.sin(this.time * 9) * 0.5 : 0;
       this.petSeller.legL.rotation.x = sw;
       this.petSeller.legR.rotation.x = -sw;
@@ -1676,10 +1756,10 @@ export class FarmRenderer {
   }
 
   private syncPeople(s: GameState, dt: number) {
-    this.syncPetBirds(s, dt);
+    this.syncPetSeller(s, dt);
     const seen = new Set<number>();
     for (const c of s.petCustomers) {
-      // client de l'animalerie : il arrive avec son carton sous le bras, et repart avec une tête qui dépasse
+      // client de la vente de poules : il arrive avec son carton sous le bras, et repart avec une tête qui dépasse
       let v = this.people.get(c.id);
       if (!v) {
         v = { ...createPerson(c.look), px: c.x, pz: c.z, phase: Math.random() * 6 };
@@ -2411,8 +2491,15 @@ export class FarmRenderer {
       }
     }
     const key = s.parcels.slice().sort().join('|');
+    let wildKey = 0;
+    for (const b of s.buildings) if (b.wild) wildKey = (wildKey * 31 + b.id + b.x * 7 + b.z * 13) % 1000000007;
+    if (wildKey !== this.wildKey && key === this.layoutKey) {
+      this.wildKey = wildKey;
+      this.rebuildLayout(s);
+    }
     if (key !== this.layoutKey) {
       const first = !this.layoutKey;
+      this.wildKey = wildKey;
       this.rebuildLayout(s);
       if (!first) {
         for (const p of s.parcels) {
@@ -2449,6 +2536,7 @@ export class FarmRenderer {
     this.updateLighting(s);
     const hh = currentHour(s);
     this.decor.setPetShop(s.buildings.some((b) => b.type === 'petshop'));
+    this.decor.setYard(s.parcels.includes(BIRD_ORDERS.parcel));
     this.decor.update(this.time, dt, smoothstep(4.8, 7.2, hh) * (1 - smoothstep(19.2, 21.8, hh)));
     this.village.update(this.time, dt, smoothstep(4.8, 7.2, hh) * (1 - smoothstep(19.2, 21.8, hh)));
     // la circulation suit le temps du jeu (figée en pause, pressée en accéléré)
@@ -2501,7 +2589,7 @@ export class FarmRenderer {
     else if (sr) halo = { x: sr.root.position.x, z: sr.root.position.z, w: 1.3, d: 1.3 };
     else if (sd) halo = { x: sd.root.position.x, z: sd.root.position.z, w: 1.4, d: 1.4 };
     else if (sh && sh.root.visible) halo = { x: sh.root.position.x, z: sh.root.position.z, w: 1.25, d: 1.25 };
-    else if (sp) halo = { x: sp.x, z: sp.z, w: 1.25, d: 1.25 };
+    else if (sp) halo = { x: sp.hen.x, z: sp.hen.z, w: 1.25, d: 1.25 };
     this.halo.visible = !!halo;
     if (halo) {
       this.halo.position.set(halo.x, GRASS_TOP + 0.012, halo.z);

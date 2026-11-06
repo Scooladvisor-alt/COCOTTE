@@ -42,7 +42,8 @@ import * as A from '../sim/actions';
 import type { EggType, GameState } from '../sim/types';
 import { Btn, EggDot, Icon, Tabs, n1, useGame } from './common';
 import { HistoryChart } from './Charts';
-import { DealersTab, PetShopTab } from './PetShop';
+import { DealersTab, ParcelLocked, PetShopTab } from './PetShop';
+import { birdOrdersOpen, truckParcelOwned } from '../sim/petshop';
 import { buildingThumb, eggThumb } from '../render/thumbs';
 
 function visibleTypes(s: GameState): EggType[] {
@@ -61,6 +62,7 @@ export function MarketPanel() {
   const offers = s.orders.filter((o) => o.status === 'offer').length;
   const coffers = s.contracts.filter((c) => c.status === 'offer').length;
   const birdOffers = s.birdOrders.filter((o) => o.status === 'offer').length;
+  const petOpen = s.buildings.some((b) => b.type === 'petshop') || (lvl >= BIRD_ORDERS.reqLevel && truckParcelOwned(s));
   return (
     <>
       <Tabs
@@ -70,8 +72,8 @@ export function MarketPanel() {
           { id: 'orders', label: 'Commandes', locked: lvl < UNLOCKS.orders, badge: offers },
           { id: 'contracts', label: 'Contrats', locked: lvl < UNLOCKS.contracts, badge: coffers },
           { id: 'auto', label: 'Automatisation', locked: lvl < UNLOCKS.autoWholesale },
-          { id: 'pets', label: 'Animalerie', locked: lvl < BIRD_ORDERS.reqLevel && !s.buildings.some((b) => b.type === 'petshop') },
-          { id: 'dealers', label: 'Revendeurs', locked: lvl < BIRD_ORDERS.reqLevel, badge: birdOffers },
+          { id: 'pets', label: 'Poules pondeuses', locked: !petOpen },
+          { id: 'dealers', label: 'Revendeurs', locked: !birdOrdersOpen(s), badge: birdOffers },
         ]}
         active={tab}
         onChange={(t) => {
@@ -85,8 +87,8 @@ export function MarketPanel() {
         {tab === 'orders' && (lvl >= UNLOCKS.orders ? <OrdersTab /> : <Locked level={UNLOCKS.orders} what="Des commerçants passent des commandes ponctuelles bien payées." />)}
         {tab === 'contracts' && (lvl >= UNLOCKS.contracts ? <ContractsTab /> : <Locked level={UNLOCKS.contracts} what="Des contrats de livraison quotidienne assurent un revenu régulier." />)}
         {tab === 'auto' && (lvl >= UNLOCKS.autoWholesale ? <AutoTab /> : <Locked level={UNLOCKS.autoWholesale} what="Vendez automatiquement le surplus au-delà d’un seuil de stock." />)}
-        {tab === 'pets' && (lvl >= BIRD_ORDERS.reqLevel || s.buildings.some((b) => b.type === 'petshop') ? <PetShopTab /> : <Locked level={BIRD_ORDERS.reqLevel} what="Construisez une animalerie à droite du parking pour vendre vos poules et vos oies en trop." />)}
-        {tab === 'dealers' && (lvl >= BIRD_ORDERS.reqLevel ? <DealersTab /> : <Locked level={BIRD_ORDERS.reqLevel} what="Des revendeurs et des associations vous commandent des poules et des oies : un grand camion vient les chercher." />)}
+        {tab === 'pets' && (petOpen ? <PetShopTab /> : lvl < BIRD_ORDERS.reqLevel ? <Locked level={BIRD_ORDERS.reqLevel} what="Construisez une vente de poules pondeuses à droite du parking pour vendre vos poules et vos oies en trop." /> : <ParcelLocked what="La vente de poules pondeuses se construit une fois cette parcelle achetée." />)}
+        {tab === 'dealers' && (birdOrdersOpen(s) ? <DealersTab /> : lvl < BIRD_ORDERS.reqLevel ? <Locked level={BIRD_ORDERS.reqLevel} what="Des revendeurs et des associations vous commandent des poules et des oies : un camion vient les chercher." /> : <ParcelLocked what="Le camion des revendeurs n’entre que par le chemin de terre qui mène à cette parcelle." />)}
       </div>
     </>
   );

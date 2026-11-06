@@ -1,10 +1,11 @@
 import { useState } from 'preact/hooks';
-import { AUTO_DOOR, BREEDING, COMPOST, EGG_TYPES, TIME, GRADES, HEALTH, LAYING, NATURE, PARCELS, ROBOT, WORKER_SKILLS, parcelPrice, WORLD } from '../config/balance';
+import { AUTO_DOOR, BIRD_ORDERS, BREEDING, CLEARING, COMPOST, EGG_TYPES, TIME, GRADES, HEALTH, LAYING, NATURE, PARCELS, ROBOT, WORKER_SKILLS, parcelPrice, WORLD } from '../config/balance';
 import { season, seasonIndex } from '../sim/seasons';
 import { hopperCount, sellRobot } from '../sim/robots';
 import { crowdedChicks, crowdedGoslings, dadCount, eggHatchIn, fertileStock, fertility, hatchesGeese, isIncubator, growthLabel, growthStage, incubatable, incubateAll, incubatingCount, loadIncubator, nextHatchIn, roosterCount, toggleIncubatorAuto } from '../sim/breeding';
 import { birdThumb, buildingThumb, dogThumb, robotThumb } from '../render/thumbs';
 import { parcelPerks } from '../sim/perks';
+import { wildPlants } from '../sim/wild';
 import { parcelKeyOfCell } from '../sim/core';
 import { buyDog, checkBuyDog } from '../sim/dog';
 import { DOG } from '../config/balance';
@@ -204,7 +205,7 @@ function FollowBtn() {
   );
 }
 
-/** Une volaille dans son parc, à l'animalerie. */
+/** Une volaille dans son parc, à la vente de poules pondeuses. */
 function PetBirdCard({ h }: { h: Hen }) {
   const game = useGame();
   const s = game.state;
@@ -213,9 +214,7 @@ function PetBirdCard({ h }: { h: Hen }) {
   return (
     <div class="insp">
       <div class="insp-head">
-        <div class="avatar bld">
-          <img src={birdThumb(h)} alt="" />
-        </div>
+        <img class="avatar bld pic" src={birdThumb(h)} alt="" />
         <div>
           <h3>{h.name}</h3>
           <div class="chips">
@@ -224,12 +223,7 @@ function PetBirdCard({ h }: { h: Hen }) {
           </div>
         </div>
       </div>
-      {h.genes && (
-        <div class="kv">
-          <span>Valeur de reproductrice</span>
-          <GeneStars h={h} />
-        </div>
-      )}
+      {h.genes && <GeneStars h={h} />}
       <div class="kv">
         <span>Prix en boutique</span>
         <b>{fmtMoney(petPrice(s, h.breed))}</b>
@@ -252,7 +246,7 @@ function PetBirdCard({ h }: { h: Hen }) {
   );
 }
 
-/** L'emplacement à droite du parking : on y fait construire l'animalerie, à partir du niveau 15. */
+/** L'emplacement à droite du parking : on y fait construire la vente de poules, au niveau 15 et une fois la parcelle D3 achetée. */
 function PetPlotCard() {
   const game = useGame();
   const s = game.state;
@@ -262,13 +256,11 @@ function PetPlotCard() {
   return (
     <div class="insp">
       <div class="insp-head">
-        <div class="avatar bld">
-          <img src={buildingThumb('petshop', 1)} alt="" />
-        </div>
+        <img class="avatar bld pic" src={buildingThumb('petshop', 1)} alt="" />
         <div>
-          <h3>Emplacement de l’animalerie</h3>
+          <h3>Emplacement de la vente de poules pondeuses</h3>
           <div class="chips">
-            <Chip tone={lv >= L.reqLevel ? 'good' : 'warn'}>{lv >= L.reqLevel ? 'Disponible' : `Niveau ${L.reqLevel} requis`}</Chip>
+            <Chip tone={chk.ok ? 'good' : 'warn'}>{lv < L.reqLevel ? `Niveau ${L.reqLevel} requis` : !s.parcels.includes(BIRD_ORDERS.parcel) ? `Parcelle ${BIRD_ORDERS.parcelName} à acheter` : 'Disponible'}</Chip>
           </div>
         </div>
       </div>
@@ -290,7 +282,7 @@ function PetPlotCard() {
             if (game.act(() => A.openPetShop(s), 'build')) {
               const b = petShopOf(s);
               if (b) game.select({ kind: 'building', id: b.id });
-              game.toast('L’animalerie est construite : mettez-y des volailles, ou embauchez un vendeur.', 'good', '🐔');
+              game.toast('La vente de poules pondeuses est construite : mettez-y des volailles, ou embauchez un vendeur.', 'good', '🐔');
             }
           }}
         >
@@ -298,6 +290,19 @@ function PetPlotCard() {
         </Btn>
       </div>
       {!chk.ok && chk.reason && <small class="hint warn">{chk.reason}</small>}
+      {!s.parcels.includes(BIRD_ORDERS.parcel) && (
+        <div class="actions">
+          <Btn
+            kind="soft"
+            onClick={() => {
+              game.select({ kind: 'parcel', key: BIRD_ORDERS.parcel });
+              game.renderer.focusOn(70, 20);
+            }}
+          >
+            Voir la parcelle {BIRD_ORDERS.parcelName}
+          </Btn>
+        </div>
+      )}
     </div>
   );
 }
@@ -753,8 +758,8 @@ function HenCard({ h }: { h: Hen }) {
           </Btn>
         )}
         {petShopOf(s) && sellable(h) && (
-          <Btn kind="soft" disabled={petRoom(s) <= 0} title={petRoom(s) <= 0 ? 'La vitrine est pleine' : `Vendue à ${fmtMoney(petPrice(s, h.breed))} par l’animalerie`} onClick={() => game.act(() => stockBird(s, h.id), 'pop')}>
-            Mettre à l’animalerie · {fmtMoney(petPrice(s, h.breed))}
+          <Btn kind="soft" disabled={petRoom(s) <= 0} title={petRoom(s) <= 0 ? 'Les parcs sont pleins' : `Vendue ${fmtMoney(petPrice(s, h.breed))} à la vente de poules pondeuses`} onClick={() => game.act(() => stockBird(s, h.id), 'pop')}>
+            Mettre en vente · {fmtMoney(petPrice(s, h.breed))}
           </Btn>
         )}
         {!confirm ? (
@@ -781,7 +786,7 @@ function levelDiff(type: Building['type'], cur: BuildingLevel, next: BuildingLev
   if (type === 'dustbath') out.push(`Bien-être +${cur.wellbeing} → +${next.wellbeing}`, `${cur.slots} → ${next.slots} places`);
   if (type === 'pond') out.push(`Réserve ${cur.capacity} → ${next.capacity} L`, `Pluie +${cur.regen} → +${next.regen} L/jour`, `Bien-être +${cur.wellbeing} → +${next.wellbeing}`);
   if (type === 'incubator' || type === 'gooseincubator') out.push(`Capacité ${cur.capacity} → ${next.capacity} œufs`, `Éclosion +${Math.round((next.quality ?? 0) * 100)} %`);
-  if (type === 'petshop') out.push(`Vitrine ${cur.capacity} → ${next.capacity} volailles`, `Clients ${cur.flow}/h → ${next.flow}/h`);
+  if (type === 'petshop') out.push(`Parcs ${cur.capacity} → ${next.capacity} volailles`, `Clients ${cur.flow}/h → ${next.flow}/h`);
   if (type === 'nursery') out.push('Couveuses : 1 → 2 emplacements', `Capacité ${cur.capacity} → ${next.capacity} poussins`, `Croissance +${Math.round(((cur.growth ?? 1) - 1) * 100)} % → +${Math.round(((next.growth ?? 1) - 1) * 100)} %`);
   if (type === 'stand') out.push(`Clients ${cur.flow}/h → ${next.flow}/h`, `Paniers ×${cur.qtyMult} → ×${next.qtyMult}`);
   if (next.perk) out.push(next.perk);
@@ -865,7 +870,7 @@ function BuildingCard({ b }: { b: Building }) {
       {b.type === 'petshop' && (
         <>
           <div class="kv">
-            <span>En vitrine</span>
+            <span>En vente</span>
             <b>
               {s.petShop.birds.length} / {L.capacity} volailles
             </b>
@@ -1086,7 +1091,7 @@ function BuildingCard({ b }: { b: Building }) {
             <Icon name="move" size={14} /> Déplacer
           </Btn>
         )}
-        {def.movable && (
+        {def.movable && !A.clearingCost(b) && (
           <Btn kind="ghost" small onClick={() => game.act(() => A.rotate(s, b.id), 'build')} title="Pivoter d’un quart de tour (4 appuis = un tour complet)">
             <Icon name="rotate" size={14} /> Pivoter
           </Btn>
@@ -1094,11 +1099,11 @@ function BuildingCard({ b }: { b: Building }) {
         {!def.unique &&
           (!confirm ? (
             <Btn kind="ghost" small disabled={!dem.ok} title={dem.reason} onClick={() => setConfirm(true)}>
-              {A.demolishRefund(s, b.id) > 0 ? `Démonter (+${fmtMoney(A.demolishRefund(s, b.id))})` : 'Démonter'}
+              {A.clearingCost(b) ? `Enlever · ${fmtMoney(A.clearingCost(b))}` : A.demolishRefund(s, b.id) > 0 ? `Démonter (+${fmtMoney(A.demolishRefund(s, b.id))})` : 'Démonter'}
             </Btn>
           ) : (
             <Btn kind="danger" small onClick={() => game.act(() => A.demolish(s, b.id), 'build')}>
-              Confirmer le démontage
+              {A.clearingCost(b) ? `Confirmer · ${fmtMoney(A.clearingCost(b))}` : 'Confirmer le démontage'}
             </Btn>
           ))}
       </div>
@@ -1277,6 +1282,17 @@ function ParcelCard({ keyId }: { keyId: string }) {
         </div>
       </div>
       <p class="desc">Une prairie verdoyante : +{PARCELS.hensPerParcel} poules de capacité, de l’herbe fraîche et de la place pour construire.</p>
+      {keyId === BIRD_ORDERS.parcel && <p class="hint">Le chemin de terre arrive ici, au grand portail : il faut cette parcelle pour vendre vos poules pondeuses.</p>}
+      {(() => {
+        const wild = wildPlants(c, r);
+        const trees = wild.filter((p) => p.kind === 'tree').length;
+        const bushes = wild.length - trees;
+        return (
+          <p class="hint">
+            Elle garde ses {trees} arbres et ses {bushes} buissons : les arbres profitent déjà aux poules (ombre, fraîcheur, abri contre les buses). Pour construire à leur place, un arbre s’enlève pour {fmtMoney(CLEARING.tree)}, un buisson pour {fmtMoney(CLEARING.bush)}.
+          </p>
+        );
+      })()}
       <div class="kv">
         <span>Prix</span>
         <b>{fmtMoney(price)}</b>

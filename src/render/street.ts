@@ -23,6 +23,8 @@ const laneZ = (dir: 1 | -1) => (dir > 0 ? LANE_E : LANE_W);
 /** Étendue des trottoirs (le long de la ferme et du village). */
 const X0 = -26;
 const X1 = GRID_W + 10;
+/** Côté ferme, le trottoir s'arrête avant le chemin de terre qui quitte la route. */
+const X1N = GRID_W + 5.8;
 /** Place de l'étal puis parking des clients, entre la clôture et le trottoir. */
 const PLACE = { x0: 11.2, x1: 32.6, z0: GRID_Z1 + 0.15, z1: WZ - WALK / 2 };
 const PARK = { x0: 33, x1: 41.8 };
@@ -69,12 +71,14 @@ function streetGeometry(leafy: THREE.BufferGeometry[]) {
   for (let k = 0; k < 4; k++) g.push(box(1.5, 0.012, 0.42, 0xf7f4ee, [CROSS_X, 0.057, RZ - RH + 0.43 + k * 0.85]));
 
   // bordures et trottoirs (dalles)
-  const sw = X1 - X0;
-  const sx = (X0 + X1) / 2;
-  for (const s of [-1, 1]) g.push(box(sw, 0.09, 0.12, 0xd2cab9, [sx, 0.045, RZ + s * (RH + 0.06)]));
+  for (const s of [-1, 1]) {
+    const xe = s < 0 ? X1N : X1;
+    g.push(box(xe - X0, 0.09, 0.12, 0xd2cab9, [(X0 + xe) / 2, 0.045, RZ + s * (RH + 0.06)]));
+  }
   for (const z of [WZ, SZ]) {
-    g.push(box(sw, 0.065, WALK, 0xe3dac8, [sx, 0.0325, z]));
-    for (let x = X0 + 1.6; x < X1; x += 1.6) g.push(box(0.035, 0.006, WALK - 0.06, 0xd0c6b2, [x, 0.067, z]));
+    const xe = z === WZ ? X1N : X1;
+    g.push(box(xe - X0, 0.065, WALK, 0xe3dac8, [(X0 + xe) / 2, 0.0325, z]));
+    for (let x = X0 + 1.6; x < xe; x += 1.6) g.push(box(0.035, 0.006, WALK - 0.06, 0xd0c6b2, [x, 0.067, z]));
   }
 
   // la place de l'étal : dalles calcaires et leurs joints
@@ -318,13 +322,13 @@ export interface Street {
   delivery(id: number): { x: number; parked: boolean } | null;
   /** Le camion quitte la chaussée : la circulation reste derrière sa place tant qu'on ne libère pas la voie. */
   detachDelivery(id: number): void;
-  /** Réserve la voie à cet endroit, le temps d'une manœuvre. */
-  holdLane(id: number, x: number, len: number): void;
+  /** Réserve une voie à cet endroit, le temps d'une manœuvre. */
+  holdLane(id: number, x: number, len: number, dir: 1 | -1): void;
   freeLane(id: number): void;
-  /** La voie est-elle libre entre ces deux abscisses ? */
-  laneClear(x0: number, x1: number): boolean;
-  /** Le camion reprend sa place dans la circulation, cap à l'ouest. */
-  resumeDelivery(id: number, g: THREE.Group, len: number, x: number): void;
+  /** Cette voie est-elle libre entre ces deux abscisses ? */
+  laneClear(dir: 1 | -1, x0: number, x1: number): boolean;
+  /** Le camion reprend sa place dans la circulation. */
+  resumeDelivery(id: number, g: THREE.Group, len: number, x: number, dir: 1 | -1): void;
   /** Véhicules sur la route (contrôles de développement). */
   vehicles(): Array<{ kind: string; x: number; z: number; len: number; state: string; dir: number; v: number; ovt: number | null; del: number | null }>;
 }
@@ -765,12 +769,12 @@ export function buildStreet(scene: THREE.Scene): Street {
         [CROSS_X + 0.3, SZ - 0.45],
         [CROSS_X + 0.3, WZ + 0.45],
         [CROSS_X + 0.3, sideLane(WZ, dir)],
-        [end, sideLane(WZ, dir)],
+        [dir > 0 ? X1N : X0, sideLane(WZ, dir)],
       ];
       crossFrom = 1;
     } else {
       pts = [
-        [start, sideLane(WZ, dir)],
+        [dir > 0 ? X0 : X1N, sideLane(WZ, dir)],
         [CROSS_X - 0.3, sideLane(WZ, dir)],
         [CROSS_X - 0.3, WZ + 0.45],
         [CROSS_X - 0.3, SZ - 0.45],
@@ -876,8 +880,8 @@ export function buildStreet(scene: THREE.Scene): Street {
       group.add(blank);
       v.g = blank;
     },
-    holdLane(id, x, len) {
-      const v = addVehicle('delivery', -1, x, { g: new THREE.Group(), len, vmax: 5.2 });
+    holdLane(id, x, len, dir) {
+      const v = addVehicle('delivery', dir, x, { g: new THREE.Group(), len, vmax: 5.2 });
       v.del = { id, stopX: x, released: false, done: false };
       v.state = 'unload';
       v.v = 0;
@@ -885,16 +889,15 @@ export function buildStreet(scene: THREE.Scene): Street {
       v.g.position.set(x, 0.06, v.z);
     },
     freeLane(id) {
-      const v = vehs.find((o) => o.del?.id === id);
-      if (v) removeVehicle(v);
+      for (const v of vehs.filter((o) => o.del?.id === id)) removeVehicle(v);
     },
-    laneClear: (x0, x1) => laneFree(-1, x0, x1),
-    resumeDelivery(id, g, len, x) {
-      const v = addVehicle('delivery', -1, x, { g, len, vmax: 5.2 });
+    laneClear: (dir, x0, x1) => laneFree(dir, x0, x1),
+    resumeDelivery(id, g, len, x, dir) {
+      const v = addVehicle('delivery', dir, x, { g, len, vmax: 5.2 });
       v.del = { id, stopX: x, released: true, done: true };
       v.v = 1;
       g.position.set(x, 0.06, v.z);
-      g.rotation.y = Math.PI;
+      g.rotation.y = dir > 0 ? 0 : Math.PI;
     },
     vehicles: () => vehs.map((v) => ({ kind: v.kind, x: v.x, z: v.z, len: v.len, state: v.state, dir: v.dir, v: v.v, ovt: v.ovt?.passX ?? null, del: v.del ? v.del.stopX : null })),
     delivery(id) {

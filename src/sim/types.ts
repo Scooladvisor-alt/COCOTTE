@@ -4,7 +4,7 @@
 export type BreedId = 'rousse' | 'leghorn' | 'sussex' | 'soie' | 'araucana' | 'marans' | 'oie';
 export type EggType = 'roux' | 'blanc' | 'creme' | 'mini' | 'bleu' | 'chocolat' | 'oie' | 'or' | 'phenix';
 export type Grade = 'extra' | 'A' | 'B';
-export type BuildingType = 'coop' | 'goosehouse' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'gooseincubator' | 'pond' | 'tree' | 'nursery' | 'petshop';
+export type BuildingType = 'coop' | 'goosehouse' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'gooseincubator' | 'pond' | 'tree' | 'bush' | 'nursery' | 'petshop';
 
 export type HenAct =
   | 'idle'
@@ -369,6 +369,8 @@ export interface Building {
   hatch?: IncubatingEgg[];
   /** Couveuse : remplissage automatique avec les œufs fécondés du stockage (vrai par défaut). */
   auto?: boolean;
+  /** Arbre ou buisson sauvage, resté en achetant la parcelle : son essence, sa taille, sa place dans la case. */
+  wild?: { sp: number; sc: number; ox: number; oz: number };
   /** Total investi (construction + améliorations), en centimes — sert au remboursement. */
   invested: number;
   builtAt: number;
@@ -464,7 +466,7 @@ export interface BirdLoad {
   henIds: number[];
   loaded: number;
   /** Volailles parties vers le camion, pour le rendu (instant et point de départ). */
-  gone: Array<{ t: number; breed: BreedId; x: number; z: number }>;
+  gone: Array<{ t: number; id: number; breed: BreedId; skin?: number; x: number; z: number }>;
   nextT: number;
   lastT?: number;
   warned?: boolean;
@@ -655,7 +657,7 @@ export interface GameState {
   buildings: Building[];
   worldEggs: WorldEgg[];
   lots: EggLot[];
-  /** L'animalerie : volailles en vitrine, prix fixés par le joueur, surplus envoyé d'office. */
+  /** La vente de poules pondeuses : volailles en vente, prix fixés par le joueur, surplus envoyé d'office. */
   petShop: {
     birds: Hen[];
     prices: Partial<Record<BreedId, number>>;

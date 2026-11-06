@@ -322,7 +322,7 @@ export const HEN_PACKS = [
  */
 export const DELIVERY = { delay: 16, drive: 8, firstJump: 1.0, henGap: 0.5, henSpeed: 2.3, closeUp: 1.4, stops: [0, 8.4, 12.8], tail: 1.55, convoyGap: 1.1, joinMargin: 4, slots: 3 };
 
-/** L'animalerie : la vente de volailles au détail. */
+/** La vente de poules pondeuses : les volailles au détail (en interne : l'animalerie, petshop). */
 export const PETSHOP = {
   /** Prix conseillé : environ la moitié du prix d'achat. */
   priceShare: 0.5,
@@ -379,10 +379,13 @@ export const BIRD_ORDERS = {
   repLate: 4,
   /** Le camion arrive tant de secondes après l'appel ; les volailles partent vers le portail un peu avant. */
   delay: 16,
+  /** Départ des volailles avant l'arrivée du camion : selon la distance à parcourir (secondes). */
   prep: 14,
+  prepMax: 60,
+  walkSpeed: 1.25,
   /** Le camion n'arrive qu'aux heures où les commis peuvent finir le chargement. */
   earliestHour: 7,
-  marginHours: 4,
+  marginHours: 3,
   morningHour: 8,
   /** Durée visée du chargement (secondes), bornée pour chaque volaille. */
   loadSeconds: 30,
@@ -391,18 +394,22 @@ export const BIRD_ORDERS = {
   helpers: 2,
   /** Une volaille monte quand elle est assez près du portail ; une retardataire finit par être portée. */
   boardFrom: 3.2,
-  lateAfter: 12,
-  maxWait: 45,
+  lateAfter: 30,
+  maxWait: 80,
   /** Retard toléré du camion, pris dans la circulation ou en train de reculer (secondes). */
-  truckGrace: 40,
+  truckGrace: 60,
   closeUp: 2,
   /**
-   * Le camion s'arrête sur la route en x = stopX, tourne dans le chemin de terre (x = laneX), passe le
-   * portail et entre dans l'enclos, le nez vers le nord : son hayon (z = rearZ) fait face au portail.
+   * La parcelle du bas à droite : le chemin de terre y arrive, et il faut la posséder pour vendre ses
+   * volailles. Le camion quitte la route en x = stopX, suit la branche de terre, passe le grand portail
+   * et s'arrête dans la parcelle, sur la ligne z = yardZ, le nez à l'ouest : son hayon (x = rearX) regarde
+   * le portail, et les volailles attendent entre les deux.
    */
-  stopX: 6.5,
-  laneX: 1,
-  rearZ: 27.2,
+  parcel: '3,2',
+  parcelName: 'D3',
+  stopX: 96,
+  yardZ: 25,
+  rearX: 76.6,
   /** Demi-longueur du camion (de son milieu à l'arrière). */
   tail: 2.7,
   clients: [
@@ -419,11 +426,15 @@ export const BIRD_ORDERS = {
   ],
 };
 
-/** Les cases où le camion entre dans l'enclos : jamais de bâtiment dessus. */
-export const TRUCK_BAY = { x0: 0, x1: 1, z0: 21, z1: 29 };
-/** Dernière rangée sous le camion garé (derrière, la place de la rampe reste libre pour les volailles). */
-export const TRUCK_BODY_Z1 = 27;
-export const inTruckBay = (x: number, z: number) => x >= TRUCK_BAY.x0 && x <= TRUCK_BAY.x1 && z >= TRUCK_BAY.z0 && z <= TRUCK_BAY.z1;
+/**
+ * Le chemin du camion dans la parcelle du bout : la ligne où il se gare (du portail jusqu'à son nez) et
+ * la cour où les volailles attendent devant la rampe. Jamais de bâtiment sur ces cases.
+ */
+export const TRUCK_BAY = { x0: 70, x1: 79, z0: 24, z1: 25 };
+export const TRUCK_COURT = { x0: 77, x1: 79, z0: 22, z1: 27 };
+/** Dernière colonne sous le camion garé (derrière, la place de la rampe reste libre pour les volailles). */
+export const TRUCK_BODY_X1 = 76;
+export const inTruckBay = (x: number, z: number) => (x >= TRUCK_BAY.x0 && x <= TRUCK_BAY.x1 && z >= TRUCK_BAY.z0 && z <= TRUCK_BAY.z1) || (x >= TRUCK_COURT.x0 && x <= TRUCK_COURT.x1 && z >= TRUCK_COURT.z0 && z <= TRUCK_COURT.z1);
 
 export const ORDERS = {
   maxOffers: 3,
@@ -473,6 +484,9 @@ export const CONTRACTS = {
 };
 
 // ---------------------------------------------------- Dépenses diverses ----
+/** Enlever un arbre ou un buisson : ce que coûte le passage du bûcheron. */
+export const CLEARING = { tree: 1000, bush: 500 };
+
 export const COSTS = {
   landTaxPerParcel: 30,
   /** Taux d'agios journalier appliqué à un solde négatif. */

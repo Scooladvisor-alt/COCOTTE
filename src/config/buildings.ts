@@ -206,6 +206,19 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     icon: '',
     levels: [{ name: 'Arbre d’ombrage', cost: 1500, reqLevel: 1, upkeep: 0, capacity: 0, wellbeing: 4 }],
   },
+  bush: {
+    type: 'bush',
+    name: 'Buisson',
+    description: 'Un buisson sauvage, resté là quand vous avez acheté la parcelle. Il ne gêne que si vous voulez construire à cet endroit.',
+    w: 1,
+    d: 1,
+    access: 'none',
+    unique: false,
+    buildable: false,
+    movable: false,
+    icon: '',
+    levels: [{ name: 'Buisson', cost: 0, reqLevel: 1, upkeep: 0, capacity: 0 }],
+  },
   compost: {
     type: 'compost',
     name: 'Compost',
@@ -294,8 +307,8 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   },
   petshop: {
     type: 'petshop',
-    name: 'Animalerie',
-    description: 'La boutique où vous vendez vos poules et vos oies en trop, à droite du parking. Chacune a son grand parc en herbe ; les gens du village viennent avec leur carton et en emportent quelques-unes pour leur tenir compagnie.',
+    name: 'Vente de poules pondeuses',
+    description: 'La boutique où vous vendez vos poules et vos oies en trop, à droite du parking. Chacune a son grand parc en herbe ; les gens du village viennent avec leur carton et en emportent quelques-unes.',
     // à sa place fixe, le long du trottoir : aucune case de la ferme
     w: 0,
     d: 0,
@@ -306,11 +319,11 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     strictLevel: true,
     icon: '🐔',
     levels: [
-      { name: 'Petite animalerie', cost: 100000, reqLevel: 15, upkeep: 40, capacity: 12, flow: 0.8, perk: 'Une échoppe de bois, un parc à poules et un parc à oies : 12 volailles' },
-      { name: 'Animalerie', cost: 300000, reqLevel: 15, upkeep: 80, capacity: 30, flow: 1.4, perk: 'Vraie boutique, parcs plus grands : 30 volailles, davantage de clients' },
-      { name: 'Belle animalerie', cost: 800000, reqLevel: 15, upkeep: 150, capacity: 60, flow: 2.2, perk: 'Devanture vitrée, deux comptoirs : 60 volailles' },
-      { name: 'Grande animalerie', cost: 2000000, reqLevel: 15, upkeep: 280, capacity: 120, flow: 3.4, perk: 'Deux étages, des parcs très longs : 120 volailles' },
-      { name: 'Maison des volailles', cost: 5000000, reqLevel: 15, upkeep: 500, capacity: 250, flow: 5, perk: 'La référence de la région, trois comptoirs : 250 volailles' },
+      { name: 'Petite vente de poules', cost: 100000, reqLevel: 15, upkeep: 40, capacity: 12, flow: 0.8, perk: 'Une échoppe de bois, un parc à poules et un parc à oies : 12 volailles' },
+      { name: 'Vente de poules pondeuses', cost: 300000, reqLevel: 15, upkeep: 80, capacity: 30, flow: 1.4, perk: 'Vraie boutique, parcs plus grands : 30 volailles, davantage de clients' },
+      { name: 'Belle vente de poules', cost: 800000, reqLevel: 15, upkeep: 150, capacity: 60, flow: 2.2, perk: 'Devanture vitrée, deux comptoirs : 60 volailles' },
+      { name: 'Grande vente de poules', cost: 2000000, reqLevel: 15, upkeep: 280, capacity: 120, flow: 3.4, perk: 'Deux étages, des parcs très longs : 120 volailles' },
+      { name: 'Maison des poules pondeuses', cost: 5000000, reqLevel: 15, upkeep: 500, capacity: 250, flow: 5, perk: 'La référence de la région, trois comptoirs : 250 volailles' },
     ],
   },
   stand: {
@@ -352,17 +365,23 @@ export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feede
  * point devant sa porte par lequel ils arrivent et repartent.
  */
 export const HALL_FRONT = 25.2;
-export const HALL_DOOR: [number, number] = [-6, 25.72];
+export const HALL_DOOR: [number, number] = [-11, 25.72];
+/** La cour pavée : de l'allée qui descend au trottoir (x = HALL_ALLEY) jusqu'au bout de l'hôtel de ville. */
+export const HALL_ALLEY = -6;
+export const HALL_COURT = { x0: HALL_DOOR[0] - 5.3, x1: HALL_DOOR[0] + 5.3, z0: 20.6, z1: 28.8 };
+/** Ce que le bâtiment occupe au sol (perron compris) : personne ne passe au travers. */
+export const HALL_BODY = { x0: HALL_DOOR[0] - 4.7, x1: HALL_DOOR[0] + 4.7, z0: 20.7, z1: 25.75 };
+export const HALL_STEPS = { x0: HALL_DOOR[0] - 1.45, x1: HALL_DOOR[0] + 1.45, z0: 25.2, z1: 27.3 };
 
 /** Position fixe de l'étal (hors parcelles, sur la place pavée qui donne sur le trottoir). */
 export const STAND_POS = { x: 17.2, z: 31.8 };
-/** L'animalerie : son coin nord-ouest, juste à droite des trois places du parking. */
+/** La vente de poules pondeuses (l'animalerie) : son coin nord-ouest, juste à droite du parking. */
 export const PET_POS = { x: 42.7, z: 30.45 };
 /** L'emplacement à construire, tant qu'elle n'existe pas (on clique dessus). */
 export const PET_PLOT = { x0: 42.6, x1: 55.7, z0: 30.3, z1: 37.3 };
 
 /**
- * Plan de l'animalerie (coordonnées locales depuis PET_POS, façade vers le trottoir) : la boutique et
+ * Plan de la vente de poules (coordonnées locales depuis PET_POS, façade vers le trottoir) : la boutique et
  * son dallage à l'ouest, puis les parcs en herbe, de plus en plus longs : poules d'abord, oies ensuite.
  */
 export function petLayout(level = 1) {

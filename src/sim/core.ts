@@ -1,5 +1,5 @@
 // Briques de base : hasard déterministe, horloge, grille et caches de navigation.
-import { GRID_H, GRID_W, GRID_Z0, GRID_Z1, HOUR, TIME, TRUCK_BAY, TRUCK_BODY_Z1, WORLD } from '../config/balance';
+import { GRID_H, GRID_W, GRID_Z0, GRID_Z1, HOUR, TIME, TRUCK_BAY, TRUCK_BODY_X1, WORLD } from '../config/balance';
 import { BUILDINGS, sizeOf } from '../config/buildings';
 import type { Building, BuildingType, GameEvent, GameState, NotifyAction } from './types';
 
@@ -272,7 +272,7 @@ function rebuild(s: GameState, r: Runtime) {
   }
   // le camion du revendeur est garé dans l'enclos : on le contourne
   if (s.birdLoad?.called)
-    for (let z = TRUCK_BAY.z0; z <= TRUCK_BODY_Z1; z++) for (let x = TRUCK_BAY.x0; x <= TRUCK_BAY.x1; x++) if (inGrid(x, z)) r.blocked[cellIndex(x, z)] = 1;
+    for (let z = TRUCK_BAY.z0; z <= TRUCK_BAY.z1; z++) for (let x = TRUCK_BAY.x0; x <= TRUCK_BODY_X1; x++) if (inGrid(x, z)) r.blocked[cellIndex(x, z)] = 1;
   // les poules peuvent aller partout hors des bâtiments : seules les clôtures les retiennent
   for (let i = 0; i < r.walk.length; i++) r.walk[i] = r.blocked[i] ? 0 : 1;
   r.fences = 0;

@@ -2,11 +2,12 @@
 // potager de la mairie, verger et ruches, puits, charrette fleurie, lampadaires, massifs de fleurs,
 // chat, papillons, lucioles, oiseaux et montgolfière. (Décor seul : rien ici n'influence la simulation.)
 import * as THREE from 'three';
-import { BIRD_ORDERS, GRID_H, GRID_W, GRID_Z0, TRUCK_BAY, WORLD } from '../config/balance';
+import { GRID_H, GRID_W, GRID_Z0, WORLD } from '../config/balance';
 import { PET_PLOT } from '../config/buildings';
 import { C, GLOW, MAT, box, cone, cyl, finalizeExport, merge, mergeChunks, mesh, prism, sph, type V3 } from './geo';
 import { FieldKit, lavenderGeometry, type CropKind } from './fields';
 import { LANTERN_GLOW, textPanel, tractor } from './models';
+import { buildTruckRoad } from './truckRoad';
 import { CROP_CLUMPS, GROUND_MAT, SEASON, SHADOW_RADIUS, Soup, WATER_MAT, WATER_U, contactShadows, floweringBush, lump, plant, pondGeometry, reed, setCropWind, shingledCone, speciesGeometry, type Plant } from './nature';
 
 function hash(i: number) {
@@ -32,9 +33,11 @@ export function inDecorZone(x: number, z: number) {
 
 export interface Decor {
   update(time: number, dt: number, day: number): void;
-  /** L'emplacement de l'animalerie (on clique dessus) ; il disparaît quand elle est construite. */
+  /** L'emplacement de la vente de poules (on clique dessus) ; il disparaît quand elle est construite. */
   petPlot: THREE.Group;
   setPetShop(open: boolean): void;
+  /** La parcelle du bout du chemin est-elle achetée ? Le chemin y continue alors, derrière le portail. */
+  setYard(owned: boolean): void;
 }
 
 /** Rangée de pieux blancs entre deux points (avec ses deux lisses). */
@@ -537,29 +540,7 @@ export function buildDecor(scene: THREE.Scene): Decor {
     plant(scene, lavenderGeometry(), null, items, { mat: CROP_CLUMPS.garden, spread: 0.06, chunk: 1000 });
     // clôture rustique le long du trottoir
     railFence(statics, -26, -7.6, walkN - 0.32);
-    railFence(statics, -3.9, -0.5, walkN - 0.32);
-    railFence(statics, 3.7, 10.6, walkN - 0.32);
-  }
-
-  // ---------------------------------------------------- Le chemin du camion ----
-  // de la route au grand portail, puis dans l'enclos : de la terre battue, deux ornières, de l'herbe au milieu
-  {
-    const DIRT = 0xb0926a;
-    const RUT = 0x8d7350;
-    const X = BIRD_ORDERS.laneX;
-    const track = (z0: number, z1: number, y: number, w: number) => {
-      const c = (z0 + z1) / 2;
-      const l = z1 - z0;
-      statics.push(box(w, 0.012, l, DIRT, [X, y, c]));
-      for (const s of [-1, 1]) statics.push(box(0.3, 0.004, l, RUT, [X + s * 0.56, y + 0.008, c]));
-      statics.push(box(0.34, 0.004, l, 0x93b866, [X, y + 0.008, c]));
-      for (let z = z0 + 0.3; z < z1 - 0.1; z += 0.62) statics.push(lump(0.09 + hash(z) * 0.05, 0, 0x8fbb5c, [X + (hash(z * 3) - 0.5) * 0.22, y + 0.02, z], [1, 0.5, 1], z, 0.05));
-    };
-    track(30.1, 37.3, 0.05, 2.4);
-    track(TRUCK_BAY.z0 - 0.4, 30, 0.106, 1.94);
-    // l'entrée du chemin s'évase au bord du trottoir, et le trottoir s'abaisse pour le laisser passer
-    statics.push(box(1.3, 0.012, 1.1, DIRT, [X + 1.5, 0.05, 36.75]), box(1.1, 0.012, 0.6, DIRT, [X - 1.5, 0.05, 37]));
-    statics.push(box(3.6, 0.008, 1.22, 0xd5cbb6, [X + 0.5, 0.069, WORLD.WALK_Z]));
+    railFence(statics, -3.9, 10.6, walkN - 0.32);
   }
 
   // --------------------------------------------- Charrette fleurie, arbres ----
@@ -587,10 +568,10 @@ export function buildDecor(scene: THREE.Scene): Decor {
     }
     const g = merge(cart);
     g.rotateY(-0.42);
-    g.translate(5.6, 0, 33.9);
+    g.translate(1.3, 0, 34.2);
     statics.push(g);
     // tilleuls et rosiers le long de l'herbe
-    const limes: Plant[] = [[-2.3, 35.1, 0.6, 1.08], [8.3, 34.5, 2.1, 1.16], [-22.2, 35.0, 4.2, 1.2], [-13.4, 35.2, 1.1, 1.05]];
+    const limes: Plant[] = [[-1.6, 35.1, 0.6, 1.08], [7.9, 34.5, 2.1, 1.16], [-22.2, 35.0, 4.2, 1.2], [-13.4, 35.2, 1.1, 1.05]];
     plant(scene, speciesGeometry('lime'), speciesGeometry('lime', true), limes, { cast: true, spread: 0.1 });
     const roses: Plant[] = [[4.8, 35.6, 0.7, 0.95], [5.7, 35.75, 2, 0.84], [-2.9, 32.7, 1.2, 0.9], [-3.8, 32.5, 3, 0.8], [10, 32.4, 4, 0.9], [-9.2, 34.9, 5, 0.9], [-17.4, 34.3, 1.6, 0.95], [-18.4, 34.5, 2.6, 0.84]];
     const hyd: Plant[] = [[9.2, 35.7, 1, 0.92], [-25, 35, 2, 0.96], [-24.1, 35.3, 3, 0.86], [-10.3, 35.5, 4, 0.92], [-4.5, 34.7, 5, 0.86]];
@@ -713,7 +694,7 @@ export function buildDecor(scene: THREE.Scene): Decor {
   const poolMat = new THREE.MeshBasicMaterial({ map: LANTERN_GLOW.map, color: 0xffd27a, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
   const lampPositions: Array<[number, number]> = [];
   // au bord du trottoir côté ferme, la crosse penchée au-dessus des passants (pas sur le parking)
-  for (let x = -12; x <= GRID_W + 12; x += 9) if (x < 32.5 || x > 42.5) lampPositions.push([x, WORLD.WALK_Z - 0.75]);
+  for (let x = -12; x <= GRID_W + 5; x += 9) if (x < 32.5 || x > 42.5) lampPositions.push([x, WORLD.WALK_Z - 0.75]);
   const lampGlass: THREE.BufferGeometry[] = [];
   lampPositions.forEach(([x, z], i) => {
     // socle mouluré, fût à bagues, crosse à volute, lanterne à quatre pans
@@ -790,7 +771,7 @@ export function buildDecor(scene: THREE.Scene): Decor {
   scene.add(flock);
   let flockT = 8;
 
-  // ---------------------------------------------- L'emplacement de l'animalerie ----
+  // --------------------------------- L'emplacement de la vente de poules pondeuses ----
   // tant qu'elle n'est pas construite : du gravier, des piquets et un grand panneau
   const petPlot = new THREE.Group();
   {
@@ -827,12 +808,30 @@ export function buildDecor(scene: THREE.Scene): Decor {
     parts.push(lump(0.7, 1, 0xdcc99a, [cx + 3.2, 0.06, cz + 1.25], [1.3, 0.5, 1], 4, 0.1));
     const m = mesh(merge(parts), true, true);
     petPlot.add(m);
-    const big = textPanel('ANIMALERIE', 2.9, 0.62, 0x2f6f4e, '#fbf6e8');
-    big.position.set(sx, 1.52, sz + 0.02);
-    const small = textPanel('Emplacement à construire', 2.9, 0.4, 0xf3efe6, '#2f6f4e');
-    small.position.set(sx, 0.98, sz + 0.02);
+    const big = textPanel('VENTE DE POULES\nPONDEUSES', 2.9, 0.78, 0x2f6f4e, '#fbf6e8');
+    big.position.set(sx, 1.46, sz + 0.02);
+    const small = textPanel('Emplacement à construire', 2.9, 0.3, 0xf3efe6, '#2f6f4e');
+    small.position.set(sx, 0.9, sz + 0.02);
     petPlot.add(big, small);
     scene.add(petPlot);
+  }
+
+  // ------------------------------------------------- Le chemin de terre du camion ----
+  // une branche de la route qui rejoint le grand portail de la parcelle du bas à droite
+  const road = buildTruckRoad(scene);
+  {
+    const items: Plant[] = [[89.8, 32, 1.1, 1.05], [90.6, 26.6, 2.7, 1.2], [92, 29.6, 0.4, 0.95]];
+    plant(scene, speciesGeometry('lime'), speciesGeometry('lime', true), items, { cast: true, spread: 0.1 });
+    const bushes: Plant[] = [[81.6, 31.8, 1, 0.9], [81.9, 33.2, 2, 0.8], [82.4, 35.4, 3, 0.95], [83.4, 36.7, 4, 0.8], [90.6, 34.9, 5, 0.9]];
+    plant(scene, floweringBush(0xe85d75, 1), speciesGeometry('bush', true), bushes, { cast: true, spread: 0.06 });
+    scene.add(contactShadows([...items.map(([x, z, , sc]) => [x, z, SHADOW_RADIUS.lime * sc] as [number, number, number]), ...bushes.map(([x, z, , sc]) => [x, z, 0.46 * sc] as [number, number, number])]));
+    // le panneau, là où le chemin quitte la route
+    const px = 91.3;
+    const pz = 36.3;
+    const sign = textPanel('CHARGEMENT\nDES VOLAILLES', 1.5, 0.56, 0xf3efe6, '#2f6f4e');
+    sign.position.set(px, 1.12, pz + 0.05);
+    const post = mesh(merge([box(0.1, 1.42, 0.1, C.woodDark, [px, 0.71, pz]), box(1.62, 0.68, 0.05, C.woodDark, [px, 1.12, pz + 0.01]), prism(0.34, 0.2, 0.3, C.woodDark, [px - 0.92, 1.02, pz + 0.01], Math.PI / 2)]));
+    scene.add(post, sign);
   }
 
   // ------------------------------------------------------- Montgolfière ----
@@ -843,6 +842,9 @@ export function buildDecor(scene: THREE.Scene): Decor {
     petPlot,
     setPetShop(open) {
       petPlot.visible = !open;
+    },
+    setYard(owned) {
+      road.yard.visible = owned;
     },
     update(time, dt, day) {
       WATER_U.uTime.value = time;

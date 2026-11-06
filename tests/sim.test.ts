@@ -1,18 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { AUTO_DOOR, BIRD_ORDERS, PETSHOP, TRUCK_BAY, BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, GRID_W, GRID_Z0, HOUR, LEVELS, levelAt, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, tradeAt, waterPrice } from '../src/config/balance';
+import { AUTO_DOOR, BIRD_ORDERS, PETSHOP, TRUCK_BAY, TRUCK_COURT, inTruckBay, BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, GRID_W, GRID_Z0, HOUR, LEVELS, levelAt, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, tradeAt, waterPrice } from '../src/config/balance';
 import { GATE_EDGE, TRUCK_GATE_EDGES, farmEnclosed, perimeter } from '../src/sim/fences';
-import { RAMP_FOOT, TRUCK_REAR, TRUCK_X, boardPath } from '../src/sim/deliveries';
+import { RAMP_FOOT, TRUCK_REAR, TRUCK_Z, boardPath } from '../src/sim/deliveries';
+import { autoEnclose } from '../src/sim/fences';
 import { waterCapacity } from '../src/sim/stocks';
 import { BREEDS, BREED_ORDER, GOOSE_NAMES, isGoose } from '../src/config/breeds';
-import { BUILDINGS, BUILD_ORDER, COOP_SCALE, PET_POS, STAND_POS, petLayout, sizeOf, standLayout } from '../src/config/buildings';
+import { BUILDINGS, BUILD_ORDER, COOP_SCALE, HALL_ALLEY, HALL_BODY, HALL_COURT, HALL_DOOR, HALL_STEPS, PET_POS, STAND_POS, petLayout, sizeOf, standLayout } from '../src/config/buildings';
 import { BACKUP_KEY, SAVE_KEY, deserialize, loadGame, saveGame, serialize, type Storage } from '../src/save/save';
 import * as A from '../src/sim/actions';
 import { canPlace } from '../src/sim/buildings';
 import { makeBuilding } from '../src/sim/state';
-import { accessCells, blocksMover, buildingCenter, cellIndex, coopDoor, coopDoorCells, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable, rt, toLocal, toWorld } from '../src/sim/core';
+import { wildPlants } from '../src/sim/wild';
+import { nearestTree } from '../src/sim/perks';
+import { accessCells, blocksMover, buildingCenter, cellIndex, parcelKeyOfCell, coopDoor, coopDoorCells, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable, rt, toLocal, toWorld } from '../src/sim/core';
 import { freeSeats, hostedIncubators, nurseryCount, nurseryPlan, nurseryWithRoom, readyToLeave } from '../src/sim/nursery';
 import {
   birdOrdersNewDay,
+  birdOrdersOpen,
+  truckParcelOwned,
   birdWord,
   callTruck,
   checkCallTruck,
@@ -84,7 +89,7 @@ import { goodPlayer, guard, lazyPlayer } from '../scripts/bot';
 import { buyWorkerSkill, dailyWages, fire, hire, sellerSpot, workerSkillsHourly } from '../src/sim/workers';
 import { enterNursery } from '../src/sim/hens';
 import { catchable, distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
-import { buyDog } from '../src/sim/dog';
+import { buyDog, kennelPoint } from '../src/sim/dog';
 import { buyRobot, dockOf } from '../src/sim/robots';
 import { crowdedChicks, dadCount, eggHatchIn, fertileStock, fertility, fertilize, incubatable, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
 import { ageFactor, baseLaying, createHen, eggsPerDayOf, henValue, productivity, refreshVitals, slotSpots, wellbeingTarget } from '../src/sim/hens';
@@ -3924,13 +3929,20 @@ describe('Longue vie d’un troupeau d’oies', () => {
   }, 120000);
 });
 
-describe('Animalerie', () => {
+/** Achète de quoi rejoindre la parcelle du bout du chemin de terre, où le camion entre. */
+function ownTruckParcel(s: GameState) {
+  for (const k of ['1,2', '2,2', BIRD_ORDERS.parcel]) if (!s.parcels.includes(k)) s.parcels.push(k);
+  autoEnclose(s);
+}
+
+describe('Vente de poules pondeuses', () => {
   const farm = (seed: number) => {
     const s = newFarm(seed);
     morning(s);
     s.money = 10_000_000;
     s.xp = 99999;
     s.settings.predators = false;
+    ownTruckParcel(s);
     return s;
   };
   /** Ajoute des volailles adultes à la ferme. */
@@ -4121,6 +4133,7 @@ describe('Animalerie', () => {
     expect(BUILD_ORDER).not.toContain('petshop');
     const s = newFarm(1514);
     s.money = 1e8;
+    ownTruckParcel(s);
     while (farmLevel(s) < 14) s.xp += 500;
     expect(A.openPetShop(s).ok).toBe(false);
     while (farmLevel(s) < 15) s.xp += 500;
@@ -4134,12 +4147,30 @@ describe('Animalerie', () => {
     expect(lvl(petShopOf(s)!).capacity).toBe(caps[1]);
   });
 
-  it('on prévient une seule fois que l’emplacement est disponible', () => {
+  it('sans la parcelle du bas à droite, pas de vente de poules : le chemin de terre y arrive', () => {
+    const s = newFarm(1519);
+    s.money = 1e8;
+    s.xp = 99999;
+    expect(farmLevel(s)).toBeGreaterThanOrEqual(BIRD_ORDERS.reqLevel);
+    expect(A.checkBuild(s, 'petshop').reason).toMatch(/parcelle D3/);
+    expect(A.openPetShop(s).ok).toBe(false);
+    expect(truckParcelOwned(s)).toBe(false);
+    expect(birdOrdersOpen(s)).toBe(false);
+    for (let i = 0; i < 20; i++) generateBirdOrders(s);
+    expect(s.birdOrders).toHaveLength(0);
+    // c'est bien la parcelle du bas, tout à droite
+    expect(BIRD_ORDERS.parcel).toBe(`${WORLD.COLS - 1},${WORLD.ROWS - 1}`);
+    ownTruckParcel(s);
+    expect(birdOrdersOpen(s)).toBe(true);
+    expect(A.openPetShop(s).ok).toBe(true);
+  });
+
+  it('on explique une seule fois comment vendre ses poules', () => {
     const s = farm(1515);
     drainEvents(s);
     birdOrdersNewDay(s);
     birdOrdersNewDay(s);
-    const said = drainEvents(s).filter((e) => e.kind === 'notify' && /animalerie/.test(e.text));
+    const said = drainEvents(s).filter((e) => e.kind === 'notify' && /vente de poules/i.test(e.text));
     expect(said).toHaveLength(1);
   });
 
@@ -4217,13 +4248,14 @@ describe('Animalerie', () => {
   });
 });
 
-describe('Commandes de revendeurs et grand camion', () => {
+describe('Commandes de revendeurs et camion', () => {
   const farm = (seed: number, level = 16) => {
     const s = newFarm(seed);
     morning(s);
     s.money = 10_000_000;
     s.settings.predators = false;
     while (farmLevel(s) < level) s.xp += 1000;
+    ownTruckParcel(s);
     return s;
   };
   const flock = (s: GameState, breed: 'rousse' | 'marans' | 'oie', n: number) => {
@@ -4338,31 +4370,50 @@ describe('Commandes de revendeurs et grand camion', () => {
     expect(s.hens.filter((h) => h.breed === 'rousse')).toHaveLength(rousses);
   });
 
-  it('le camion entre dans l’enclos : son chemin reste libre, et le grand portail retient les poules', () => {
+  it('il faut la parcelle du bout du chemin pour appeler le camion', () => {
+    const s = newFarm(1619);
+    morning(s);
+    s.money = 10_000_000;
+    s.settings.predators = false;
+    while (farmLevel(s) < 16) s.xp += 1000;
+    hire(s, 'farmhand');
+    flock(s, 'rousse', 6);
+    const o = order(s);
+    expect(checkCallTruck(s, o).reason).toMatch(/parcelle D3/);
+    ownTruckParcel(s);
+    expect(checkCallTruck(s, o).ok).toBe(true);
+  });
+
+  it('le camion entre par le grand portail : son chemin reste libre, et le portail retient les poules', () => {
     const s = farm(1620);
-    // rien ne se construit sur le chemin
+    // rien ne se construit sur son chemin ni dans la cour devant la rampe
     expect(canPlace(s, 'tree', TRUCK_BAY.x0, TRUCK_BAY.z1).ok).toBe(false);
     expect(canPlace(s, 'tree', TRUCK_BAY.x1, TRUCK_BAY.z0).ok).toBe(false);
-    expect(canPlace(s, 'tree', TRUCK_BAY.x1 + 1, TRUCK_BAY.z0).ok).toBe(true);
+    expect(canPlace(s, 'tree', TRUCK_COURT.x0, TRUCK_COURT.z0).ok).toBe(false);
+    expect(canPlace(s, 'tree', TRUCK_BAY.x0, TRUCK_BAY.z0 - 3).ok).toBe(true);
     // le portail est une vraie clôture : les poules et le personnel ne passent pas
     expect(farmEnclosed(s)).toBe(true);
+    const edge = (st: GameState, c: number) => st.fenceV[-c - 1];
     for (const c of TRUCK_GATE_EDGES) {
-      expect(s.fenceH[c]).toBe(5);
-      expect(blocksMover(s.fenceH[c], 'hen')).toBe(true);
-      expect(blocksMover(s.fenceH[c], 'human')).toBe(true);
+      expect(edge(s, c)).toBe(5);
+      expect(blocksMover(edge(s, c), 'hen')).toBe(true);
+      expect(blocksMover(edge(s, c), 'human')).toBe(true);
     }
     // ... et il est à sa place sur une ancienne partie
     const back = deserialize(serialize(s))!;
-    expect(back.fenceH[TRUCK_GATE_EDGES[0]]).toBe(5);
-    // pendant le chargement, le camion prend de la place dans l'enclos
+    expect(edge(back, TRUCK_GATE_EDGES[0])).toBe(5);
+    // pendant le chargement, le camion prend de la place dans la parcelle
     invalidateLayout(s);
-    expect(rt(s).blocked[cellIndex(TRUCK_BAY.x0, TRUCK_BAY.z0 + 2)]).toBe(0);
+    expect(rt(s).blocked[cellIndex(TRUCK_BAY.x0 + 2, TRUCK_BAY.z0)]).toBe(0);
     hire(s, 'farmhand');
     flock(s, 'rousse', 6);
     expect(callTruck(s, order(s).id).ok).toBe(true);
-    run(s, 1);
-    rt(s);
-    if (s.birdLoad?.called) expect(rt(s).blocked[cellIndex(TRUCK_BAY.x0, TRUCK_BAY.z0 + 2)]).toBe(1);
+    for (let i = 0; i < 200 && !s.birdLoad!.called; i++) run(s, 1);
+    expect(s.birdLoad!.called).toBe(true);
+    run(s, 0.2);
+    expect(rt(s).blocked[cellIndex(TRUCK_BAY.x0 + 2, TRUCK_BAY.z0)]).toBe(1);
+    // la cour devant la rampe reste libre
+    expect(rt(s).blocked[cellIndex(TRUCK_COURT.x0, TRUCK_BAY.z0)]).toBe(0);
   });
 
   it('un bâtiment d’une ancienne partie sur le chemin empêche d’appeler le camion, avec un message clair', () => {
@@ -4371,12 +4422,12 @@ describe('Commandes de revendeurs et grand camion', () => {
     flock(s, 'rousse', 6);
     const o = order(s);
     expect(checkCallTruck(s, o).ok).toBe(true);
-    s.buildings.push(makeBuilding(s.nextId++, 'tree', TRUCK_BAY.x0, TRUCK_BAY.z0 + 1, s.clock.t));
+    s.buildings.push(makeBuilding(s.nextId++, 'tree', TRUCK_BAY.x0, TRUCK_BAY.z0, s.clock.t));
     invalidateLayout(s);
-    expect(checkCallTruck(s, o).reason).toMatch(/chemin du camion/);
+    expect(checkCallTruck(s, o).reason).toMatch(/gêne le camion/);
   });
 
-  it('les commis poussent les volailles vers la rampe : elles y montent, le groupe se resserre', () => {
+  it('les volailles traversent la ferme, les commis les poussent et elles montent par la rampe', () => {
     const s = farm(1622);
     hire(s, 'farmhand');
     run(s, 2 * HOUR);
@@ -4385,30 +4436,38 @@ describe('Commandes de revendeurs et grand camion', () => {
     expect(callTruck(s, o.id).ok).toBe(true);
     const rampDist = () => {
       const l = s.hens.filter((h) => h.ship);
-      return l.reduce((a, h) => a + Math.hypot(h.x - TRUCK_X, h.z - RAMP_FOOT), 0) / Math.max(1, l.length);
+      return l.reduce((a, h) => a + Math.hypot(h.x - RAMP_FOOT, h.z - TRUCK_Z), 0) / Math.max(1, l.length);
     };
-    // on attend qu'elles prennent le chemin du camion, puis qu'il arrive à l'heure dite
+    // on attend qu'elles se mettent en route, puis qu'il arrive à l'heure dite
     while (!s.birdLoad!.called) run(s, 1);
     run(s, 0.1);
     const far = rampDist();
     const eta = s.birdLoad!.eta;
     run(s, Math.max(0, eta - s.clock.t) - 1);
+    // elles sont arrivées dans la cour, entre le hayon et le portail
     expect(rampDist()).toBeLessThan(far);
+    expect(rampDist()).toBeLessThan(5);
+    for (const h of s.hens.filter((x) => x.ship)) {
+      expect(h.x).toBeLessThan(80);
+      expect(h.x).toBeGreaterThan(TRUCK_REAR - 12);
+    }
     let sawBehind = false;
     let inside = true;
     const each = () => {
       for (const w of s.workers)
         if (w.job?.kind === 'loadTruck' && w.job.phase === 'work') {
           sawBehind = true;
-          // le commis reste dans la ferme : il ne sort plus sur la route
-          if (w.z > 30) inside = false;
+          // le commis reste dans la ferme : il ne sort pas sur la route
+          if (w.z > 30 || w.x > 80) inside = false;
         }
       const L = s.birdLoad;
-      if (L) for (const q of L.gone) {
-        const p = boardPath(q.x, q.z);
-        expect(p[p.length - 1][1]).toBeLessThan(TRUCK_REAR);
-        expect(p[1][1]).toBe(RAMP_FOOT);
-      }
+      if (L)
+        for (const q of L.gone) {
+          const p = boardPath(q.x, q.z);
+          expect(p[p.length - 1][0]).toBeLessThan(TRUCK_REAR);
+          expect(p[1][0]).toBe(RAMP_FOOT);
+          expect(q.id).toBeGreaterThan(0);
+        }
     };
     for (let i = 0; i < 900 && s.birdLoad; i++) {
       run(s, 0.1);
@@ -4430,7 +4489,7 @@ describe('Commandes de revendeurs et grand camion', () => {
     // le commis est renvoyé juste après l'appel
     fire(s, s.workers[0].id);
     const hens = s.hens.length;
-    run(s, 14 * HOUR);
+    run(s, 22 * HOUR);
     expect(s.birdLoad).toBeNull();
     const left = s.birdOrders.find((x) => x.id === o.id)!;
     expect(left.status).toBe('active');
@@ -4464,7 +4523,9 @@ describe('Commandes de revendeurs et grand camion', () => {
     s.clock.t = day * TIME.DAY + 20 * HOUR;
     s.clock.lastHourTick = Math.floor(s.clock.t / HOUR);
     callTruck(s, o.id);
-    expect(s.birdLoad!.eta).toBe((day + 1) * TIME.DAY + BIRD_ORDERS.morningHour * HOUR);
+    // le lendemain : assez tôt pour que tout soit fini avant le soir, et jamais avant le lever du jour
+    expect(s.birdLoad!.eta).toBeGreaterThanOrEqual((day + 1) * TIME.DAY + BIRD_ORDERS.morningHour * HOUR);
+    expect(s.birdLoad!.eta).toBeLessThan((day + 1) * TIME.DAY + 14 * HOUR);
     // la nuit, les poules dorment normalement
     run(s, 4 * HOUR);
     expect(s.hens.some((h) => h.ship)).toBe(false);
@@ -4603,5 +4664,204 @@ describe('Options du commis', () => {
     expect(s.hens).toContain(g);
     expect(s.hens).not.toContain(v);
     expect(s.money).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe('Arbres et buissons des parcelles', () => {
+  const farm = (seed: number) => {
+    const s = newFarm(seed);
+    morning(s);
+    s.money = 10_000_000;
+    s.xp = 99999;
+    s.settings.predators = false;
+    return s;
+  };
+  const planted = (s: GameState) => s.buildings.filter((b) => b.wild);
+
+  it('ils restent en achetant la parcelle, exactement là où ils étaient', () => {
+    const s = farm(1801);
+    const [c, r] = [1, 2];
+    const wild = wildPlants(c, r);
+    expect(wild.length).toBeGreaterThan(5);
+    expect(A.buyParcel(s, `${c},${r}`).ok).toBe(true);
+    const list = planted(s);
+    expect(list).toHaveLength(wild.length);
+    for (const b of list) {
+      expect(b.invested).toBe(0);
+      expect(parcelKeyOfCell(b.x, b.z)).toBe(`${c},${r}`);
+      const near = wild.find((p) => Math.abs(p.x - (b.x + b.wild!.ox)) < 1e-9 && Math.abs(p.z - (b.z + b.wild!.oz)) < 1e-9);
+      expect(near?.kind).toBe(b.type);
+      // on ne construit pas dessus
+      expect(canPlace(s, 'tree', b.x, b.z).ok).toBe(false);
+    }
+    // une seule plante par case
+    expect(new Set(list.map((b) => `${b.x},${b.z}`)).size).toBe(list.length);
+  });
+
+  it('leurs arbres donnent les mêmes bienfaits qu’un arbre acheté', () => {
+    const s = farm(1802);
+    const key = ['1,2', '0,1', '2,2'].find((k) => {
+      const [c, r] = k.split(',').map(Number);
+      return wildPlants(c, r).some((p) => p.kind === 'tree');
+    })!;
+    expect(parcelPerks(s, key).trees).toBe(0);
+    const [c, r] = key.split(',').map(Number);
+    const n = wildPlants(c, r).filter((p) => p.kind === 'tree').length;
+    // (le terrain doit toucher le vôtre)
+    if (key === '2,2') A.buyParcel(s, '1,2');
+    expect(A.buyParcel(s, key).ok).toBe(true);
+    const p = parcelPerks(s, key);
+    expect(p.trees).toBe(n);
+    expect(p.wellbeing).toBeGreaterThan(0);
+    expect(p.thirst).toBeLessThan(1);
+    const t = planted(s).find((b) => b.type === 'tree')!;
+    expect(nearestTree(s, t.x + 0.5, t.z + 0.5, 1)).not.toBeNull();
+  });
+
+  it('enlever un arbre coûte 10 €, un buisson 5 € : plus rien ne gêne ensuite', () => {
+    const s = farm(1803);
+    A.buyParcel(s, '1,2');
+    const bush = planted(s).find((b) => b.type === 'bush')!;
+    let money = s.money;
+    expect(A.demolish(s, bush.id).ok).toBe(true);
+    expect(money - s.money).toBe(500);
+    expect(canPlace(s, 'tree', bush.x, bush.z).ok).toBe(true);
+    const tree = planted(s).find((b) => b.type === 'tree')!;
+    money = s.money;
+    expect(A.demolish(s, tree.id).ok).toBe(true);
+    expect(money - s.money).toBe(1000);
+    // sans le sou, l'arbre reste
+    const other = planted(s).find((b) => b.type === 'tree')!;
+    s.money = 500;
+    expect(A.checkDemolish(s, other.id).ok).toBe(false);
+    expect(A.demolish(s, other.id).ok).toBe(false);
+    expect(s.buildings).toContain(other);
+    // même tarif pour un arbre acheté, sans remboursement
+    s.money = 100000;
+    let spot: [number, number] | null = null;
+    for (let x = 1; x < 19 && !spot; x++) for (let z = 11; z < 29 && !spot; z++) if (canPlace(s, 'tree', x, z).ok) spot = [x, z];
+    expect(A.build(s, 'tree', spot![0], spot![1]).ok).toBe(true);
+    const bought = s.buildings.at(-1)!;
+    expect(A.demolishRefund(s, bought.id)).toBe(0);
+    money = s.money;
+    expect(A.demolish(s, bought.id).ok).toBe(true);
+    expect(money - s.money).toBe(1000);
+  });
+
+  it('rien ne pousse sur la place du camion, dans la parcelle du bout du chemin', () => {
+    const [c, r] = BIRD_ORDERS.parcel.split(',').map(Number);
+    for (const p of wildPlants(c, r)) expect(inTruckBay(Math.floor(p.x), Math.floor(p.z))).toBe(false);
+  });
+
+  it('ils sont gardés à la sauvegarde et ne bloquent pas les poules', () => {
+    const s = farm(1804);
+    A.buyParcel(s, '1,2');
+    const list = planted(s);
+    const back = deserialize(serialize(s))!;
+    expect(back.buildings.filter((b) => b.wild)).toHaveLength(list.length);
+    const b0 = list[0];
+    const b1 = back.buildings.find((b) => b.id === b0.id)!;
+    expect(b1.type).toBe(b0.type);
+    expect(b1.wild!.sc).toBeCloseTo(b0.wild!.sc, 5);
+    // le troupeau continue de vivre normalement sur la parcelle
+    const coop = buildingsOf(s, 'coop')[0];
+    for (let i = 0; i < 6; i++) s.hens.push(createHen(s, 'rousse', coop, false, { at: [coop.x + 1 + i, coop.z + 6] }));
+    run(s, 6 * HOUR);
+    for (const h of s.hens) {
+      expect(Number.isFinite(h.x)).toBe(true);
+      expect(Number.isFinite(h.z)).toBe(true);
+    }
+  });
+});
+
+describe('L’hôtel de ville et le chien', () => {
+  const dogFarm = (seed: number) => {
+    const s = newFarm(seed);
+    morning(s);
+    s.money = 10_000_000;
+    s.xp = 99999;
+    s.settings.predators = false;
+    expect(buyDog(s).ok).toBe(true);
+    return s;
+  };
+  const inside = (r: { x0: number; x1: number; z0: number; z1: number }, x: number, z: number) => x > r.x0 && x < r.x1 && z > r.z0 && z < r.z1;
+
+  it('l’hôtel de ville a reculé : sa cour ne touche plus la clôture, et l’allée y mène toujours', () => {
+    expect(HALL_COURT.x1).toBeLessThan(-5);
+    expect(HALL_BODY.x1).toBeLessThan(-6);
+    expect(HALL_DOOR[0]).toBeGreaterThan(HALL_COURT.x0);
+    expect(HALL_ALLEY).toBeGreaterThan(HALL_COURT.x0);
+    expect(HALL_ALLEY).toBeLessThan(HALL_COURT.x1);
+    // le personnel arrive par la porte, traverse la cour et rejoint le portail sans passer par les murs
+    const s = newFarm(1900);
+    morning(s);
+    expect(hire(s, 'farmhand').ok).toBe(true);
+    let crossed = false;
+    let atDoor = false;
+    run(s, 26 * HOUR, () => {
+      for (const w of s.workers) {
+        if (inside(HALL_BODY, w.x, w.z) && w.z < HALL_DOOR[1] - 1) crossed = true;
+        if (Math.hypot(w.x - HALL_DOOR[0], w.z - HALL_DOOR[1]) < 1) atDoor = true;
+      }
+    });
+    expect(crossed).toBe(false);
+    expect(atDoor).toBe(true);
+    expect(s.workers[0].x).toBeGreaterThan(HALL_ALLEY);
+  });
+
+  it('le chien ne traverse jamais l’hôtel de ville, ni un bâtiment, ni la vente de poules, en ronde comme la nuit', () => {
+    const s = dogFarm(1901);
+    for (const k of ['1,2', '2,2', '3,2']) expect(A.buyParcel(s, k).ok).toBe(true);
+    expect(A.openPetShop(s).ok).toBe(true);
+    const shop = petShopOf(s)!;
+    const L = petLayout(shop.level);
+    const shopRect = { x0: PET_POS.x, x1: PET_POS.x + L.w, z0: PET_POS.z, z1: PET_POS.z + 6.7 };
+    const seen = new Set<string>();
+    let nights = 0;
+    for (let i = 0; i < 26000; i++) {
+      step(s, 0.1);
+      drainEvents(s);
+      const d = s.dog!;
+      seen.add(`${Math.round(d.x / 5)},${Math.round(d.z / 5)}`);
+      if (d.act === 'sleep') nights++;
+      expect(inside(HALL_BODY, d.x, d.z)).toBe(false);
+      expect(inside(HALL_STEPS, d.x, d.z)).toBe(false);
+      expect(inside(shopRect, d.x, d.z)).toBe(false);
+      for (const b of s.buildings) {
+        if (b.type === 'petshop' || b.type === 'stand') continue;
+        const f = sizeOf(b.type, b.level, b.rot);
+        expect(inside({ x0: b.x, x1: b.x + f.w, z0: b.z, z1: b.z + f.d }, d.x, d.z)).toBe(false);
+      }
+    }
+    // il a vraiment tourné autour de la ferme, et il a dormi devant sa niche
+    expect(seen.size).toBeGreaterThan(8);
+    expect(nights).toBeGreaterThan(0);
+    const [kx, kz] = kennelPoint(s);
+    expect(inside(HALL_COURT, kx, kz)).toBe(true);
+  });
+
+  it('il rejoint sa niche par le tour de la cour, depuis l’autre bout de la ferme', () => {
+    const s = dogFarm(1902);
+    const d = s.dog!;
+    d.x = 21;
+    d.z = 24;
+    d.path = [];
+    d.act = 'sit';
+    d.t = 0;
+    const day = Math.floor(s.clock.t / TIME.DAY);
+    s.clock.t = day * TIME.DAY + 21.5 * HOUR;
+    s.clock.lastHourTick = Math.floor(s.clock.t / HOUR);
+    let touched = false;
+    for (let i = 0; i < 1400 && (d.act as string) !== 'sleep'; i++) {
+      step(s, 0.1);
+      drainEvents(s);
+      if (inside(HALL_BODY, d.x, d.z) || inside(HALL_STEPS, d.x, d.z)) touched = true;
+      // jamais à travers l'enclos de départ non plus
+      if (inside({ x0: 0, x1: 20, z0: 10, z1: 30 }, d.x, d.z)) touched = true;
+    }
+    expect(touched).toBe(false);
+    const [kx, kz] = kennelPoint(s);
+    expect(Math.hypot(d.x - kx, d.z - kz)).toBeLessThan(1.6);
+    expect(d.act).toBe('sleep');
   });
 });

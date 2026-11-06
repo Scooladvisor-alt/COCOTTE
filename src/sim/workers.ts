@@ -1,11 +1,11 @@
 // Le personnel : des salariés visibles qui se déplacent dans la ferme et font réellement
 // le travail (ramassage, remplissage, nettoyage, soins, arrosage, vente au comptoir).
 import { BIRD_ORDERS, PETSHOP, WORKER_SKILLS, FRESHNESS, TIME, GRAIN_SACKS, GRID_H, GRID_W, PREDATORS, WORLD, clamp, gradeOf, sackPrice } from '../config/balance';
-import { BUILDINGS, STAND_POS, sizeOf, standLayout, HALL_DOOR } from '../config/buildings';
+import { BUILDINGS, STAND_POS, sizeOf, standLayout, HALL_ALLEY, HALL_DOOR } from '../config/buildings';
 import { ROLES, STAFF, WORKER_NAMES } from '../config/staff';
 import { buildingCenter, canStand, cellIndex, coopDoor, cellX, cellZ, crossesFence, currentDay, facadeHeading, frontOf, toWorld, currentHour, emit, inGrid, isWalkable, nearestWalkable, newId, notify, pick, planPath, rand, randRange, rt, isShelter } from './core';
 import { PREDATOR_INFO, damagePredator, distanceToFarm, predatorAimY } from './predators';
-import { RAMP_FOOT, TRUCK_X } from './deliveries';
+import { RAMP_FOOT, TRUCK_Z } from './deliveries';
 import { henMovable, henValue } from './hens';
 import { addXp, buyLevel, fmtMoney, spend } from './economy';
 import { addToStorage, removeWorldEgg } from './eggs';
@@ -18,7 +18,10 @@ import type { ActionResult, Building, GameState, Predator, Worker, WorkerJob, Wo
 // Trajets extérieurs : maison → allée → chemin le long de la clôture → portail (ou arrière de l'étal)
 const HOUSE = HALL_DOOR;
 const LANE_Z = 31.35;
-const TO_GATE: Array<[number, number]> = [HOUSE, [-6.0, 28.6], [-6.0, LANE_Z], [14.5, LANE_Z], [14.5, 30.4], [14.5, 29.5]];
+/** De la porte de l'hôtel de ville à l'allée, en traversant la cour. */
+const COURT_Z = 28.3;
+const TO_LANE: Array<[number, number]> = [HOUSE, [HOUSE[0], COURT_Z], [HALL_ALLEY, COURT_Z], [HALL_ALLEY, LANE_Z]];
+const TO_GATE: Array<[number, number]> = [...TO_LANE, [14.5, LANE_Z], [14.5, 30.4], [14.5, 29.5]];
 
 /**
  * Le vendeur se tient sur le côté de l'étal, face aux clients : derrière le comptoir,
@@ -52,8 +55,8 @@ function sellerHeading(s: GameState) {
 const SHOP_WEST_X = 15.3;
 function toCounter(s: GameState, w: Worker): Array<[number, number]> {
   const [x, z] = sellerSpot(s, w);
-  if (standLevel(s) >= 4) return [HOUSE, [-6.0, 28.6], [-6.0, LANE_Z], [SHOP_WEST_X, LANE_Z], [SHOP_WEST_X, z], [x, z]];
-  return [HOUSE, [-6.0, 28.6], [-6.0, LANE_Z], [x, LANE_Z], [x, z]];
+  if (standLevel(s) >= 4) return [...TO_LANE, [SHOP_WEST_X, LANE_Z], [SHOP_WEST_X, z], [x, z]];
+  return [...TO_LANE, [x, LANE_Z], [x, z]];
 }
 const flat = (pts: Array<[number, number]>) => pts.flatMap(([x, z]) => [x, z]);
 
@@ -473,20 +476,8 @@ function pickupOnTheWay(s: GameState, w: Worker) {
   }
 }
 
-/** Va pousser les volailles vers la rampe du camion, entré dans l'enclos. */
-function goLoadTruck(s: GameState, w: Worker) {
-  const L = s.birdLoad;
-  if (!L || L.leave !== undefined || s.clock.t < L.eta - BIRD_ORDERS.prep) return false;
-  if (s.workers.filter((o) => o.job?.kind === 'loadTruck').length >= BIRD_ORDERS.helpers) return false;
-  const tx = TRUCK_X + 3;
-  const tz = RAMP_FOOT;
-  w.path = humanPath(s, w.x, w.z, tx, tz) ?? [tx, tz];
-  w.job = { kind: 'loadTruck', targetId: L.id, tx, tz, phase: 'walk', t: 1e9 };
-  return true;
-}
-
-/** Il marche derrière le groupe, bras écartés : les volailles avancent devant lui vers la rampe. */
-function herd(s: GameState, w: Worker, dt: number) {
+/** Où se tenir pour faire avancer le groupe : derrière lui, vu de la rampe (chacun son côté). */
+function herdSpot(s: GameState, w: Worker): [number, number] {
   let cx = 0;
   let cz = 0;
   let n = 0;
@@ -496,43 +487,73 @@ function herd(s: GameState, w: Worker, dt: number) {
     cz += h.z;
     n++;
   }
-  const fz = RAMP_FOOT;
+  let nx = 1;
+  let nz = 0;
+  let d = 0;
   if (n) {
-    cx /= n;
-    cz /= n;
-    let nx = cx - TRUCK_X;
-    let nz = cz - fz;
-    const d = Math.hypot(nx, nz);
-    // le groupe est déjà devant la rampe : il ferme le passage du côté de l'enclos
-    if (d < 0.6) {
-      nx = 1;
-      nz = 0;
-    } else {
-      nx /= d;
-      nz /= d;
-    }
-    // chacun son côté du groupe
-    const side = s.workers.filter((o) => o.job?.kind === 'loadTruck').indexOf(w) ? 1.3 : -1.3;
-    const back = Math.max(d + 1.5, 2.8);
-    // (il reste dans l'enclos : jamais de l'autre côté de la clôture)
-    const tx = Math.max(0.3, TRUCK_X + nx * back - nz * side);
-    const tz = Math.min(29.6, fz + nz * back + nx * side);
-    const dx = tx - w.x;
-    const dz = tz - w.z;
-    const l = Math.hypot(dx, dz);
-    if (l > 0.15) {
-      const step = Math.min(l, STAFF.walkSpeed * 0.75 * dt);
-      const sx = (dx / l) * step;
-      const sz = (dz / l) * step;
-      // il longe ce qui le gêne (le camion, une clôture) plutôt que de rester planté
-      if (canStand(s, w.x + sx, w.z + sz, 0.1)) {
-        w.x += sx;
-        w.z += sz;
-      } else if (canStand(s, w.x + sx, w.z, 0.1)) w.x += sx;
-      else if (canStand(s, w.x, w.z + sz, 0.1)) w.z += sz;
+    const ox = cx / n - RAMP_FOOT;
+    const oz = cz / n - TRUCK_Z;
+    const l = Math.hypot(ox, oz);
+    // groupe déjà devant la rampe : il ferme le passage du côté du portail
+    if (l >= 0.6) {
+      nx = ox / l;
+      nz = oz / l;
+      d = l;
     }
   }
-  face(w, TRUCK_X, fz);
+  const side = s.workers.filter((o) => o.job?.kind === 'loadTruck').indexOf(w) > 0 ? 1.3 : -1.3;
+  const back = Math.max(d + 1.5, 2.2);
+  // (il reste dans l'enclos : jamais de l'autre côté de la clôture)
+  return [Math.max(0.3, Math.min(79.6, RAMP_FOOT + nx * back - nz * side)), Math.min(29.6, TRUCK_Z + nz * back + nx * side)];
+}
+
+/** Va pousser les volailles vers la rampe du camion, garé dans la parcelle du bout. */
+function goLoadTruck(s: GameState, w: Worker) {
+  const L = s.birdLoad;
+  if (!L || L.leave !== undefined || !L.called) return false;
+  if (s.workers.filter((o) => o.job?.kind === 'loadTruck').length >= BIRD_ORDERS.helpers) return false;
+  const [tx, tz] = herdSpot(s, w);
+  w.path = humanPath(s, w.x, w.z, tx, tz) ?? [tx, tz];
+  w.job = { kind: 'loadTruck', targetId: L.id, tx, tz, phase: 'walk', t: 0 };
+  return true;
+}
+
+/** Il marche derrière le groupe, bras écartés : les volailles avancent devant lui vers la rampe. */
+function herd(s: GameState, w: Worker, dt: number) {
+  const [tx, tz] = herdSpot(s, w);
+  const dx = tx - w.x;
+  const dz = tz - w.z;
+  const l = Math.hypot(dx, dz);
+  // de temps en temps, s'il est loin : y a-t-il un obstacle à contourner (le camion, un bâtiment) ?
+  if (w.job) {
+    w.job.t += dt;
+    if (w.job.t > 1 && l > 2.5) {
+      w.job.t = 0;
+      const way = humanPath(s, w.x, w.z, tx, tz);
+      if (way && way.length > 2) {
+        w.path = way;
+        w.job.phase = 'walk';
+        return;
+      }
+    }
+  }
+  if (l > 0.15) {
+    const step = Math.min(l, STAFF.walkSpeed * 0.75 * dt);
+    const sx = (dx / l) * step;
+    const sz = (dz / l) * step;
+    // (il travaillait au pied d'un bâtiment : il s'en dégage d'abord)
+    if (!canStand(s, w.x, w.z, 0.1)) {
+      w.x += sx;
+      w.z += sz;
+    }
+    // il longe ce qui le gêne (le camion, un bâtiment) ; bloqué pour de bon, il fait le tour
+    else if (canStand(s, w.x + sx, w.z + sz, 0.1)) {
+      w.x += sx;
+      w.z += sz;
+    } else if (canStand(s, w.x + sx, w.z, 0.1)) w.x += sx;
+    else if (canStand(s, w.x, w.z + sz, 0.1)) w.z += sz;
+  }
+  face(w, RAMP_FOOT, TRUCK_Z);
 }
 
 /**
@@ -650,7 +671,7 @@ function patrol(s: GameState, w: Worker) {
     let best: Building | null = null;
     let bs = -Infinity;
     for (const b of s.buildings) {
-      if (b.type === 'stand' || b.type === 'tree') continue;
+      if (b.type === 'stand' || b.type === 'tree' || b.type === 'bush') continue;
       const c = buildingCenter(b);
       // loin des collègues, sans traverser toute la ferme, avec une part de hasard
       const near = others.reduce((m, o) => Math.min(m, Math.hypot((o.job?.tx ?? o.x) - c.x, (o.job?.tz ?? o.z) - c.z)), 14);

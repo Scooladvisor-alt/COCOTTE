@@ -7918,7 +7918,7 @@ body {
   background: rgba(47, 107, 255, 0.13);
 }
 
-/* Animalerie : ouverture, déplacements de volailles, camion en cours de chargement */
+/* Vente de poules pondeuses : ouverture, déplacements de volailles, camion en cours de chargement */
 .pet-open {
   display: flex;
   gap: 14px;
@@ -7972,7 +7972,7 @@ body {
   }
 }
 
-/* Le vendeur de l'animalerie et les options d'un commis */
+/* Le vendeur de poules et les options d'un commis */
 .seller { margin: 8px 0; padding: 10px 12px; border-radius: 12px; background: rgba(47, 111, 78, 0.08); display: flex; flex-direction: column; gap: 8px; }
 .seller-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .seller-top span { display: flex; flex-direction: column; min-width: 0; }

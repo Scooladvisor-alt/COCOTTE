@@ -1,6 +1,6 @@
 // Les poules : besoins, santé, bien-être, ponte et comportement (machine à états).
-import { RAMP_FOOT } from './deliveries';
-import { BIRD_ORDERS, TRUCK_BAY,
+import { RAMP_FOOT, TRUCK_Z } from './deliveries';
+import {
   BREEDING,
   COMPOST,
   DAYTIME_SECONDS,
@@ -1291,7 +1291,7 @@ function besideBuilding(s: GameState, x: number, z: number) {
       const id = occ[cellIndex(cx + dx, cz + dz)];
       if (id < 0) continue;
       const b = getBuilding(s, id);
-      if (b && b.type !== 'tree' && b.type !== 'pond') return true;
+      if (b && b.type !== 'tree' && b.type !== 'bush' && b.type !== 'pond') return true;
     }
   return false;
 }
@@ -1718,11 +1718,11 @@ function startFlee(s: GameState, h: Hen, px: number, pz: number, hawk = false) {
   setAct(h, 'flap', 0.6);
 }
 
-const WORLD_GATHER_Z = 29.55;
-
+/** Repère du chemin d'une volaille qui rejoint le camion. */
+const SHIP_PATH = -2;
 /**
- * Vendue : elle se dirige vers la rampe du camion, sans s'arrêter en chemin, et presse le pas quand
- * un commis arrive derrière elle. Bloquée trop longtemps, elle se faufile.
+ * Vendue : elle traverse la ferme jusqu'à la cour du camion, sans s'arrêter en chemin, et presse le pas
+ * quand un commis arrive derrière elle. Tant que le camion n'est pas garé, elle laisse sa place libre.
  */
 function shipTick(s: GameState, h: Hen, r: HenRt, dt: number) {
   const L = s.birdLoad;
@@ -1738,19 +1738,19 @@ function shipTick(s: GameState, h: Hen, r: HenRt, dt: number) {
       h.z = d.z;
     }
   }
-  // elles attendent devant la rampe, entre le hayon et le portail ; celles qui sont de l'autre côté du
-  // camion le contournent par l'est
+  const parked = !L.late && s.clock.t >= L.eta;
   const a = h.id * 2.399;
   const spread = (h.id * 0.618) % 1;
-  let tx = BIRD_ORDERS.laneX + 1.4 + Math.cos(a) * spread * 1.4;
-  let tz = Math.min(WORLD_GATHER_Z, RAMP_FOOT + 0.35 + Math.abs(Math.sin(a)) * spread * 1.1);
-  if (h.z < RAMP_FOOT - 0.5 && h.x < TRUCK_BAY.x1 + 2.3) {
-    tx = TRUCK_BAY.x1 + 2.4;
-    tz = RAMP_FOOT;
-  }
+  const tx = RAMP_FOOT + 0.35 + Math.abs(Math.cos(a)) * spread * 1.45;
+  const tz = parked ? TRUCK_Z + Math.sin(a) * spread * 2.3 : TRUCK_Z + (h.z < TRUCK_Z ? -1 : 1) * (1.45 + spread * 1.05);
   h.targetId = -1;
   h.actT = 5;
-  if (Math.hypot(tx - h.x, tz - h.z) < 0.3) {
+  if (r.pathKey !== SHIP_PATH) {
+    r.pathKey = SHIP_PATH;
+    r.path = planPath(s, h.x, h.z, tx, tz, 0.12) ?? [];
+  }
+  while (r.path.length >= 2 && Math.hypot(r.path[0] - h.x, r.path[1] - h.z) < 0.25) r.path.splice(0, 2);
+  if (!r.path.length && Math.hypot(tx - h.x, tz - h.z) < 0.3) {
     h.act = 'idle';
     r.spd = 0;
     nudge(s, h, r, dt);
@@ -1758,9 +1758,12 @@ function shipTick(s: GameState, h: Hen, r: HenRt, dt: number) {
   }
   h.act = 'walk';
   const pushed = s.workers.some((w) => w.job?.kind === 'loadTruck' && Math.hypot(w.x - h.x, w.z - h.z) < 2.6);
-  steer(s, h, r, tx, tz, speedOf(h, 'go') * (pushed ? 1.7 : 1.2), dt, r.stuckT > 1.2);
-  // (une fois sortie de l'impasse, elle reprend le chemin normal)
-  if (r.stuckT > 3) r.stuckT = 0;
+  steer(s, h, r, r.path.length ? r.path[0] : tx, r.path.length ? r.path[1] : tz, speedOf(h, 'go') * (pushed ? 2 : 1.6), dt, r.stuckT > 2.4);
+  // vraiment coincée : elle cherche un autre chemin
+  if (r.stuckT > 3) {
+    r.stuckT = 0;
+    r.pathKey = -1;
+  }
 }
 
 function behave(s: GameState, h: Hen, dt: number, night: boolean, hour: number) {

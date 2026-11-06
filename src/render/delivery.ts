@@ -6,13 +6,13 @@
 // poules sautent une à une et trottinent jusqu'au portail, où la simulation les prend en charge
 // (horaire dans sim/deliveries.ts). Puis le camion se réinsère dans le trafic et repart.
 import * as THREE from 'three';
-import { BREEDS } from '../config/breeds';
 import { BIRD_ORDERS } from '../config/balance';
-import { TRUCK_LANE, alongPath, boardPath, boardTime, hopPath, hopTime, jumpAt, leaveAt, rampProgress, truckStopX, unloadEnd } from '../sim/deliveries';
+import { alongPath, boardPath, boardTime, hopPath, hopTime, jumpAt, leaveAt, rampProgress, truckStopX, unloadEnd } from '../sim/deliveries';
 import type { Street } from './street';
 import type { BreedId, Delivery, GameState } from '../sim/types';
 import { C, box, cyl, merge, mesh, sph } from './geo';
-import { ADULT_STAGE, HEN_MAT, HEN_PIVOT, henGeometryMid, textPanel } from './models';
+import { textPanel } from './models';
+import { ENTRY, BACKUP, EXIT, EXIT_WAIT, YARD_GATE } from './truckRoad';
 
 function truckModel() {
   const g = new THREE.Group();
@@ -146,7 +146,7 @@ function bigTruckModel() {
   return { g, blink, gate, door };
 }
 
-/** Le grand portail à deux battants, au bout du chemin de terre (il s'ouvre vers l'enclos). */
+/** Le grand portail à deux battants, au bout du chemin de terre (il s'ouvre vers la parcelle). */
 function yardGate(scene: THREE.Object3D) {
   const leaf = () => {
     const W = 0.92;
@@ -159,112 +159,47 @@ function yardGate(scene: THREE.Object3D) {
     for (const y of [0.2, 0.86]) parts.push(box(0.26, 0.03, 0.07, 0x3a3d43, [0.13, y, 0.012]));
     return mesh(merge(parts));
   };
+  const X = YARD_GATE.x;
+  const Z0 = YARD_GATE.z - 1;
+  const Z1 = YARD_GATE.z + 1;
   const posts: THREE.BufferGeometry[] = [];
-  for (const x of [-0.04, 2.04]) posts.push(box(0.2, 1.22, 0.2, C.woodDark, [x, 0.71, 30]), box(0.26, 0.05, 0.26, 0x8e939b, [x, 1.34, 30]));
+  for (const z of [Z0 - 0.04, Z1 + 0.04]) posts.push(box(0.2, 1.22, 0.2, C.woodDark, [X, 0.71, z]), box(0.26, 0.05, 0.26, 0x8e939b, [X, 1.34, z]));
   const fixed = mesh(merge(posts));
   const a = leaf();
   const b = leaf();
-  a.position.set(0.05, 0.1, 30);
-  b.position.set(1.95, 0.1, 30);
-  b.rotation.y = Math.PI;
+  a.position.set(X, 0.1, Z0 + 0.05);
+  b.position.set(X, 0.1, Z1 - 0.05);
   scene.add(fixed, a, b);
-  return (open: number) => {
-    a.rotation.y = (open * Math.PI) / 2;
-    b.rotation.y = Math.PI - (open * Math.PI) / 2;
+  const set = (open: number) => {
+    a.rotation.y = -Math.PI / 2 - (open * Math.PI) / 2;
+    b.rotation.y = Math.PI / 2 + (open * Math.PI) / 2;
   };
+  set(0);
+  return set;
 }
 
-/** Le chemin du camion, de la route jusqu'à sa place dans l'enclos : un virage, puis tout droit. */
-function truckRoute() {
-  const X0 = BIRD_ORDERS.stopX;
-  const X1 = BIRD_ORDERS.laneX;
-  const Z0 = TRUCK_LANE;
-  const Z1 = 34.5;
-  const pts: Array<[number, number]> = [];
-  for (let i = 0; i <= 24; i++) {
-    const t = i / 24;
-    const u = 1 - t;
-    pts.push([u * u * X0 + 2 * u * t * X1 + t * t * X1, u * u * Z0 + 2 * u * t * Z0 + t * t * Z1]);
-  }
-  pts.push([X1, BIRD_ORDERS.rearZ - BIRD_ORDERS.tail]);
-  const lens = [0];
-  for (let i = 1; i < pts.length; i++) lens.push(lens[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
-  const total = lens[lens.length - 1];
-  const at = (s: number) => {
-    const d = Math.max(0, Math.min(total, s));
-    let i = 1;
-    while (i < lens.length - 1 && lens[i] < d) i++;
-    const k = (d - lens[i - 1]) / Math.max(1e-6, lens[i] - lens[i - 1]);
-    const dx = pts[i][0] - pts[i - 1][0];
-    const dz = pts[i][1] - pts[i - 1][1];
-    return { x: pts[i - 1][0] + dx * k, z: pts[i - 1][1] + dz * k, heading: Math.atan2(-dz, dx) };
-  };
-  // il attend ici, nez dans le chemin, que la route soit libre pour ressortir à reculons
-  let wait = 0;
-  while (wait < total && at(wait).z > 36.2) wait += 0.1;
-  return { total, at, wait };
-}
-
-/** Une poule ou une oie d'un seul tenant (celles des parcs de l'animalerie). */
-const puppetGeo = new Map<string, THREE.BufferGeometry>();
-export function henSolidGeometry(breed: BreedId, skin = 0) {
-  const key = `${breed}:${skin}`;
-  let g = puppetGeo.get(key);
-  if (!g) {
-    const h = henGeometryMid(breed, 'hen', ADULT_STAGE, skin);
-    const at = (geo: THREE.BufferGeometry, x: number, y: number, z: number) => geo.clone().translate(x, y, z);
-    g = merge([
-      at(h.body, 0, HEN_PIVOT.body, 0),
-      at(h.head, HEN_PIVOT.neck[0], HEN_PIVOT.neck[1], HEN_PIVOT.neck[2]),
-      at(h.eyes, HEN_PIVOT.neck[0], HEN_PIVOT.neck[1], HEN_PIVOT.neck[2]),
-      at(h.wingL, HEN_PIVOT.wing[0], HEN_PIVOT.wing[1], HEN_PIVOT.wing[2]),
-      at(h.wingR, -HEN_PIVOT.wing[0], HEN_PIVOT.wing[1], HEN_PIVOT.wing[2]),
-      at(h.leg, HEN_PIVOT.hip[0], HEN_PIVOT.hip[1], HEN_PIVOT.hip[2]),
-      at(h.leg, -HEN_PIVOT.hip[0], HEN_PIVOT.hip[1], HEN_PIVOT.hip[2]),
-    ]);
-    puppetGeo.set(key, g);
-  }
-  return g;
-}
-
-/** Poule qui trottine du camion au portail (rendu seul ; la simulation la crée au portail). */
-interface Walker {
-  root: THREE.Group;
-  legL: THREE.Mesh;
-  legR: THREE.Mesh;
-}
-const walkerGeo = new Map<BreedId, { body: THREE.BufferGeometry; leg: THREE.BufferGeometry }>();
-function makeWalker(breed: BreedId): Walker {
-  let g = walkerGeo.get(breed);
-  if (!g) {
-    const h = henGeometryMid(breed, 'hen', ADULT_STAGE, 0);
-    const at = (geo: THREE.BufferGeometry, x: number, y: number, z: number) => geo.clone().translate(x, y, z);
-    g = {
-      body: merge([
-        at(h.body, 0, HEN_PIVOT.body, 0),
-        at(h.head, HEN_PIVOT.neck[0], HEN_PIVOT.neck[1], HEN_PIVOT.neck[2]),
-        at(h.eyes, HEN_PIVOT.neck[0], HEN_PIVOT.neck[1], HEN_PIVOT.neck[2]),
-        at(h.wingL, HEN_PIVOT.wing[0], HEN_PIVOT.wing[1], HEN_PIVOT.wing[2]),
-        at(h.wingR, -HEN_PIVOT.wing[0], HEN_PIVOT.wing[1], HEN_PIVOT.wing[2]),
-      ]),
-      leg: h.leg,
-    };
-    walkerGeo.set(breed, g);
-  }
-  const root = new THREE.Group();
-  const body = new THREE.Mesh(g.body, HEN_MAT);
-  body.castShadow = true;
-  const legL = new THREE.Mesh(g.leg, HEN_MAT);
-  const legR = new THREE.Mesh(g.leg, HEN_MAT);
-  legL.position.set(HEN_PIVOT.hip[0], HEN_PIVOT.hip[1], HEN_PIVOT.hip[2]);
-  legR.position.set(-HEN_PIVOT.hip[0], HEN_PIVOT.hip[1], HEN_PIVOT.hip[2]);
-  root.add(body, legL, legR);
-  root.scale.setScalar(BREEDS[breed].scale);
-  return { root, legL, legR };
+/**
+ * Une volaille en chemin, hors de la simulation : qui descend d'un camion du couvoir, ou qui monte dans
+ * celui du revendeur. Le rendu la dessine exactement comme les poules de la ferme.
+ */
+export interface BirdOnTheWay {
+  seed: number;
+  breed: BreedId;
+  skin: number;
+  x: number;
+  z: number;
+  /** Direction de marche. */
+  dx: number;
+  dz: number;
+  /** Hauteur au-dessus du sol, et pente sur laquelle elle marche. */
+  lift: number;
+  slope: number;
 }
 
 export interface DeliveryTruck {
   update(s: GameState): void;
+  /** Les volailles qui marchent entre un camion et la ferme, à cet instant. */
+  birds(s: GameState, draw: (b: BirdOnTheWay) => void): void;
 }
 
 /**
@@ -282,27 +217,12 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
     open: number;
   }
   const tracks = new Map<number, Track>();
-  const walkers = new Map<BreedId, Walker[]>();
   /** Le camion du revendeur en cours (un seul à la fois). */
   type Big = ReturnType<typeof bigTruckModel>;
-  let pickup: { id: number; truck?: Big; phase: 'wait' | 'road' | 'in' | 'bay' | 'out'; s: number; open: number; held: boolean } | null = null;
-  const route = truckRoute();
+  let pickup: { id: number; truck?: Big; phase: 'wait' | 'road' | 'in' | 'bay' | 'back' | 'out'; s: number; open: number; held: boolean } | null = null;
   const setGate = yardGate(world);
   let gate = 0;
-  let scene: THREE.Object3D | null = null;
   let last = performance.now();
-
-  const walkerAt = (breed: BreedId, i: number) => {
-    let list = walkers.get(breed);
-    if (!list) walkers.set(breed, (list = []));
-    while (list.length <= i) {
-      const w = makeWalker(breed);
-      w.root.visible = false;
-      scene?.add(w.root);
-      list.push(w);
-    }
-    return list[i];
-  };
 
   return {
     update(s) {
@@ -316,7 +236,6 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
         if (tr) tr.d = { ...d };
         else tracks.set(d.id, { d: { ...d }, called: false, released: false, open: 0 });
       }
-      const used = new Map<BreedId, number>();
       for (const [id, tr] of tracks) {
         const d = tr.d;
         const slot = d.slot ?? 0;
@@ -358,31 +277,11 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
           const want = st.parked && t >= d.eta - 0.2 && t < unloadEnd(d) - 0.3 ? 1 : 0;
           tr.open += (want - tr.open) * Math.min(1, rdt * 3.5);
           tr.truck.gate.rotation.z = tr.open * 1.95;
-          if (!scene) scene = tr.truck.g.parent;
-        }
-        // poules en route vers le portail
-        const path = hopPath(slot);
-        const dur = hopTime(slot);
-        for (let i = 0; i < d.count; i++) {
-          const j = jumpAt(d, i);
-          if (t < j || t > j + dur || !scene) continue;
-          const n = used.get(d.breed) ?? 0;
-          used.set(d.breed, n + 1);
-          const w = walkerAt(d.breed, n);
-          const k = (t - j) / dur;
-          const p = alongPath(path, k);
-          // saut du hayon au début, puis trot sautillant
-          const jump = k < 0.08 ? Math.sin((k / 0.08) * Math.PI) * 0.35 + (1 - k / 0.08) * 0.45 : 0;
-          const step = (t - j) * 13 + i;
-          w.root.visible = true;
-          w.root.position.set(p.x, 0.07 + jump + Math.abs(Math.sin(step)) * 0.035, p.z);
-          w.root.rotation.y = Math.atan2(p.dx, p.dz);
-          w.legL.rotation.x = Math.sin(step) * 0.7;
-          w.legR.rotation.x = -Math.sin(step) * 0.7;
         }
       }
-      // ---- le camion du revendeur : il tourne dans le chemin de terre, passe le grand portail, s'arrête
-      // dans l'enclos, abaisse sa rampe... puis ressort à reculons quand tout le monde est à bord
+      // ---- le camion du revendeur : il quitte la route par la branche de terre, passe le grand portail et
+      // s'arrête dans la parcelle ; une fois tout le monde à bord, il ressort à reculons, fait demi-tour
+      // dans l'aire devant le portail et reprend le chemin jusqu'à la route
       const L = s.birdLoad;
       if (L && (!pickup || pickup.id !== L.id)) {
         pickup = { id: L.id, phase: 'wait', s: 0, open: 0, held: false };
@@ -391,7 +290,7 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
           pickup.truck = bigTruckModel();
           world.add(pickup.truck.g);
           pickup.phase = 'bay';
-          pickup.s = route.total;
+          pickup.s = ENTRY.total;
         }
       }
       let gateWant = 0;
@@ -399,11 +298,12 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
         const P = pickup;
         const still = !!L && L.id === P.id;
         const pace = rdt * Math.min(3, spd);
-        const speed = (toEnd: number, fromStart: number) => 2.4 * pace * Math.max(0.25, Math.min(1, (Math.min(toEnd, fromStart) + 0.4) / 1.8));
+        const speed = (v: number, toEnd: number, fromStart: number) => v * pace * Math.max(0.22, Math.min(1, (Math.min(toEnd, fromStart) + 0.4) / 2));
         if (P.phase === 'wait') {
           if (!still) pickup = null;
           else if (spd > 0) {
-            const remain = ((L!.eta - t) * Math.min(2, spd)) / spd;
+            // il prend la route assez tôt pour arriver au portail à l'heure dite
+            const remain = ((L!.eta - t - ENTRY.total / 3.2) * Math.min(2, spd)) / spd;
             if ((remain - 1) * 4.6 <= 75) {
               const truck = bigTruckModel();
               const ahead = Math.max(14, Math.min(75, (remain - 1) * 4.6));
@@ -423,44 +323,60 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
             street.detachDelivery(P.id);
             world.add(P.truck!.g);
             P.held = true;
+            P.s = 0;
             P.phase = 'in';
           }
         } else if (P.phase === 'in') {
-          P.s = Math.min(route.total, P.s + speed(route.total - P.s, P.s));
-          if (P.held && route.at(P.s).z < 37.2) {
+          P.s = Math.min(ENTRY.total, P.s + speed(3.2, ENTRY.total - P.s, P.s));
+          if (P.held && ENTRY.at(P.s).z < 38) {
             street.freeLane(P.id);
             P.held = false;
           }
-          if (P.s >= route.total) P.phase = 'bay';
+          if (P.s >= ENTRY.total) P.phase = 'bay';
         } else if (P.phase === 'bay') {
-          if (!still && P.open < 0.02) P.phase = 'out';
+          if (!still && P.open < 0.02) {
+            P.phase = 'back';
+            P.s = 0;
+          }
+        } else if (P.phase === 'back') {
+          P.s = Math.min(BACKUP.total, P.s + speed(2.2, BACKUP.total - P.s, P.s));
+          if (P.s >= BACKUP.total) {
+            P.phase = 'out';
+            P.s = 0;
+          }
         } else if (P.phase === 'out') {
-          // à reculons jusqu'au bord de la route, puis il attend que la voie soit libre
-          if (P.s > route.wait || P.held) {
-            P.s = Math.max(0, P.s - speed(P.s, route.total - P.s));
-            if (P.s <= 0) {
+          // jusqu'au bord de la route, où il attend que les deux voies soient libres pour traverser
+          if (P.s < EXIT_WAIT || P.held) {
+            P.s = Math.min(EXIT.total, P.s + speed(3.2, P.held ? EXIT.total - P.s : EXIT_WAIT - P.s + 0.2, P.s));
+            if (P.s >= EXIT.total) {
               street.freeLane(P.id);
-              street.resumeDelivery(P.id, P.truck!.g, 5.4, BIRD_ORDERS.stopX);
+              street.resumeDelivery(P.id, P.truck!.g, 5.4, EXIT.at(EXIT.total).x, 1);
               pickup = null;
             }
-          } else if (street.laneClear(BIRD_ORDERS.stopX - 8, BIRD_ORDERS.stopX + 22) && pace > 0) {
-            street.holdLane(P.id, BIRD_ORDERS.stopX, 5.4);
+          } else if (pace > 0 && street.laneClear(-1, BIRD_ORDERS.stopX - 10, BIRD_ORDERS.stopX + 14) && street.laneClear(1, BIRD_ORDERS.stopX - 18, BIRD_ORDERS.stopX + 8)) {
+            street.holdLane(P.id, BIRD_ORDERS.stopX - 3, 5.4, -1);
+            street.holdLane(P.id, BIRD_ORDERS.stopX + 1, 5.4, 1);
             P.held = true;
           }
         }
         // la simulation attend qu'il soit garé pour faire monter les volailles
         if (still) L!.late = P.phase !== 'bay';
         if (pickup && P.truck) {
-          if (!scene) scene = P.truck.g.parent;
-          const moving = P.phase === 'in' || P.phase === 'bay' || P.phase === 'out';
-          if (moving) {
-            const q = route.at(P.s);
-            const up = Math.max(0, Math.min(1, (31 - q.z) / 2.6));
-            P.truck.g.position.set(q.x, 0.06 + 0.04 * up, q.z);
-            P.truck.g.rotation.y = q.heading;
-            if (q.z < 36.2 && q.z > BIRD_ORDERS.rearZ - BIRD_ORDERS.tail + 2.2) gateWant = 1;
+          const q = P.phase === 'in' || P.phase === 'bay' ? ENTRY.at(P.s) : P.phase === 'back' ? BACKUP.at(P.s) : P.phase === 'out' ? EXIT.at(P.s) : null;
+          if (q) {
+            // (à reculons, le camion regarde à l'opposé de sa marche)
+            const heading = P.phase === 'back' ? q.heading + Math.PI : q.heading;
+            P.truck.g.position.set(q.x, 0.06 + 0.04 * Math.max(0, Math.min(1, (81.2 - q.x) / 1.4)), q.z);
+            P.truck.g.rotation.y = heading;
+            // le portail s'ouvre devant lui et se referme derrière
+            const fx = Math.cos(heading) * 2.7;
+            const fz = -Math.sin(heading) * 2.7;
+            const ax = q.x - fx;
+            const az = q.z - fz;
+            const k = Math.max(0, Math.min(1, ((YARD_GATE.x - ax) * (fx * 2) + (YARD_GATE.z - az) * (fz * 2)) / (5.4 * 5.4)));
+            if (P.phase !== 'bay' && Math.hypot(ax + fx * 2 * k - YARD_GATE.x, az + fz * 2 * k - YARD_GATE.z) < 3.2) gateWant = 1;
           }
-          P.truck.blink.visible = (P.phase === 'road' ? !!street.delivery(P.id)?.parked : P.phase === 'bay' || P.phase === 'out') && Math.floor(now / 420) % 2 === 0;
+          P.truck.blink.visible = (P.phase === 'road' ? !!street.delivery(P.id)?.parked : P.phase === 'bay' || P.phase === 'back') && Math.floor(now / 420) % 2 === 0;
           const open = P.phase === 'bay' && still && gate < 0.04 && (L!.leave === undefined || t < L!.leave - BIRD_ORDERS.closeUp * 0.5) ? 1 : 0;
           P.open += (open - P.open) * Math.min(1, rdt * 2.6 * Math.max(1, Math.min(3, spd)));
           if (P.open < 0.004) P.open = 0;
@@ -471,27 +387,35 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
       gate += (gateWant - gate) * Math.min(1, rdt * 3.4 * Math.max(1, Math.min(3, spd)));
       if (gate < 0.004 && !gateWant) gate = 0;
       setGate(gate);
-      if (L) {
-        // volailles qui montent : elles rejoignent le pied de la rampe, grimpent et disparaissent dans le noir
-        for (let i = 0; i < L.gone.length; i++) {
-          const q = L.gone[i];
-          const dur = boardTime(q.x, q.z);
-          if (t < q.t || t > q.t + dur) continue;
-          const n = used.get(q.breed) ?? 0;
-          used.set(q.breed, n + 1);
-          if (!scene) scene = world;
-          const w = walkerAt(q.breed, n);
-          const k = (t - q.t) / dur;
-          const p = alongPath(boardPath(q.x, q.z), k);
-          const step = (t - q.t) * 13 + i;
-          w.root.visible = true;
-          w.root.position.set(p.x, 0.1 + rampProgress(q.x, q.z, k) * 0.6 + Math.abs(Math.sin(step)) * 0.035, p.z);
-          w.root.rotation.y = Math.atan2(p.dx, p.dz);
-          w.legL.rotation.x = Math.sin(step) * 0.7;
-          w.legR.rotation.x = -Math.sin(step) * 0.7;
+    },
+    birds(s, draw) {
+      const t = s.clock.t;
+      // les poules du couvoir : elles sautent du hayon et trottinent jusqu'au portail de la ferme
+      for (const tr of tracks.values()) {
+        const d = tr.d;
+        const slot = d.slot ?? 0;
+        const path = hopPath(slot);
+        const dur = hopTime(slot);
+        for (let i = 0; i < d.count; i++) {
+          const j = jumpAt(d, i);
+          if (t < j || t > j + dur) continue;
+          const k = (t - j) / dur;
+          const p = alongPath(path, k);
+          const jump = k < 0.08 ? Math.sin((k / 0.08) * Math.PI) * 0.35 + (1 - k / 0.08) * 0.45 : 0;
+          draw({ seed: 1e7 + d.id * 200 + i, breed: d.breed, skin: 0, x: p.x, z: p.z, dx: p.dx, dz: p.dz, lift: jump - 0.03, slope: 0 });
         }
       }
-      for (const [breed, list] of walkers) for (let i = used.get(breed) ?? 0; i < list.length; i++) list[i].root.visible = false;
+      // celles du revendeur : elles rejoignent le pied de la rampe, grimpent et disparaissent dans le noir
+      const L = s.birdLoad;
+      if (!L) return;
+      for (const q of L.gone) {
+        const dur = boardTime(q.x, q.z);
+        if (t < q.t || t > q.t + dur) continue;
+        const k = (t - q.t) / dur;
+        const p = alongPath(boardPath(q.x, q.z), k);
+        const up = rampProgress(q.x, q.z, k);
+        draw({ seed: q.id, breed: q.breed, skin: q.skin ?? 0, x: p.x, z: p.z, dx: p.dx, dz: p.dz, lift: up * 0.6, slope: up > 0 && up < 1 ? 0.5 : 0 });
+      }
     },
   };
 }

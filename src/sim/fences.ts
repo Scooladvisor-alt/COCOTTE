@@ -50,8 +50,8 @@ export function fencedEdges(s: GameState) {
 
 /** Arête du portail d'entrée (côté route, sous la case d'entrée). */
 export const GATE_EDGE = hCode(GATE.x, GATE.z + 1);
-/** Grand portail du camion : deux arêtes au bout du chemin de terre (code 5 : portail fermé). */
-export const TRUCK_GATE_EDGES = [hCode(TRUCK_BAY.x0, TRUCK_BAY.z1 + 1), hCode(TRUCK_BAY.x1, TRUCK_BAY.z1 + 1)];
+/** Grand portail du camion, à l'est de la parcelle du bout (code 5 : portail fermé). */
+export const TRUCK_GATE_EDGES = [vCode(TRUCK_BAY.x1 + 1, TRUCK_BAY.z0), vCode(TRUCK_BAY.x1 + 1, TRUCK_BAY.z1)];
 
 /** Contour du terrain possédé (arêtes entre une case possédée et une case qui ne l'est pas). */
 export function perimeter(s: GameState) {

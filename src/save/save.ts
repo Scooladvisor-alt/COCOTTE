@@ -230,7 +230,7 @@ export function sanitize(input: unknown): GameState | null {
     const def = BUILDINGS[type];
     const nb: Building = makeBuilding(int(b.id, s.nextId++), type, int(b.x, 0, -5, GRID_W + 5), int(b.z, 0, GRID_Z0 - 5, GRID_Z1 + 10));
     nb.level = int(b.level, 1, 1, def.levels.length);
-    // l'animalerie a sa place fixe : elle y revient quoi qu'en dise la sauvegarde
+    // la vente de poules a sa place fixe : elle y revient quoi qu'en dise la sauvegarde
     if (type === 'petshop') {
       nb.x = PET_POS.x;
       nb.z = PET_POS.z;
@@ -246,6 +246,10 @@ export function sanitize(input: unknown): GameState | null {
     }
     nb.invested = int(b.invested, 0, 0, 1e10);
     nb.builtAt = num(b.builtAt, 0);
+    if ((type === 'tree' || type === 'bush') && b.wild && typeof b.wild === 'object') {
+      const w = obj(b.wild);
+      nb.wild = { sp: int(w.sp, 0, 0, 3), sc: num(w.sc, 1, 0.3, 2), ox: num(w.ox, 0.5, 0, 1), oz: num(w.oz, 0.5, 0, 1) };
+    }
     nb.eggIds = [];
     if (type === 'incubator' && typeof b.hostId === 'number') nb.hostId = b.hostId;
     if (type === 'incubator' || type === 'gooseincubator') {
@@ -339,7 +343,7 @@ export function sanitize(input: unknown): GameState | null {
     if (hen) s.hens.push(hen);
   }
 
-  // L'animalerie : volailles en vitrine, prix fixés par le joueur
+  // La vente de poules : volailles en vente, prix fixés par le joueur
   const pet = obj(raw.petShop);
   for (const rh of arr(pet.birds)) {
     const hen = readHen(rh);

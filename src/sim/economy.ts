@@ -11,7 +11,7 @@ export const INCOME_LABELS: Record<IncomeCat, string> = {
   contrats: 'Contrats',
   primes: 'Primes de mission',
   reventes: 'Reventes',
-  animalerie: 'Animalerie et revendeurs',
+  animalerie: 'Vente de poules et revendeurs',
   emprunt: 'Prêts reçus',
 };
 export const EXPENSE_LABELS: Record<ExpenseCat, string> = {

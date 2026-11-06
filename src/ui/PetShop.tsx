@@ -1,5 +1,5 @@
-// L'animalerie (poules et oies en vitrine, au prix qu'on veut) et les commandes des revendeurs.
-import { BIRD_ORDERS, PETSHOP, TIME } from '../config/balance';
+// La vente de poules pondeuses (poules et oies en vente, au prix qu'on veut) et les commandes des revendeurs.
+import { BIRD_ORDERS, HOUR, PETSHOP, TIME } from '../config/balance';
 import { BREEDS, BREED_ORDER, isGoose } from '../config/breeds';
 import { BUILDINGS, PET_POS } from '../config/buildings';
 import * as A from '../sim/actions';
@@ -46,6 +46,31 @@ function speedOf(p: number) {
   return { t: 'trop cher : presque personne n’achète', c: 'bad' };
 }
 
+/** Il manque la parcelle du bout du chemin de terre. */
+export function ParcelLocked({ what }: { what: string }) {
+  const game = useGame();
+  const key = BIRD_ORDERS.parcel;
+  return (
+    <div class="locked-box">
+      <div class="big">
+        <Icon name="map" size={30} />
+      </div>
+      <b>Achetez la parcelle {BIRD_ORDERS.parcelName}, tout en bas à droite</b>
+      <p>{what} C’est là qu’arrive le chemin de terre : sans elle, pas de vente de poules.</p>
+      <Btn
+        kind="primary"
+        onClick={() => {
+          game.openPanel(null);
+          game.select({ kind: 'parcel', key });
+          game.renderer.focusOn(70, 20);
+        }}
+      >
+        Voir la parcelle {BIRD_ORDERS.parcelName}
+      </Btn>
+    </div>
+  );
+}
+
 function OpenCard() {
   const game = useGame();
   const L = BUILDINGS.petshop.levels[0];
@@ -53,7 +78,7 @@ function OpenCard() {
     <div class="pet-open">
       <img src={buildingThumb('petshop', 1)} alt="" />
       <div>
-        <h4>Pas encore d’animalerie</h4>
+        <h4>Pas encore de vente de poules pondeuses</h4>
         <p>{BUILDINGS.petshop.description}</p>
         <ul class="effects">
           <li>
@@ -161,7 +186,7 @@ function BirdRow({ breed }: { breed: BreedId }) {
         <div class="pc-top">
           <b>{def.name}</b>
           <small>
-            {flock} à la ferme · <b>{stock}</b> en vitrine
+            {flock} à la ferme · <b>{stock}</b> en vente
           </small>
         </div>
         <div class="pc-slider">
@@ -224,7 +249,7 @@ export function PetShopTab() {
     <>
       <div class="strip">
         <div>
-          <small>En vitrine</small>
+          <small>En vente</small>
           <b>
             {s.petShop.birds.length} / {L.capacity}
           </b>
@@ -280,9 +305,9 @@ function LoadCard({ o }: { o: BirdOrder }) {
     L.leave !== undefined
       ? 'Chargement terminé : le camion repart.'
       : left > 0
-        ? left > BIRD_ORDERS.delay + 1
-          ? `Le camion passera le matin, à ${BIRD_ORDERS.morningHour} h.`
-          : `Le camion arrive dans ${Math.ceil((left / TIME.DAY) * 24 * 10) / 10} h. Les ${o.goose ? 'oies' : 'poules'} se rassemblent près du grand portail.`
+        ? !L.called
+          ? `Le camion passera vers ${Math.floor((L.eta % TIME.DAY) / HOUR)} h : les ${o.goose ? 'oies' : 'poules'} se mettront en route à temps.`
+          : `Le camion arrive dans ${Math.ceil((left / TIME.DAY) * 24 * 10) / 10} h. Les ${o.goose ? 'oies' : 'poules'} rejoignent la cour derrière le grand portail.`
         : helpers
           ? `Chargement : ${L.loaded} / ${o.count} · ${helpers} commis poussent les volailles`
           : hasRole(s, 'farmhand')
@@ -306,7 +331,7 @@ export function DealersTab() {
   return (
     <>
       <p class="hint">
-        Des revendeurs et des associations cherchent des poules et des oies pour des particuliers. Une fois la commande acceptée, vous appelez leur camion : il prend le chemin de terre, entre dans l’enclos par le grand portail, et les commis de ferme poussent les volailles sur sa rampe. Vous êtes payé quand il repart. Ni coqs, ni jars, ni jeunes : les meilleures reproductrices partent en dernier.
+        Des revendeurs et des associations cherchent des poules et des oies pour des particuliers. Une fois la commande acceptée, vous appelez leur camion : il quitte la route par le chemin de terre, entre par le grand portail de la parcelle {BIRD_ORDERS.parcelName}, et les commis de ferme poussent les volailles sur sa rampe. Vous êtes payé quand il repart. Ni coqs, ni jars, ni jeunes : les meilleures reproductrices partent en dernier.
       </p>
       {!commis && (
         <div class="notice">

@@ -1205,8 +1205,8 @@ function decimate(src: THREE.BufferGeometry, cell: number, keepSides = true) {
 }
 
 /** Taille de la grille de simplification : de quoi garder la silhouette à la distance de jeu. */
-const MID_CELL = 0.042;
-const FAR_CELL = 0.09;
+const MID_CELL = 0.03;
+const FAR_CELL = 0.075;
 const midCache = new Map<string, HenGeo>();
 const farCache = new Map<string, THREE.BufferGeometry>();
 
@@ -1216,7 +1216,7 @@ export function henGeometryMid(breed: BreedId, kind: HenKind = 'hen', stage = AD
   let g = midCache.get(ck);
   if (!g) {
     const f = henGeometry(breed, kind, stage, skin);
-    g = { body: decimate(f.body, MID_CELL), head: decimate(f.head, MID_CELL), wingL: decimate(f.wingL, MID_CELL), wingR: decimate(f.wingR, MID_CELL), leg: decimate(f.leg, MID_CELL), eyes: f.eyes, eyeAt: f.eyeAt };
+    g = { body: decimate(f.body, MID_CELL), head: decimate(f.head, MID_CELL), wingL: decimate(f.wingL, MID_CELL), wingR: decimate(f.wingR, MID_CELL), leg: decimate(f.leg, MID_CELL), eyes: decimate(f.eyes, MID_CELL * 0.4), eyeAt: f.eyeAt };
     midCache.set(ck, g);
   }
   return g;

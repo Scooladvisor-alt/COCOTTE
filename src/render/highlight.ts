@@ -81,7 +81,7 @@ export class Highlight {
     const meshes: THREE.Mesh[] = [];
     root.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.isMesh && m.material instanceof THREE.MeshLambertMaterial && !m.userData.shell) meshes.push(m);
+      if (m.isMesh && m.material instanceof THREE.MeshLambertMaterial && !m.userData.shell && !m.userData.noGlow && !(m as THREE.InstancedMesh).isInstancedMesh) meshes.push(m);
     });
     for (const m of meshes) {
       this.swapped.push([m, m.material as THREE.Material]);

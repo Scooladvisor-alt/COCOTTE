@@ -63,6 +63,7 @@ export function createNewGame(seed = (Date.now() ^ (Math.random() * 1e9)) >>> 0)
     petCustomers: [],
     birdOrders: [],
     birdLoad: null,
+    birdQueue: [],
     orders: [],
     contracts: [],
     workers: [],

@@ -456,7 +456,8 @@ export interface BirdOrder {
   unitPrice: number;
   deadlineDay: number;
   offerUntilDay: number;
-  status: 'offer' | 'active' | 'loading';
+  /** queued : le camion est appelé, il attend que le précédent soit reparti. */
+  status: 'offer' | 'active' | 'queued' | 'loading';
 }
 
 /** Le grand camion qui vient chercher une commande de volailles. */
@@ -470,12 +471,14 @@ export interface BirdLoad {
   henIds: number[];
   loaded: number;
   /** Volailles parties vers le camion, pour le rendu (instant et point de départ). */
-  gone: Array<{ t: number; id: number; breed: BreedId; skin?: number; rooster?: boolean; black?: boolean; x: number; z: number }>;
+  gone: Array<{ t: number; id: number; breed: BreedId; skin?: number; rooster?: boolean; black?: boolean; x: number; z: number; route: Array<[number, number]> }>;
   nextT: number;
   lastT?: number;
   warned?: boolean;
-  /** Le camion est encore coincé dans la circulation : le rendu le signale, on l'attend un peu. */
+  /** Le camion n'est pas encore à sa place (circulation, camion précédent) : le rendu le signale, on l'attend. */
   late?: boolean;
+  /** Depuis quand il attend à sa place. */
+  since?: number;
   /** Départ du camion, une fois le chargement terminé. */
   leave?: number;
 }
@@ -682,6 +685,10 @@ export interface GameState {
   petCustomers: Customer[];
   birdOrders: BirdOrder[];
   birdLoad: BirdLoad | null;
+  /** Les commandes dont le camion attend son tour : un seul à la fois dans la parcelle. */
+  birdQueue: number[];
+  /** Le camion précédent sort de la parcelle à reculons, jusqu'à cet instant. */
+  truckOutAt?: number;
   /** Parcelles possédées, clé "col,row". */
   parcels: string[];
   /** Niveau d'herbe 0..1 pour chaque case (W*H). */

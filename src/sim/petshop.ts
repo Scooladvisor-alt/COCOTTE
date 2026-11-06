@@ -6,12 +6,12 @@
 //
 // Les volailles en vente ne font plus partie du troupeau (elles ne mangent pas et ne pondent pas) :
 // elles attendent à la boutique, et on peut les reprendre tant qu'elles n'ont pas été vendues.
-import { BIRD_ORDERS, BREEDING, HOUR, MARKET, PETSHOP, TIME, WORLD, XP, clamp } from '../config/balance';
+import { BIRD_ORDERS, BREEDING, HOUR, TRUCK_BAY, MARKET, PETSHOP, TIME, WORLD, XP, clamp } from '../config/balance';
 import { BREEDS, BREED_ORDER, isGoose } from '../config/breeds';
 import { BUILDINGS, penGate, petLayout } from '../config/buildings';
 import { STAFF } from '../config/staff';
 import { currentDay, currentHour, emit, invalidateLayout, isShopOpen, newId, notify, pick, rand, randInt, randNormal, randRange } from './core';
-import { GATE_IN, RAMP_FOOT, TRUCK_Z, boardTime, truckBlockedBy } from './deliveries';
+import { GATE_IN, RAMP_FOOT, TRUCK_Z, boardRoute, hatchTime, routeTime, truckBlockedBy } from './deliveries';
 import { addXp, earn, farmLevel, fmtMoney } from './economy';
 import { henValue, productivity } from './hens';
 import { coopFor, lvl } from './queries';
@@ -476,14 +476,38 @@ export function cancelBirdOrder(s: GameState, id: number): ActionResult {
   return OK;
 }
 
+/** Ce qui reste en vente pour cette commande, une fois servis les camions déjà appelés. */
+export function freeStock(s: GameState, o: OrderKind) {
+  const free = new Set(s.petShop.birds.filter((h) => !h.ship));
+  const claim = (id: number) => {
+    const q = s.birdOrders.find((x) => x.id === id);
+    if (!q) return;
+    const match = orderHens(q);
+    let left = q.count;
+    for (const h of free) {
+      if (left <= 0) break;
+      if (match(h)) {
+        free.delete(h);
+        left--;
+      }
+    }
+  };
+  if (s.birdLoad && !s.birdLoad.called) claim(s.birdLoad.orderId);
+  for (const id of s.birdQueue) claim(id);
+  const match = orderHens(o);
+  let n = 0;
+  for (const h of free) if (match(h)) n++;
+  return n;
+}
+
 /** Peut-on appeler le camion pour cette commande ? */
 export function checkCallTruck(s: GameState, o: BirdOrder): ActionResult {
   if (o.status !== 'active') return fail('Commande déjà en cours de livraison');
-  if (s.birdLoad) return fail('Un camion est déjà en route : un seul à la fois');
   if (!truckParcelOwned(s)) return fail(`Achetez d’abord la parcelle ${BIRD_ORDERS.parcelName}, en bas à droite : le chemin de terre y arrive`);
   if (!petShopOf(s)) return fail('Construisez d’abord la vente de poules pondeuses : le camion ne prend que ce qui y est en vente');
   if (!hasRole(s, 'farmhand')) return fail('Il faut au moins un commis de ferme pour charger le camion');
-  const have = orderStock(s, o);
+  // (ce que les camions déjà appelés vont emporter n'est plus disponible)
+  const have = freeStock(s, o);
   const need = Math.min(o.count, lvl(petShopOf(s)!).capacity);
   if (have < need) return fail(`Pas assez de ${orderWord({ ...o, count: 2 })} en vente : ${have} / ${need}. Mettez-en dans les parcs`);
   const gene = truckBlockedBy(s);
@@ -509,12 +533,55 @@ export function callTruck(s: GameState, id: number): ActionResult {
   if (!o) return fail('Commande introuvable');
   const chk = checkCallTruck(s, o);
   if (!chk.ok) return chk;
+  // un camion est déjà là ou en route : celui-ci prend la suite, sans déranger personne
+  if (s.birdLoad || s.birdQueue.length) {
+    o.status = 'queued';
+    s.birdQueue.push(o.id);
+    notify(s, `Le camion de ${o.client} passera dès que le précédent aura quitté le chemin.`, 'info', '🚚');
+    return OK;
+  }
+  startTruck(s, o);
+  return OK;
+}
+
+function startTruck(s: GameState, o: BirdOrder) {
   const eta = truckEta(s);
   o.status = 'loading';
   s.birdLoad = { id: newId(s), orderId: o.id, eta, called: false, henIds: [], loaded: 0, gone: [], nextT: eta };
   const later = eta - s.clock.t > BIRD_ORDERS.delay + 1;
-  notify(s, later ? `Le camion de ${o.client} passera demain matin : les commis ne sont plus là ce soir.` : `Le camion de ${o.client} est en route : il va prendre le chemin de terre jusqu’au grand portail. Les ${orderWord({ ...o, count: 2 })} partiront de leur parc.`, 'info', '🚚');
+  notify(s, later ? `Le camion de ${o.client} passera demain matin : les commis ne sont plus là ce soir.` : `Le camion de ${o.client} est en route : il va prendre le chemin de terre jusqu’au grand portail. Les ${orderWord({ ...o, count: 2 })} passeront par la trappe de leur parc.`, 'info', '🚚');
+}
+
+/** On renonce à un camion qui attendait son tour : la commande reste à livrer. */
+export function cancelTruckCall(s: GameState, id: number): ActionResult {
+  const o = s.birdOrders.find((x) => x.id === id);
+  if (!o || o.status !== 'queued') return fail('Ce camion n’est plus dans la file');
+  s.birdQueue = s.birdQueue.filter((x) => x !== id);
+  o.status = 'active';
   return OK;
+}
+
+/** Le camion précédent est parti : au suivant de la file, s'il y a encore de quoi le charger. */
+function nextTruck(s: GameState) {
+  while (s.birdQueue.length) {
+    const o = s.birdOrders.find((x) => x.id === s.birdQueue[0]);
+    s.birdQueue.shift();
+    if (!o || o.status !== 'queued') continue;
+    if (orderStock(s, o) > 0) {
+      startTruck(s, o);
+      return;
+    }
+    o.status = 'active';
+    notify(s, `Le camion de ${o.client} ne vient pas : plus rien à lui charger. La commande reste à livrer.`, 'warn', '🚚');
+  }
+}
+
+/** Personne sur la voie du camion : ceux qui s'y trouvent s'écartent de là, du côté le plus proche. */
+function clearTruckLane(s: GameState) {
+  const step = 0.16;
+  const inLane = (x: number, z: number) => x > TRUCK_BAY.x0 - 0.3 && x < TRUCK_BAY.x1 + 1 && z > TRUCK_BAY.z0 - 0.3 && z < TRUCK_BAY.z1 + 1.3;
+  for (const h of s.hens) if (inLane(h.x, h.z)) h.z += h.z < TRUCK_Z ? -step : step;
+  for (const w of s.workers) if (inLane(w.x, w.z)) w.z += w.z < TRUCK_Z ? -step : step;
 }
 
 /** Intervalle entre deux volailles chargées : les grosses commandes vont plus vite, deux commis aussi. */
@@ -527,6 +594,8 @@ function finishLoad(s: GameState) {
   const o = s.birdOrders.find((x) => x.id === L.orderId);
   for (const h of s.petShop.birds) if (h.ship) delete h.ship;
   s.birdLoad = null;
+  // il repart à reculons : sa voie reste libre le temps qu'il sorte
+  s.truckOutAt = s.clock.t + BIRD_ORDERS.backOut;
   invalidateLayout(s);
   if (!o) return;
   const amount = L.loaded * o.unitPrice;
@@ -560,9 +629,25 @@ function reserve(s: GameState, o: BirdOrder, need: number, ids: number[]) {
   }
 }
 
-export function updateBirdLoad(s: GameState) {
+/** Une trappe de ce parc doit-elle être ouverte : un commis est là et il reste des volailles à passer ? */
+export function hatchWanted(s: GameState, goose: boolean) {
   const L = s.birdLoad;
-  if (!L) return;
+  if (!L?.called || L.late || s.clock.t < L.eta - 1) return false;
+  if (L.gone.some((q) => isGoose(q.breed) === goose && s.clock.t < q.t + hatchTime(q.x))) return true;
+  return L.leave === undefined && s.petShop.birds.some((h) => h.ship && isGoose(h.breed) === goose) && loadersAtTruck(s) > 0;
+}
+
+export function updateBirdLoad(s: GameState) {
+  if (s.truckOutAt !== undefined && s.clock.t >= s.truckOutAt) {
+    delete s.truckOutAt;
+    invalidateLayout(s);
+  }
+  if (s.birdLoad?.called || s.truckOutAt !== undefined) clearTruckLane(s);
+  const L = s.birdLoad;
+  if (!L) {
+    nextTruck(s);
+    return;
+  }
   const o = s.birdOrders.find((x) => x.id === L.orderId);
   if (!o) {
     finishLoad(s);
@@ -584,13 +669,15 @@ export function updateBirdLoad(s: GameState) {
   const missing = o.count - L.loaded - L.henIds.length;
   if (missing > 0) reserve(s, o, missing, L.henIds);
   if (t < L.eta) return;
-  // (coincé derrière un tracteur : les volailles l'attendent au portail plutôt que de monter dans le vide)
-  if (L.late && t < L.eta + BIRD_ORDERS.truckGrace) return;
+  // (coincé dans la circulation, ou le camion précédent n'a pas fini de partir : les volailles l'attendent
+  // derrière leur trappe, personne ne monte dans le vide)
+  if (L.late) return;
+  L.since ??= t;
   const helpers = loadersAtTruck(s);
   if (!helpers) {
     // personne pour charger : le chauffeur patiente un moment, puis s'en va
-    if (t > L.eta + BIRD_ORDERS.maxWait) L.leave = t + BIRD_ORDERS.closeUp;
-    else if (!L.warned && t > L.eta + 6) {
+    if (t > L.since + BIRD_ORDERS.maxWait) L.leave = t + BIRD_ORDERS.closeUp;
+    else if (!L.warned && t > L.since + 6) {
       L.warned = true;
       if (!hasRole(s, 'farmhand')) notify(s, 'Le camion attend : il faut un commis de ferme pour le charger.', 'warn', '🚚');
     }
@@ -603,8 +690,8 @@ export function updateBirdLoad(s: GameState) {
     if (h) {
       s.petShop.birds.splice(s.petShop.birds.indexOf(h), 1);
       const [x, z] = penGate(petShopOf(s)?.level ?? 1, isGoose(h.breed));
-      L.gone.push({ t, id: h.id, breed: h.breed, skin: h.skin, ...(h.rooster ? { rooster: true } : {}), ...(h.black ? { black: true } : {}), x, z });
-      if (L.gone.length > 60) L.gone.splice(0, L.gone.length - 60);
+      L.gone.push({ t, id: h.id, breed: h.breed, skin: h.skin, ...(h.rooster ? { rooster: true } : {}), ...(h.black ? { black: true } : {}), x, z, route: boardRoute(s, x, z) });
+      if (L.gone.length > 120) L.gone.splice(0, L.gone.length - 120);
       L.loaded++;
       L.lastT = t;
       L.nextT = t + loadGap(o.count, helpers);
@@ -612,7 +699,7 @@ export function updateBirdLoad(s: GameState) {
   }
   if (L.loaded >= o.count || (!L.henIds.length && missing > 0)) {
     const last = L.gone[L.gone.length - 1];
-    L.leave = (last ? last.t + boardTime(last.x, last.z) : t) + BIRD_ORDERS.closeUp;
+    L.leave = (last ? last.t + routeTime(last.route) : t) + BIRD_ORDERS.closeUp;
   }
 }
 

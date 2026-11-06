@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import { EGG_TYPES } from '../config/balance';
 import { BREEDS } from '../config/breeds';
-import { COOP_SCALE, PET_POS, STORAGE_SCALE, petLayout, sizeOf } from '../config/buildings';
+import { COOP_SCALE, PET_POS, STORAGE_SCALE, petLayout, sizeOf, FIRST_HATCH_X, penHatch, petLane } from '../config/buildings';
 import { GROUND_MAT, TREE_MAT, WATER_MAT, pondGeometry, reed, speciesGeometry, MEADOW_GRASS, plant, type Plant } from './nature';
 import { HEN_MAT, HEN_PIVOT, type HenGeo } from './henModel';
 import type { BreedId, BuildingType, EggType } from '../sim/types';
@@ -333,6 +333,8 @@ export interface BuildingView {
   gate?: THREE.Object3D;
   /** Pelouse dessinée pour la seule vignette (dans le jeu, c'est la vraie herbe de la ferme). */
   thumbOnly?: THREE.Object3D;
+  /** Vente de poules : les trappes des parcs, rabattues au sol quand elles s'ouvrent (goose : null si les deux parcs s'en servent). */
+  hatches?: Array<{ pivot: THREE.Object3D; goose: boolean | null; side: 1 | -1 }>;
   /** Magasin : peint le nom de la ferme sur l'enseigne. */
   setSign?: (name: string) => void;
   key: string;
@@ -1513,7 +1515,8 @@ function whitePickets(parts: THREE.BufferGeometry[], x0: number, z0: number, x1:
   const len = Math.hypot(x1 - x0, z1 - z0);
   const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0);
   const at = (t: number): [number, number] => [x0 + (x1 - x0) * t, z0 + (z1 - z0) * t];
-  const n = Math.round(len / 0.26);
+  if (len < 0.04) return;
+  const n = Math.max(1, Math.round(len / 0.26));
   for (let k = 0; k <= n; k++) {
     const [x, z] = at(k / n);
     const post = k % 5 === 0;
@@ -1595,28 +1598,75 @@ function petShopModel(level: number): BuildingView {
   // ------ les parcs : leur sol est à la hauteur de l'herbe de la ferme, tout y est posé dessus
   const FLOOR = 0.1;
   const pen: THREE.BufferGeometry[] = [];
-  const zone = (a: { x0: number; x1: number; z0: number; z1: number }) => {
+  const zone = (a: { x0: number; x1: number; z0: number; z1: number }, door: number, w: number) => {
     pen.push(box(a.x1 - a.x0, FLOOR - 0.035, a.z1 - a.z0, 0x7a9a55, [(a.x0 + a.x1) / 2, (FLOOR - 0.035) / 2, (a.z0 + a.z1) / 2]));
     whitePickets(pen, a.x0, a.z1, a.x1, a.z1);
-    // au fond, un portillon ouvert : c'est par là que les volailles partent vers le camion des revendeurs
-    const gate = a.x1 - 0.5;
-    whitePickets(pen, a.x0, a.z0, gate - 0.24, a.z0);
-    whitePickets(pen, gate + 0.24, a.z0, a.x1, a.z0);
-    for (const s of [-1, 1]) pen.push(box(0.07, 0.62, 0.07, C.woodDark, [gate + s * 0.24, 0.31, a.z0]));
-    pen.push(box(0.44, 0.04, 0.03, C.woodDark, [gate - 0.46, 0.34, a.z0 + 0.22], [0, Math.PI / 2 - 0.25, 0]), box(0.44, 0.04, 0.03, C.woodDark, [gate - 0.46, 0.14, a.z0 + 0.22], [0, Math.PI / 2 - 0.25, 0]));
+    // au fond, la clôture ne s'interrompt que pour la trappe qui donne sur le camion
+    whitePickets(pen, a.x0, a.z0, door - w / 2, a.z0);
+    whitePickets(pen, door + w / 2, a.z0, a.x1, a.z0);
     whitePickets(pen, a.x0, a.z0, a.x0, a.z1);
     whitePickets(pen, a.x1, a.z0, a.x1, a.z1);
   };
-  zone(hens);
-  zone(geese);
+  // ------ les trappes : d'un grillage à l'autre, sans jamais sortir à découvert
+  const hatchH = penHatch(level, false);
+  const hatchG = penHatch(level, true);
+  const lane = petLane(level);
+  const doorH = hatchH.door - PET_POS.x;
+  const doorG = hatchG.door - PET_POS.x;
+  /** La clôture de la ferme, vue depuis la boutique. */
+  const FARM_Z = 30 - PET_POS.z;
+  const flaps: Array<{ x: number; z: number; w: number; goose: boolean | null; side: 1 | -1 }> = [];
+  const frame = (x: number, z: number, w: number) => {
+    for (const d of [-1, 1]) pen.push(box(0.08, 0.72, 0.08, C.woodDark, [x + (d * w) / 2, 0.36, z]));
+    // le seuil, sur lequel se rabat la trappe
+    pen.push(box(w, 0.04, 0.09, C.woodDark, [x, FLOOR - 0.02, z]));
+  };
+  const strips: Array<[number, number]> = [];
+  const floorStrip = (x0: number, x1: number) => {
+    pen.push(box(x1 - x0, FLOOR - 0.035, hens.z0 - FARM_Z, 0x7a9a55, [(x0 + x1) / 2, (FLOOR - 0.035) / 2, (hens.z0 + FARM_Z) / 2]));
+    strips.push([x0, x1]);
+  };
+  frame(doorH, hens.z0, hatchH.w);
+  // (dans le parc, ou dans le couloir quand il y en a un : elle ne bute jamais contre une cabane)
+  flaps.push({ x: doorH, z: hens.z0, w: hatchH.w, goose: false, side: hatchH.direct ? 1 : -1 });
+  frame(doorG, geese.z0, hatchG.w);
+  flaps.push({ x: doorG, z: geese.z0, w: hatchG.w, goose: true, side: hatchG.direct ? 1 : -1 });
+  if (lane) {
+    // le couloir : il part de la trappe la plus à l'ouest et longe les parcs jusqu'à la parcelle du camion
+    const x0 = lane.x0 - PET_POS.x;
+    const x1 = lane.x1 - PET_POS.x;
+    const hx = FIRST_HATCH_X - PET_POS.x;
+    floorStrip(x0, x1);
+    whitePickets(pen, x0, FARM_Z + 0.03, hx - 0.46, FARM_Z + 0.03);
+    whitePickets(pen, x0, FARM_Z + 0.03, x0, hens.z0);
+    whitePickets(pen, x1, FARM_Z, x1, hens.z0);
+    // entre les deux parcs, et au-delà du dernier
+    whitePickets(pen, Math.max(x0, hens.x1), hens.z0, Math.min(x1, geese.x0), hens.z0);
+    if (geese.x1 < x1) whitePickets(pen, geese.x1, hens.z0, x1, hens.z0);
+    frame(hx, FARM_Z, 0.92);
+    flaps.push({ x: hx, z: FARM_Z, w: 0.92, goose: null, side: -1 });
+  }
+  for (const [x, h, goose] of [
+    [doorH, hatchH, false],
+    [doorG, hatchG, true],
+  ] as const) {
+    if (!h.direct || lane) continue;
+    // tout droit : un petit sas entre le parc et la parcelle
+    floorStrip(x - h.w / 2, x + h.w / 2);
+    for (const d of [-1, 1]) whitePickets(pen, x + (d * h.w) / 2, FARM_Z, x + (d * h.w) / 2, hens.z0);
+    frame(x, FARM_Z, 0.92);
+    flaps.push({ x, z: FARM_Z, w: 0.92, goose, side: -1 });
+  }
+  zone(hens, doorH, hatchH.w);
+  zone(geese, doorG, hatchG.w);
   // côté poules : cabanes en rang le long du fond, mangeoires, paille, bain de poussière
   const hw = hens.x1 - hens.x0;
   const huts = Math.max(1, Math.round(hw / 5));
   for (let k = 0; k < huts; k++) {
     const x = hens.x0 + ((k + 0.5) * hw) / huts;
     birdHut(pen, x, hens.z0 + 0.46);
-    // (la mangeoire ne bouche jamais le portillon)
-    const tx = x + 1.1 > hens.x1 - 1.3 ? x - 1.1 : x + 1.1;
+    // (la mangeoire ne bouche jamais la trappe)
+    const tx = x + 1.1 > hens.x1 - 1.3 || Math.abs(x + 1.1 - doorH) < 1 ? x - 1.1 : x + 1.1;
     pen.push(box(0.8, 0.04, 0.16, 0x8e939b, [tx, 0.13, hens.z0 + 0.32]), box(0.72, 0.02, 0.09, C.grain, [tx, 0.155, hens.z0 + 0.32]));
     for (const dx of [-0.32, 0.32]) pen.push(box(0.04, 0.09, 0.2, 0x6d7076, [tx + dx, 0.09, hens.z0 + 0.32]));
   }
@@ -1643,11 +1693,23 @@ function petShopModel(level: number): BuildingView {
   parts.push(penG);
   const g = groupOf(parts, ...windows);
   // la pelouse de chaque parc, ses touffes d'herbe et quelques fleurs des champs
-  for (const a of [hens, geese]) {
+  for (const a of [hens, geese, ...strips.map(([x0, x1]) => ({ x0, x1, z0: FARM_Z, z1: hens.z0 }))]) {
     const lawn = new THREE.Mesh(lawnGeometry(a.x0, a.x1, a.z0, a.z1, FLOOR), GROUND_MAT);
     lawn.receiveShadow = true;
     lawn.userData.noGlow = true;
     g.add(lawn);
+  }
+  // les trappes elles-mêmes : des planches à charnière basse, qui se rabattent au sol pour laisser passer
+  const hatches: NonNullable<BuildingView['hatches']> = [];
+  for (const f of flaps) {
+    const W = f.w - 0.1;
+    const planks = [box(W, 0.58, 0.028, C.wood, [0, 0.31, 0])];
+    for (let i = 1; i < 4; i++) planks.push(box(0.012, 0.56, 0.034, C.woodDark, [-W / 2 + (W * i) / 4, 0.31, 0]));
+    for (const y of [0.1, 0.52]) planks.push(box(W, 0.05, 0.042, C.woodDark, [0, y, 0]));
+    const m = mesh(merge(planks));
+    m.position.set(f.x, FLOOR + 0.01, f.z);
+    g.add(m);
+    hatches.push({ pivot: m, goose: f.goose, side: f.side });
   }
   const leafy = new THREE.Group();
   leafy.position.y = FLOOR - 0.01;
@@ -1708,7 +1770,7 @@ function petShopModel(level: number): BuildingView {
   };
   label('POULES', hens, 0xb5573b);
   label('OIES', geese, 0x3f6f9e);
-  return { group: g, eggSlots: [], eggMeshes: [], key: `petshop${level}` };
+  return { group: g, eggSlots: [], eggMeshes: [], key: `petshop${level}`, hatches };
 }
 
 /** Le carton percé de trous avec lequel les clients emportent leurs volailles (fermé, puis une tête qui dépasse). */

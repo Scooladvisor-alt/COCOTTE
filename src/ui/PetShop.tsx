@@ -17,6 +17,7 @@ import {
   takeBlackBack,
   callTruck,
   cancelBirdOrder,
+  cancelTruckCall,
   checkCallTruck,
   declineBirdOrder,
   flockOf,
@@ -397,10 +398,12 @@ function LoadCard({ o }: { o: BirdOrder }) {
   const status =
     L.leave !== undefined
       ? 'Chargement terminé : le camion repart.'
+      : left <= 0 && L.late
+        ? 'Le camion arrive : il prend le chemin dès que la voie est libre.'
       : left > 0
         ? !L.called
-          ? `Le camion passera vers ${Math.floor((L.eta % TIME.DAY) / HOUR)} h : les ${orderWord({ ...o, count: 2 })} se mettront en route à temps.`
-          : `Le camion arrive dans ${Math.ceil((left / TIME.DAY) * 24 * 10) / 10} h. Les ${orderWord({ ...o, count: 2 })} attendent au portillon de leur parc.`
+          ? `Le camion passera vers ${Math.floor((L.eta % TIME.DAY) / HOUR)} h : les ${orderWord({ ...o, count: 2 })} iront à la trappe de leur parc à temps.`
+          : `Le camion arrive dans ${Math.ceil((left / TIME.DAY) * 24 * 10) / 10} h. Les ${orderWord({ ...o, count: 2 })} attendent à la trappe de leur parc.`
         : helpers
           ? `Chargement : ${L.loaded} / ${o.count} · ${helpers} commis poussent les volailles`
           : hasRole(s, 'farmhand')
@@ -450,6 +453,10 @@ export function DealersTab() {
               </span>
               {o.status === 'loading' ? (
                 <LoadCard o={o} />
+              ) : o.status === 'queued' ? (
+                <small class="pet-load">
+                  <span>🚚 {s.birdQueue[0] === o.id ? 'Ce camion passe dès que le précédent aura quitté le chemin.' : `Ce camion attend son tour (${s.birdQueue.indexOf(o.id) + 1}ᵉ de la file).`}</span>
+                </small>
               ) : (
                 <small class={o.deadlineDay - day <= 0 ? 'neg' : ''}>
                   Avant la fin du jour {o.deadlineDay} · {have} / {o.count} {orderWord({ ...o, count: 2 })} en vente
@@ -458,6 +465,11 @@ export function DealersTab() {
             </div>
             <div class="o-side">
               <b>{fmtMoney(o.count * o.unitPrice)}</b>
+              {o.status === 'queued' && (
+                <Btn kind="ghost" small onClick={() => game.act(() => cancelTruckCall(s, o.id))}>
+                  Ne plus attendre
+                </Btn>
+              )}
               {o.status === 'active' && (
                 <div class="row-btns">
                   <Btn kind="ghost" small onClick={() => game.act(() => cancelBirdOrder(s, o.id))}>

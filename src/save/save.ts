@@ -371,7 +371,7 @@ export function sanitize(input: unknown): GameState | null {
   for (const ro of arr(raw.birdOrders).slice(0, 20)) {
     const o = obj(ro);
     const breed = o.breed as BreedId;
-    const status = o.status === 'active' || o.status === 'loading' ? o.status : 'offer';
+    const status = o.status === 'active' || o.status === 'loading' || o.status === 'queued' ? o.status : 'offer';
     s.birdOrders.push({
       id: int(o.id, s.nextId++),
       client: str(o.client, 'Revendeur', 40),
@@ -399,6 +399,11 @@ export function sanitize(input: unknown): GameState | null {
   }
   // (une commande en cours de chargement sans son camion repart à zéro)
   for (const o of s.birdOrders) if (o.status === 'loading' && !s.birdLoad) o.status = 'active';
+  // (la file des camions : dans l'ordre où ils ont été appelés)
+  s.birdQueue = arr(raw.birdQueue).filter((id): id is number => typeof id === 'number' && s.birdOrders.some((o) => o.id === id && o.status === 'queued'));
+  for (const o of s.birdOrders) if (o.status === 'queued' && !s.birdQueue.includes(o.id)) o.status = 'active';
+  // les trappes des parcs dépendent du niveau de la boutique, maintenant connu
+  autoEnclose(s);
 
   // Œufs dans le monde (et cohérence avec les pondoirs)
   const seen = new Set<number>();

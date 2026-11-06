@@ -386,7 +386,28 @@ export const PET_PLOT = { x0: 42.6, x1: 55.7, z0: 30.3, z1: 37.3 };
 export function penGate(level: number, goose: boolean): [number, number] {
   const L = petLayout(level);
   const pen = goose ? L.geese : L.hens;
-  return [PET_POS.x + pen.x1 - 0.5, PET_POS.z + pen.z0];
+  return [penHatch(level, goose).door, PET_POS.z + pen.z0];
+}
+
+/** La première trappe possible : à l'ouest, ce n'est plus la parcelle du camion. */
+export const FIRST_HATCH_X = 60.5;
+/**
+ * La trappe d'un parc vers la parcelle du camion. Dès que le parc longe cette parcelle, sa porte donne tout
+ * droit dessus, d'un grillage à l'autre (door = hatch, une par case de clôture). Sinon, un couloir grillagé
+ * prolonge le parc jusqu'à la première case de la parcelle : les volailles ne sortent jamais à découvert.
+ */
+export function penHatch(level: number, goose: boolean) {
+  const L = petLayout(level);
+  const x1 = PET_POS.x + (goose ? L.geese : L.hens).x1;
+  const cell = Math.floor(Math.min(x1 - 0.7, 78.5));
+  if (cell + 0.5 >= FIRST_HATCH_X) return { door: cell + 0.5, hatch: cell + 0.5, w: 0.92, direct: true };
+  return { door: x1 - 0.47, hatch: FIRST_HATCH_X, w: 0.84, direct: false };
+}
+/** Le couloir grillagé des premiers niveaux, entre les parcs et la clôture de la ferme (absent ensuite). */
+export function petLane(level: number) {
+  const list = [penHatch(level, false), penHatch(level, true)].filter((h) => !h.direct);
+  if (!list.length) return null;
+  return { x0: Math.min(...list.map((h) => h.door - h.w / 2)) - 0.04, x1: FIRST_HATCH_X + 0.46 };
 }
 
 /**
@@ -407,8 +428,9 @@ export function petLayout(level = 1) {
     stopZ: PET_POS.z + 4.55,
     gap: 1.15,
     counters: level >= 5 ? 3 : level >= 3 ? 2 : 1,
-    hens: { x0, x1: split, z0: 0.3, z1: 6.2 },
-    geese: { x0: split + 0.3, x1: w - 0.1, z0: 0.3, z1: 6.2 },
+    // (au fond, l'espace laissé contre la clôture de la ferme : un jars y passe sans toucher le grillage)
+    hens: { x0, x1: split, z0: 0.55, z1: 6.2 },
+    geese: { x0: split + 0.3, x1: w - 0.1, z0: 0.55, z1: 6.2 },
     center: { x: PET_POS.x + w / 2, z: PET_POS.z + 3.2 },
   };
 }

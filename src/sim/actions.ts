@@ -541,6 +541,8 @@ export function openPetShop(s: GameState): ActionResult {
   const b = makeBuilding(newId(s), 'petshop', PET_POS.x, PET_POS.z, s.clock.t);
   b.invested = L.cost;
   s.buildings.push(b);
+  // la clôture s'ouvre pour ses trappes
+  autoEnclose(s);
   emit(s, { kind: 'build', buildingId: b.id });
   addXp(s, 5);
   return OK;
@@ -630,6 +632,8 @@ export function upgrade(s: GameState, id: number): ActionResult {
   if (isShelter(b)) b.cleanliness = Math.max(b.cleanliness, 90);
   // (leurs effets sur la parcelle sont gardés en mémoire jusqu'au prochain changement)
   if (b.type === 'dustbath' || b.type === 'pond') invalidateLayout(s);
+  // les parcs s'allongent : leurs trappes se déplacent le long de la clôture
+  if (b.type === 'petshop') autoEnclose(s);
   emit(s, { kind: 'upgrade', buildingId: b.id });
   addXp(s, 8 + b.level * 4);
   return OK;

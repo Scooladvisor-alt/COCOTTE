@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { AUTO_DOOR, BIRD_ORDERS, PETSHOP, TRUCK_BAY, TRUCK_COURT, inTruckBay, BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, GRID_W, GRID_Z0, HOUR, LEVELS, levelAt, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, tradeAt, waterPrice } from '../src/config/balance';
-import { GATE_EDGE, TRUCK_GATE_EDGES, TRUCK_HATCH_EDGE, farmEnclosed, perimeter } from '../src/sim/fences';
-import { RAMP_FOOT, TRUCK_HATCH_X, TRUCK_REAR, boardPath } from '../src/sim/deliveries';
+import { AUTO_DOOR, BIRD_ORDERS, PETSHOP, TRUCK_BAY, TRUCK_COURT, TRUCK_HATCH_CELLS, inTruckBay, BREEDING, DELIVERY, EGG_ORDER, EGG_TYPES, GRID_W, GRID_Z0, GRID_Z1, HOUR, LEVELS, levelAt, MARKET, PARCELS, START, TIME, WORLD, parcelPrice, tradeAt, waterPrice } from '../src/config/balance';
+import { GATE_EDGE, TRUCK_GATE_EDGES, farmEnclosed, hCode, perimeter, truckHatchEdges } from '../src/sim/fences';
+import { RAMP_FOOT, TRUCK_REAR, alongPath, boardPath, boardRoute } from '../src/sim/deliveries';
 import { autoEnclose } from '../src/sim/fences';
 import { waterCapacity } from '../src/sim/stocks';
 import { BREEDS, BREED_ORDER, GOOSE_NAMES, isGoose } from '../src/config/breeds';
-import { BUILDINGS, BUILD_ORDER, COOP_SCALE, HALL_ALLEY, HALL_BODY, HALL_COURT, HALL_DOOR, HALL_STEPS, PET_POS, STAND_POS, petLayout, sizeOf, standLayout } from '../src/config/buildings';
+import { BUILDINGS, BUILD_ORDER, COOP_SCALE, HALL_ALLEY, HALL_BODY, HALL_COURT, HALL_DOOR, HALL_STEPS, PET_POS, STAND_POS, penGate, penHatch, petLane, petLayout, sizeOf, standLayout } from '../src/config/buildings';
 import { BACKUP_KEY, SAVE_KEY, deserialize, loadGame, saveGame, serialize, type Storage } from '../src/save/save';
 import * as A from '../src/sim/actions';
 import { canPlace } from '../src/sim/buildings';
@@ -47,6 +47,7 @@ import {
   unstockBird,
   unstockBirds,
   putBlackOnSale,
+  cancelTruckCall,
 } from '../src/sim/petshop';
 import { onlineIsNewer } from '../src/online/farms';
 import { canAfford, farmLevel, spend, today } from '../src/sim/economy';
@@ -87,7 +88,7 @@ import { newFarm } from '../src/sim/starter';
 import { creditLimit, dailyDue, loanRate, pauseLoan, quoteLoan, repayLoan, takeLoan } from '../src/sim/bank';
 import type { GameState, Hen } from '../src/sim/types';
 import { goodPlayer, guard, lazyPlayer } from '../scripts/bot';
-import { buyWorkerSkill, dailyWages, fire, hire, sellerSpot, workerSkillsHourly } from '../src/sim/workers';
+import { buyWorkerSkill, dailyWages, fire, herdSpot, hire, sellerSpot, workerSkillsHourly } from '../src/sim/workers';
 import { enterNursery } from '../src/sim/hens';
 import { catchable, distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
 import { buyDog, kennelPoint } from '../src/sim/dog';
@@ -4312,9 +4313,9 @@ describe('Commandes de revendeurs et camion', () => {
     stockBirds(s, 'rousse', 6);
     expect(checkCallTruck(s, o).ok).toBe(true);
     expect(callTruck(s, o.id).ok).toBe(true);
-    // un seul camion à la fois
+    // un autre camion peut être appelé aussi, mais pas pour des volailles déjà promises au premier
     const other = order(s);
-    expect(callTruck(s, other.id).ok).toBe(false);
+    expect(checkCallTruck(s, other).reason).toMatch(/Pas assez/);
   });
 
   it('le camion vient, le commis charge, les volailles partent et le paiement tombe', () => {
@@ -4425,11 +4426,12 @@ describe('Commandes de revendeurs et camion', () => {
     for (let i = 0; i < 200 && !s.birdLoad!.called; i++) run(s, 1);
     expect(s.birdLoad!.called).toBe(true);
     // la trappe des volailles est fermée au reste du troupeau
-    expect(s.fenceH[TRUCK_HATCH_EDGE]).toBe(5);
+    for (const c of truckHatchEdges(s)) expect(s.fenceH[c]).toBe(5);
     run(s, 0.2);
     expect(rt(s).blocked[cellIndex(TRUCK_BAY.x0 + 2, TRUCK_BAY.z0)]).toBe(1);
-    // la cour devant la rampe reste libre
-    expect(rt(s).blocked[cellIndex(TRUCK_COURT.x0, TRUCK_BAY.z0)]).toBe(0);
+    // personne sur la voie du camion, jusqu'au portail ; le passage des volailles, à côté, reste libre
+    expect(rt(s).blocked[cellIndex(TRUCK_BAY.x1, TRUCK_BAY.z0)]).toBe(1);
+    expect(rt(s).blocked[cellIndex(TRUCK_COURT.x0, TRUCK_BAY.z1 + 2)]).toBe(0);
   });
 
   it('un bâtiment d’une ancienne partie sur le chemin empêche d’appeler le camion, avec un message clair', () => {
@@ -4472,9 +4474,9 @@ describe('Commandes de revendeurs et camion', () => {
       if (L)
         for (const q of L.gone) {
           expect(inShop).toContain(q.id);
-          const p = boardPath(q.x, q.z);
+          const p = q.route;
           expect(p[p.length - 1][0]).toBeLessThan(TRUCK_REAR);
-          expect(p.some(([x, z]) => x === TRUCK_HATCH_X && z < 30)).toBe(true);
+          expect(p.some(([x, z]) => x === penHatch(petShopOf(s)!.level, false).hatch && z < 30)).toBe(true);
           expect(p[p.length - 3][0]).toBe(RAMP_FOOT);
         }
     }
@@ -4649,6 +4651,192 @@ describe('Commandes de revendeurs et camion', () => {
       expect(orderStock(s, o)).toBe(3);
     }
     expect(found).toBe(true);
+  });
+
+  it('à chaque niveau, chaque parc a sa trappe : les volailles ne sortent jamais à découvert', () => {
+    for (let level = 1; level <= 5; level++) {
+      const L = petLayout(level);
+      for (const goose of [false, true]) {
+        const pen = goose ? L.geese : L.hens;
+        const h = penHatch(level, goose);
+        const [x0, x1] = [PET_POS.x + pen.x0, PET_POS.x + pen.x1];
+        const zFence = PET_POS.z + pen.z0;
+        // la trappe tient dans la clôture du parc, et donne sur la parcelle du camion
+        expect(h.door - h.w / 2).toBeGreaterThan(x0);
+        expect(h.door + h.w / 2).toBeLessThanOrEqual(x1 + 0.01);
+        expect(h.hatch).toBeGreaterThanOrEqual(60);
+        expect(h.hatch).toBeLessThan(80);
+        expect(TRUCK_HATCH_CELLS).toContain(Math.floor(h.hatch));
+        expect(penGate(level, goose)[0]).toBe(h.door);
+        // tout droit dès que le parc longe la parcelle ; sinon, un couloir fermé y mène
+        const lane = petLane(level);
+        if (h.direct) expect(h.door).toBe(h.hatch);
+        else {
+          expect(lane).not.toBeNull();
+          expect(h.door).toBeGreaterThan(lane!.x0);
+          expect(h.hatch).toBeLessThan(lane!.x1);
+        }
+        // de la clôture du parc à celle de la ferme, puis dans la parcelle : jamais à côté du passage
+        const route = boardPath(h.door, zFence);
+        for (let k = 0; k <= 400; k++) {
+          const p = alongPath(route, k / 400);
+          if (p.z >= 30) {
+            expect(p.z).toBeLessThanOrEqual(zFence + 0.001);
+            expect(p.z).toBeGreaterThan(30);
+            if (h.direct) expect(p.x).toBe(h.door);
+            else expect(p.x >= lane!.x0 && p.x <= lane!.x1).toBe(true);
+          }
+        }
+      }
+    }
+    // niveau 1 : un couloir ; dernier niveau : plus besoin, les deux parcs longent la parcelle
+    expect(petLane(1)).not.toBeNull();
+    expect(petLane(5)).toBeNull();
+  });
+
+  it('les trappes suivent les parcs quand la boutique grandit, et la clôture reste fermée ailleurs', () => {
+    const s = newFarm(1640);
+    morning(s);
+    s.money = 10_000_000;
+    while (farmLevel(s) < 16) s.xp += 1000;
+    ownTruckParcel(s);
+    // sans boutique, pas de trou dans la clôture
+    expect(truckHatchEdges(s)).toEqual([]);
+    expect(s.fenceH.includes(5)).toBe(false);
+    expect(A.openPetShop(s).ok).toBe(true);
+    const shop = petShopOf(s)!;
+    const opened = () => s.fenceH.flatMap((v, i) => (v === 5 ? [i] : []));
+    for (let level = 1; level <= 5; level++) {
+      expect(shop.level).toBe(level);
+      const want = [...new Set([false, true].map((g) => hCode(Math.floor(penHatch(level, g).hatch), GRID_Z1)))].sort((a, b) => a - b);
+      expect(opened()).toEqual(want);
+      if (level < 5) expect(A.upgrade(s, shop.id).ok).toBe(true);
+    }
+    // à la relecture d'une partie aussi
+    const back = deserialize(serialize(s))!;
+    expect(back.fenceH.flatMap((v, i) => (v === 5 ? [i] : []))).toEqual(opened());
+  });
+
+  it('le trajet ne touche jamais le camion garé, et contourne ce qui encombre la parcelle', () => {
+    const s = farm(1641);
+    hire(s, 'farmhand');
+    flock(s, 'rousse', 4);
+    const o = order(s, { count: 2 });
+    expect(callTruck(s, o.id).ok).toBe(true);
+    for (let i = 0; i < 200 && !s.birdLoad!.called; i++) run(s, 1);
+    run(s, 0.2);
+    const [x, z] = penGate(petShopOf(s)!.level, false);
+    // un bâtiment en plein sur la ligne droite
+    const tree = makeBuilding(s.nextId++, 'tree', 74, 27, s.clock.t);
+    s.buildings.push(tree);
+    invalidateLayout(s);
+    run(s, 0.2);
+    const route = boardRoute(s, x, z);
+    for (let k = 0; k <= 600; k++) {
+      const p = alongPath(route, k / 600);
+      // le corps du camion, sur sa voie
+      if (p.x < TRUCK_REAR - 0.6) expect(p.z > 26.1 || p.x < 70).toBe(true);
+      // l'arbre
+      expect(p.x > 74 && p.x < 75 && p.z > 27 && p.z < 28).toBe(false);
+    }
+  });
+
+  it('les commis se placent à l’écart de la voie du camion et du passage des volailles', () => {
+    const s = farm(1642);
+    hire(s, 'farmhand');
+    hire(s, 'farmhand');
+    run(s, 2 * HOUR);
+    flock(s, 'rousse', 30);
+    const o = order(s, { count: 12 });
+    expect(callTruck(s, o.id).ok).toBe(true);
+    let seen = 0;
+    for (let i = 0; i < 1500 && s.birdLoad; i++) {
+      run(s, 0.1);
+      for (const w of s.workers)
+        if (w.job?.kind === 'loadTruck' && w.job.phase === 'work') {
+          seen++;
+          const [x, z] = herdSpot(s, w);
+          expect(z).toBeGreaterThan(TRUCK_BAY.z1 + 1.2);
+          for (const goose of [false, true]) {
+            const route = boardPath(...penGate(petShopOf(s)!.level, goose));
+            for (let k = 0; k <= 200; k++) {
+              const p = alongPath(route, k / 200);
+              expect(Math.hypot(p.x - x, p.z - z)).toBeGreaterThan(0.6);
+            }
+          }
+        }
+    }
+    expect(seen).toBeGreaterThan(0);
+  });
+
+  it('une poule qui traîne sur la voie du camion s’écarte avant qu’il arrive', () => {
+    const s = farm(1643);
+    hire(s, 'farmhand');
+    flock(s, 'rousse', 6);
+    const coop = buildingsOf(s, 'coop')[0];
+    const stray = createHen(s, 'rousse', coop, false, { at: [74, 25.2] });
+    s.hens.push(stray);
+    const o = order(s, { count: 6 });
+    expect(callTruck(s, o.id).ok).toBe(true);
+    const inLane = () => stray.x > TRUCK_BAY.x0 - 0.3 && stray.x < TRUCK_BAY.x1 + 1 && stray.z > TRUCK_BAY.z0 - 0.3 && stray.z < TRUCK_BAY.z1 + 1.3;
+    for (let i = 0; i < 1000 && s.clock.t < s.birdLoad!.eta; i++) run(s, 0.1);
+    expect(inLane()).toBe(false);
+  });
+
+  it('plusieurs camions : le suivant attend son tour, sans jamais gêner celui qui est là', () => {
+    const s = farm(1644);
+    hire(s, 'farmhand');
+    run(s, 2 * HOUR);
+    flock(s, 'rousse', 12);
+    const a = order(s, { id: 900100, count: 3, unitPrice: 700 });
+    const b = order(s, { id: 900101, count: 3, unitPrice: 800 });
+    const c = order(s, { id: 900102, count: 3, unitPrice: 900 });
+    expect(callTruck(s, a.id).ok).toBe(true);
+    const first = s.birdLoad!.id;
+    const eta = s.birdLoad!.eta;
+    expect(a.status).toBe('loading');
+    // on peut appeler les autres tout de suite : ils prennent la file, le premier n'en sait rien
+    expect(callTruck(s, b.id).ok).toBe(true);
+    expect(callTruck(s, c.id).ok).toBe(true);
+    expect(b.status).toBe('queued');
+    expect(c.status).toBe('queued');
+    expect(s.birdQueue).toEqual([b.id, c.id]);
+    expect(s.birdLoad!.id).toBe(first);
+    expect(s.birdLoad!.eta).toBe(eta);
+    // il n'y a pas de quoi charger un quatrième : ce qui est promis n'est plus disponible
+    const d = order(s, { id: 900103, count: 4 });
+    expect(checkCallTruck(s, d).reason).toMatch(/Pas assez/);
+    s.birdOrders.splice(s.birdOrders.indexOf(d), 1);
+    const seen: number[] = [];
+    for (let i = 0; i < 12000 && (s.birdLoad || s.birdQueue.length); i++) {
+      run(s, 0.1);
+      const L = s.birdLoad;
+      if (L && !seen.includes(L.orderId)) seen.push(L.orderId);
+      if (L) expect(s.birdOrders.filter((o) => o.status === 'loading')).toHaveLength(1);
+    }
+    expect(seen).toEqual([a.id, b.id, c.id]);
+    expect(s.birdOrders.filter((o) => o.client === a.client && [a.id, b.id, c.id].includes(o.id))).toHaveLength(0);
+    expect(s.stats.birdOrdersDone).toBe(3);
+    expect(s.petShop.birds).toHaveLength(3);
+  });
+
+  it('on peut renoncer à un camion qui attend son tour, et la file survit à la sauvegarde', () => {
+    const s = farm(1645);
+    hire(s, 'farmhand');
+    run(s, 2 * HOUR);
+    flock(s, 'rousse', 12);
+    const a = order(s, { id: 900110, count: 3 });
+    const b = order(s, { id: 900111, count: 3 });
+    const c = order(s, { id: 900112, count: 3 });
+    callTruck(s, a.id);
+    callTruck(s, b.id);
+    callTruck(s, c.id);
+    const back = deserialize(serialize(s))!;
+    expect(back.birdQueue).toEqual([b.id, c.id]);
+    expect(back.birdOrders.find((o) => o.id === b.id)!.status).toBe('queued');
+    expect(cancelTruckCall(s, b.id).ok).toBe(true);
+    expect(b.status).toBe('active');
+    expect(s.birdQueue).toEqual([c.id]);
   });
 
   it('sans commis, le camion repart à vide et la commande reste à livrer', () => {

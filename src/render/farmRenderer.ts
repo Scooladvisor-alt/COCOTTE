@@ -1,6 +1,7 @@
 // Rendu de la ferme : synchronise l'état de simulation avec la scène three.js.
 import * as THREE from 'three';
 import { BIRD_ORDERS, inTruckBay, FRESHNESS, GRID_H, GRID_W, GRID_Z0, GRID_Z1, NEEDS, TIME, WORLD, clamp, smoothstep } from '../config/balance';
+import { hatchWanted } from '../sim/petshop';
 import { COOP_SCALE, PET_POS, penGate, STAND_POS, petLayout, sizeOf, standLayout, HALL_ALLEY, HALL_COURT, HALL_DOOR, HALL_FRONT } from '../config/buildings';
 import { nurseryPlan, incubatorSeat } from '../sim/nursery';
 import { nurseryGateOpen } from '../sim/hens';
@@ -1007,6 +1008,16 @@ export class FarmRenderer {
       if (v.autoKit) v.autoKit.visible = !!b.autoDoor;
       // le magasin porte le nom de la ferme (celle qu'on visite, le cas échéant)
       v.setSign?.(s.farmName);
+      // les trappes des parcs se rabattent au sol devant les volailles, et se referment derrière
+      if (v.hatches) {
+        const hens = hatchWanted(s, false);
+        const geese = hatchWanted(s, true);
+        for (const h of v.hatches) {
+          const open = h.goose === null ? hens || geese : h.goose ? geese : hens;
+          const target = open ? h.side * 1.5 : 0;
+          h.pivot.rotation.x += (target - h.pivot.rotation.x) * Math.min(1, dt * 5);
+        }
+      }
       if (v.gate) {
         const open = nurseryGateOpen(s, b) ? -1.5 : 0;
         v.gate.rotation.y += (open - v.gate.rotation.y) * Math.min(1, dt * 6);
@@ -1669,6 +1680,16 @@ export class FarmRenderer {
       const hour = currentHour(s);
       const night = hour < 6.4 || hour > 20.6;
       const shown = { hens: 0, geese: 0 };
+      // la file devant chaque trappe, dans l'ordre où elles vont partir
+      const waiting = { hens: 0, geese: 0 };
+      const ranks = new Map<number, number>();
+      if (s.birdLoad?.henIds.length) {
+        const byId = new Map(s.petShop.birds.map((h) => [h.id, h]));
+        for (const id of s.birdLoad.henIds) {
+          const h = byId.get(id);
+          if (h) ranks.set(id, isGoose(h.breed) ? waiting.geese++ : waiting.hens++);
+        }
+      }
       for (const h of s.petShop.birds) {
         const goose = isGoose(h.breed);
         const pen = goose ? L.geese : L.hens;
@@ -1696,11 +1717,22 @@ export class FarmRenderer {
           b.tz = g.z;
         }
         b.wait -= dt;
-        // réservée pour le camion : elle va attendre son tour près du portillon
+        // réservée pour le camion : elle va attendre son tour près de la trappe
         if (h.ship) {
           const [gx, gz] = penGate(shop.level, goose);
-          b.tx = gx + (hash(h.id * 3.3) - 0.5) * 1.1 - 0.15;
-          b.tz = gz + 0.3 + hash(h.id * 5.7) * 0.9;
+          // en rangs devant les cabanes, sans se monter dessus : la prochaine à partir est la plus près de la trappe
+          const sp = goose ? 1.15 : 0.8;
+          const n = goose ? waiting.geese : waiting.hens;
+          const rank = ranks.get(h.id) ?? 0;
+          const px0 = PET_POS.x + pen.x0 + 0.25;
+          const px1 = PET_POS.x + pen.x1 - 0.25;
+          const rows = Math.max(1, Math.floor((pen.z1 - pen.z0 - 1.85) / sp) + 1);
+          const cols = Math.max(1, Math.min(Math.floor((px1 - px0) / sp) + 1, Math.max(Math.ceil(Math.sqrt(n * 2)), Math.ceil(n / rows))));
+          const col = rank % cols;
+          const side = Math.floor(cols / 2) * sp;
+          const mid = clamp(gx, px0 + side, Math.max(px0 + side, px1 - side));
+          b.tx = clamp(mid + (col % 2 ? (col + 1) / 2 : -col / 2) * sp, px0, px1);
+          b.tz = gz + 1.6 + (Math.floor(rank / cols) % rows) * sp;
         }
         const r = rtHen(g);
         const dx = b.tx - g.x;

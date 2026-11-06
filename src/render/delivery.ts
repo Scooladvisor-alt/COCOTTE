@@ -7,7 +7,7 @@
 // (horaire dans sim/deliveries.ts). Puis le camion se réinsère dans le trafic et repart.
 import * as THREE from 'three';
 import { BIRD_ORDERS } from '../config/balance';
-import { alongPath, boardPath, boardTime, hopPath, hopTime, jumpAt, leaveAt, rampProgress, truckStopX, unloadEnd } from '../sim/deliveries';
+import { alongPath, hopPath, hopTime, jumpAt, leaveAt, rampProgress, routeTime, truckStopX, unloadEnd } from '../sim/deliveries';
 import type { Street } from './street';
 import type { BreedId, Delivery, GameState } from '../sim/types';
 import { C, box, cyl, merge, mesh, sph } from './geo';
@@ -73,6 +73,7 @@ function truckModel() {
  */
 function bigTruckModel() {
   const g = new THREE.Group();
+  g.name = 'dealerTruck';
   const wheel = (x: number, z: number) => [cyl(0.25, 0.25, 0.16, 12, 0x2b2b31, [x, 0.25, z], [Math.PI / 2, 0, 0]), cyl(0.13, 0.13, 0.17, 8, 0xc9ccd1, [x, 0.25, z], [Math.PI / 2, 0, 0])];
   const COL = 0x2f6f4e;
   const BODY = 0xf3efe6;
@@ -221,9 +222,10 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
     open: number;
   }
   const tracks = new Map<number, Track>();
-  /** Le camion du revendeur en cours (un seul à la fois). */
+  /** Les camions des revendeurs : celui de la commande en cours, et ceux qui repartent, chacun sa vie. */
   type Big = ReturnType<typeof bigTruckModel>;
-  let pickup: { id: number; truck?: Big; phase: 'wait' | 'road' | 'in' | 'bay' | 'back' | 'out'; s: number; open: number; held: boolean } | null = null;
+  type Pickup = { id: number; truck?: Big; phase: 'wait' | 'road' | 'in' | 'bay' | 'back' | 'out'; s: number; open: number; held: boolean };
+  const pickups: Pickup[] = [];
   const setGate = yardGate(world);
   let gate = 0;
   let last = performance.now();
@@ -287,25 +289,27 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
       // s'arrête dans la parcelle ; une fois tout le monde à bord, il ressort à reculons, fait demi-tour
       // dans l'aire devant le portail et reprend le chemin jusqu'à la route
       const L = s.birdLoad;
-      if (L && (!pickup || pickup.id !== L.id)) {
-        pickup = { id: L.id, phase: 'wait', s: 0, open: 0, held: false };
+      if (L && !pickups.some((p) => p.id === L.id)) {
+        const P: Pickup = { id: L.id, phase: 'wait', s: 0, open: 0, held: false };
         // partie rechargée en plein chargement : il est déjà sur place
-        if (t > L.eta + 1) {
-          pickup.truck = bigTruckModel();
-          world.add(pickup.truck.g);
-          pickup.phase = 'bay';
-          pickup.s = ENTRY.total;
+        if (t > L.eta + 1 && !pickups.length) {
+          P.truck = bigTruckModel();
+          world.add(P.truck.g);
+          P.phase = 'bay';
+          P.s = ENTRY.total;
         }
+        pickups.push(P);
       }
       let gateWant = 0;
-      if (pickup) {
-        const P = pickup;
+      for (const P of [...pickups]) {
         const still = !!L && L.id === P.id;
+        let gone = false;
         const pace = rdt * Math.min(3, spd);
         const speed = (v: number, toEnd: number, fromStart: number) => v * pace * Math.max(0.22, Math.min(1, (Math.min(toEnd, fromStart) + 0.4) / 2));
         if (P.phase === 'wait') {
-          if (!still) pickup = null;
-          else if (spd > 0) {
+          if (!still) gone = true;
+          // le chemin n'a qu'une voie : il ne prend la route qu'une fois le camion précédent reparti pour de bon
+          else if (spd > 0 && !pickups.some((o) => o !== P)) {
             // il prend la route assez tôt pour arriver au portail à l'heure dite
             const remain = ((L!.eta - t - ENTRY.total / 3.2) * Math.min(2, spd)) / spd;
             if ((remain - 1) * 4.6 <= 75) {
@@ -319,10 +323,10 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
           }
         } else if (P.phase === 'road') {
           const st = street.delivery(P.id);
-          if (!st) pickup = null;
+          if (!st) gone = true;
           else if (!still) {
             street.releaseDelivery(P.id);
-            pickup = null;
+            gone = true;
           } else if (st.parked) {
             street.detachDelivery(P.id);
             world.add(P.truck!.g);
@@ -355,7 +359,7 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
             if (P.s >= EXIT.total) {
               street.freeLane(P.id);
               street.resumeDelivery(P.id, P.truck!.g, 5.4, EXIT.at(EXIT.total).x, 1);
-              pickup = null;
+              gone = true;
             }
           } else if (pace > 0 && street.laneClear(-1, BIRD_ORDERS.stopX - 10, BIRD_ORDERS.stopX + 14) && street.laneClear(1, BIRD_ORDERS.stopX - 18, BIRD_ORDERS.stopX + 8)) {
             street.holdLane(P.id, BIRD_ORDERS.stopX - 3, 5.4, -1);
@@ -363,9 +367,13 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
             P.held = true;
           }
         }
+        if (gone) {
+          pickups.splice(pickups.indexOf(P), 1);
+          continue;
+        }
         // la simulation attend qu'il soit garé pour faire monter les volailles
         if (still) L!.late = P.phase !== 'bay';
-        if (pickup && P.truck) {
+        if (P.truck) {
           const q = P.phase === 'in' || P.phase === 'bay' ? ENTRY.at(P.s) : P.phase === 'back' ? BACKUP.at(P.s) : P.phase === 'out' ? EXIT.at(P.s) : null;
           if (q) {
             // (à reculons, le camion regarde à l'opposé de sa marche)
@@ -413,11 +421,11 @@ export function buildDeliveryTruck(street: Street, world: THREE.Object3D): Deliv
       const L = s.birdLoad;
       if (!L) return;
       for (const q of L.gone) {
-        const dur = boardTime(q.x, q.z);
+        const dur = routeTime(q.route);
         if (t < q.t || t > q.t + dur) continue;
         const k = (t - q.t) / dur;
-        const p = alongPath(boardPath(q.x, q.z), k);
-        const up = rampProgress(q.x, q.z, k);
+        const p = alongPath(q.route, k);
+        const up = rampProgress(q.route, k);
         draw({ seed: q.id, breed: q.breed, skin: q.skin ?? 0, rooster: q.rooster, black: q.black, x: p.x, z: p.z, dx: p.dx, dz: p.dz, lift: up * 0.6, slope: up > 0 && up < 1 ? 0.5 : 0, age: t - q.t });
       }
     },

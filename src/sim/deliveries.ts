@@ -4,7 +4,8 @@
 // ferme à la file. Tout l'horaire se lit sur le temps simulé : la simulation fait apparaître
 // chaque poule au portail à l'instant où le rendu la montre arriver (render/delivery.ts).
 import { BIRD_ORDERS, DELIVERY, TRUCK_BAY, TRUCK_COURT, WORLD } from '../config/balance';
-import { GATE, cellIndex, rt } from './core';
+import { FIRST_HATCH_X, penHatch } from '../config/buildings';
+import { GATE, cellIndex, planPath, rt } from './core';
 import type { Delivery, GameState } from './types';
 
 /** Voie côté ferme (on roule à droite : vers l'ouest). */
@@ -47,28 +48,49 @@ export function truckBlockedBy(s: GameState) {
         const id = r.occupant[cellIndex(x, z)];
         if (id >= 0) return id;
       }
+  // ... ou la sortie d'une trappe des parcs
+  const shop = s.buildings.find((b) => b.type === 'petshop');
+  if (shop)
+    for (const goose of [false, true])
+      for (const z of [28, 29]) {
+        const id = r.occupant[cellIndex(Math.floor(penHatch(shop.level, goose).hatch), z)];
+        if (id >= 0) return id;
+      }
   return -1;
 }
-/** L'allée qui longe la clôture, derrière les parcs, et la trappe de la parcelle du camion. */
-export const SHOP_LANE_Z = 30.38;
-export const TRUCK_HATCH_X = 78.5;
+/** Le milieu du passage entre les deux grillages (couloir ou sas de la trappe). */
+const LANE_Z = 30.52;
+/** Juste derrière la trappe, puis le coin de la cour d'où l'on rejoint la rampe sans frôler le camion. */
+const INSIDE_Z = 29.4;
+const COURT: [number, number] = [78.5, 26.4];
 const BOARD_SPEED = 1.8;
-/** Trajet d'une volaille depuis le portillon de son parc : l'allée, la trappe, la cour, puis la rampe. */
+/** Où donne le couloir d'un parc : tout droit si le parc longe la parcelle, sinon à la première trappe. */
+const hatchOf = (x: number) => Math.max(x, FIRST_HATCH_X);
+/**
+ * Trajet d'une volaille depuis la trappe de son parc : le passage entre les deux grillages, la trappe de la
+ * parcelle, la cour, puis la rampe. Elle ne sort jamais à découvert.
+ */
 export function boardPath(x: number, z: number): Array<[number, number]> {
-  return [
-    [x, z],
-    [x, SHOP_LANE_Z],
-    [TRUCK_HATCH_X, SHOP_LANE_Z],
-    [TRUCK_HATCH_X, 29.2],
-    [RAMP_FOOT, TRUCK_Z],
-    [TRUCK_REAR, TRUCK_Z],
-    [TRUCK_REAR - 0.5, TRUCK_Z],
-  ];
+  const hx = hatchOf(x);
+  return [[x, z], [x, LANE_Z], ...(hx !== x ? [[hx, LANE_Z] as [number, number]] : []), [hx, INSIDE_Z], COURT, [RAMP_FOOT, TRUCK_Z], [TRUCK_REAR, TRUCK_Z], [TRUCK_REAR - 0.5, TRUCK_Z]];
 }
-export const boardTime = (x: number, z: number) => pathLength(boardPath(x, z)) / BOARD_SPEED;
+/** Le même trajet, qui contourne ce qui encombre la parcelle (bâtiments, arbres, camion). */
+export function boardRoute(s: GameState, x: number, z: number): Array<[number, number]> {
+  const base = boardPath(x, z);
+  const hx = hatchOf(x);
+  const way = planPath(s, hx, INSIDE_Z, COURT[0], COURT[1], 0.16, 'human');
+  if (!way || way.length <= 2) return base;
+  const i = base.indexOf(COURT);
+  const detour: Array<[number, number]> = [];
+  for (let k = 0; k + 1 < way.length - 2; k += 2) detour.push([way[k], way[k + 1]]);
+  return [...base.slice(0, i), ...detour, ...base.slice(i)];
+}
+export const routeTime = (route: Array<[number, number]>) => pathLength(route) / BOARD_SPEED;
+/** Quand la volaille a passé la trappe de la parcelle (secondes après son départ). */
+export const hatchTime = (x: number) => (Math.abs(hatchOf(x) - x) + 2.2) / BOARD_SPEED;
 /** Hauteur de la volaille sur la rampe, à la fraction k de son trajet (0 au sol, 1 dans le camion). */
-export function rampProgress(x: number, z: number, k: number) {
-  const total = pathLength(boardPath(x, z));
+export function rampProgress(route: Array<[number, number]>, k: number) {
+  const total = pathLength(route);
   const up = RAMP_FOOT - TRUCK_REAR;
   return Math.max(0, Math.min(1, (k * total - (total - up - 0.5)) / up));
 }

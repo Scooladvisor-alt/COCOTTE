@@ -5,7 +5,7 @@ import { BUILDINGS, STAND_POS, sizeOf, standLayout, HALL_ALLEY, HALL_DOOR } from
 import { ROLES, STAFF, WORKER_NAMES } from '../config/staff';
 import { buildingCenter, canStand, cellIndex, coopDoor, cellX, cellZ, crossesFence, currentDay, facadeHeading, frontOf, toWorld, currentHour, emit, inGrid, isWalkable, nearestWalkable, newId, notify, pick, planPath, rand, randRange, rt, isShelter } from './core';
 import { PREDATOR_INFO, damagePredator, distanceToFarm, predatorAimY } from './predators';
-import { RAMP_FOOT, TRUCK_HATCH_X, TRUCK_Z } from './deliveries';
+import { RAMP_FOOT, TRUCK_Z } from './deliveries';
 import { henMovable, henValue } from './hens';
 import { addXp, buyLevel, fmtMoney, spend } from './economy';
 import { addToStorage, removeWorldEgg } from './eggs';
@@ -476,10 +476,9 @@ function pickupOnTheWay(s: GameState, w: Worker) {
   }
 }
 
-/** Sa place dans la cour, de part et d'autre du passage : il guide les volailles de la trappe à la rampe. */
-function herdSpot(s: GameState, w: Worker): [number, number] {
-  const side = s.workers.filter((o) => o.job?.kind === 'loadTruck').indexOf(w) > 0 ? 1 : -1;
-  return [TRUCK_HATCH_X + 0.9, TRUCK_Z + side * 1.2 + 1.8];
+/** Sa place dans la cour, à l'écart de la voie du camion et du passage des volailles, qu'il guide vers la rampe. */
+export function herdSpot(s: GameState, w: Worker): [number, number] {
+  return s.workers.filter((o) => o.job?.kind === 'loadTruck').indexOf(w) > 0 ? [77.6, 28.8] : [79.4, 27.3];
 }
 
 /** Va pousser les volailles vers la rampe du camion, garé dans la parcelle du bout. */

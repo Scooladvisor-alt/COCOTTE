@@ -400,9 +400,9 @@ export const BIRD_ORDERS = {
   helpers: 2,
   /** Une volaille monte quand elle est assez près du portail ; une retardataire finit par être portée. */
   maxWait: 80,
-  /** Retard toléré du camion, pris dans la circulation ou en train de reculer (secondes). */
-  truckGrace: 60,
   closeUp: 2,
+  /** Le temps que le camion sorte de la parcelle à reculons : personne ne reprend sa place avant (secondes). */
+  backOut: 8,
   /**
    * La parcelle du bas à droite : le chemin de terre y arrive, et il faut la posséder pour vendre ses
    * volailles. Le camion quitte la route en x = stopX, suit la branche de terre, passe le grand portail
@@ -435,10 +435,10 @@ export const BIRD_ORDERS = {
  * la cour où les volailles attendent devant la rampe. Jamais de bâtiment sur ces cases.
  */
 export const TRUCK_BAY = { x0: 70, x1: 79, z0: 24, z1: 25 };
-export const TRUCK_COURT = { x0: 77, x1: 79, z0: 22, z1: 27 };
-/** Dernière colonne sous le camion garé (derrière, la place de la rampe reste libre pour les volailles). */
-export const TRUCK_BODY_X1 = 76;
-export const inTruckBay = (x: number, z: number) => (x >= TRUCK_BAY.x0 && x <= TRUCK_BAY.x1 && z >= TRUCK_BAY.z0 && z <= TRUCK_BAY.z1) || (x >= TRUCK_COURT.x0 && x <= TRUCK_COURT.x1 && z >= TRUCK_COURT.z0 && z <= TRUCK_COURT.z1);
+export const TRUCK_COURT = { x0: 77, x1: 79, z0: 22, z1: 29 };
+/** Les cases de la parcelle juste derrière les trappes des parcs (selon le niveau de la boutique) : on n'y construit rien. */
+export const TRUCK_HATCH_CELLS = [60, 61, 65, 66, 70, 72, 78];
+export const inTruckBay = (x: number, z: number) => (x >= TRUCK_BAY.x0 && x <= TRUCK_BAY.x1 && z >= TRUCK_BAY.z0 && z <= TRUCK_BAY.z1) || (x >= TRUCK_COURT.x0 && x <= TRUCK_COURT.x1 && z >= TRUCK_COURT.z0 && z <= TRUCK_COURT.z1) || (z >= 28 && z <= 29 && TRUCK_HATCH_CELLS.includes(x));
 
 export const ORDERS = {
   maxOffers: 3,

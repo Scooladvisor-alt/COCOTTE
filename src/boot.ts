@@ -27,18 +27,17 @@ if (loaded?.source === 'backup') game.toast('Sauvegarde principale illisible : l
 
 render(h(App, { game }), document.getElementById('ui')!);
 
-// le navigateur ne zoome pas la page (double appui, pincement sur iPhone et iPad, qui ignorent
-// user-scalable=no) : seul le jeu zoome, avec ses propres gestes
-for (const ev of ['gesturestart', 'gesturechange', 'gestureend']) document.addEventListener(ev, (e) => e.preventDefault(), { passive: false });
-document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
-document.addEventListener(
-  'touchmove',
-  (e) => {
-    // pincement à deux doigts hors du terrain de jeu (sur les panneaux) : pas de zoom de la page
-    if (e.touches.length > 1 && !(e.target as HTMLElement)?.closest?.('#world')) e.preventDefault();
-  },
-  { passive: false },
-);
+// Sur le terrain de jeu, la page ne zoome jamais : ni double appui, ni pincement (c'est le jeu qui zoome,
+// avec ses propres gestes). Ailleurs, le zoom du navigateur reste possible pour qui en a besoin
+// (accessibilité) ; le double appui y est désactivé par touch-action: manipulation (styles.css).
+const onField = (e: Event) => !!(e.target as HTMLElement | null)?.closest?.('#world');
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend'])
+  document.addEventListener(ev, (e) => {
+    if (onField(e)) e.preventDefault();
+  }, { passive: false });
+document.addEventListener('dblclick', (e) => {
+  if (onField(e)) e.preventDefault();
+}, { passive: false });
 
 // aperçu de développement : ?nosave&dev=jours,panneau[,onglet] → partie simulée N jours, panneau ouvert
 // (ex. ?nosave&dev=10,hens ou ?nosave&dev=8,market,stand), sans passer par l'accueil

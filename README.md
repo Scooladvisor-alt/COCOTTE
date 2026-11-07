@@ -31,9 +31,11 @@ Site statique, plus une base Supabase pour les fermes : `npm run build` produit 
 - **Sur téléphone, à l'horizontale, comme une application** :
   - mise en page dédiée aux écrans bas (de 667 à 932 px de large) : tableau de bord replié, horloge compacte, menu en colonne d'icônes à droite, fiches en colonne pleine hauteur (l'horloge glisse alors à gauche), boutique et fenêtres en plein écran, tutoriel et notifications en bas, encoche évitée ;
   - bouton **plein écran** (verrouille l'écran à l'horizontale quand le téléphone le permet) ; musique et son passent dans les Réglages ;
-  - **installable** sur l'écran d'accueil (« Ajouter à l'écran d'accueil ») : `public/manifest.webmanifest`, icônes `public/icon-*.png`, s'ouvre en plein écran et à l'horizontale ;
+  - **application installable (PWA)** sur l'écran d'accueil, sans App Store : `public/manifest.webmanifest` (fenêtre autonome, plein écran sur Android, à l'horizontale), icônes tirées du vrai modèle 3D de la poule (`public/icon-192.png`, `icon-512.png`, versions `maskable` pour Android, `apple-touch-icon.png` pour l'iPhone) ;
+  - **hors connexion** : à chaque `npm run build`, `vite.config.ts` écrit `dist/sw.js` (modèle : `pwa/service-worker.js`) avec la liste exacte des fichiers de la version et son empreinte. Le jeu entier est gardé en cache à la première visite ; la page est toujours demandée au réseau d'abord (une nouvelle version déployée arrive tout de suite) ; à chaque nouvelle version, l'ancien cache est effacé dès que l'application a été fermée. Les appels au serveur en ligne (Supabase) ne passent jamais par le cache. Sans réseau, on joue normalement ; seuls l'inscription, le classement, les visites et l'envoi en ligne attendent le retour de la connexion ;
+  - **sur iPhone**, l'application installée a son propre stockage, distinct de celui de Safari : on y retrouve sa ferme avec « Retrouver ma ferme » (nom + code secret) ;
   - téléphone tenu en hauteur : une invitation à le tourner (on peut passer outre d'un toucher) ;
-  - pas de zoom ni de défilement parasite du navigateur, pas de sélection de texte ou de menu au toucher long.
+  - pas de zoom parasite : sur le terrain de jeu, ni double appui ni pincement du navigateur (le jeu gère ses gestes) ; ailleurs, `touch-action: manipulation` supprime le zoom au double appui et le délai des touchers, mais laisse le zoom d'accessibilité au pincement (la page n'utilise plus `user-scalable=no`) ; pas de défilement parasite, pas de sélection de texte ni de menu au toucher long, pas de surbrillance au toucher ; barre d'accueil de l'iPhone évitée en bas.
 - **Mentions légales** dans les Réglages : compléter le contact dans `LEGAL` (src/config/balance.ts) avant de publier.
 
 ## Commandes

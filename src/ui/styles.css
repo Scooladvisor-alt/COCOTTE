@@ -37,14 +37,25 @@ body {
   user-select: none;
   -webkit-user-select: none;
 }
-/* pas de zoom de la page au double appui ni au pincement (tablette, téléphone) : seul le jeu
-   zoome ; on garde le défilement des panneaux */
+/* pas de zoom de la page au double appui (réponse immédiate, même en tapotant vite) ; le défilement des
+   panneaux et le zoom d'accessibilité au pincement restent possibles. Le terrain de jeu, lui, ne laisse
+   rien au navigateur : c'est le jeu qui gère glisser, pincer et zoomer. */
 html,
 body,
 #ui,
 #ui * {
-  touch-action: pan-x pan-y;
+  touch-action: manipulation;
   -webkit-text-size-adjust: 100%;
+}
+html {
+  -webkit-tap-highlight-color: transparent;
+}
+body {
+  -webkit-touch-callout: none;
+}
+#world {
+  -webkit-user-select: none;
+  user-select: none;
 }
 #ui input[type='range'] {
   touch-action: none;
@@ -6849,7 +6860,7 @@ body {
   .dock {
     right: var(--sr);
     top: 8px;
-    bottom: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
     transform: none;
     justify-content: center;
     padding: 4px;
@@ -7003,7 +7014,7 @@ body {
   /* notifications : en bas, au centre, sans masquer l'horloge */
   .toasts {
     top: auto;
-    bottom: 10px;
+    bottom: max(10px, env(safe-area-inset-bottom));
     left: calc(var(--sl) + 8px);
     right: calc(var(--sr) + 66px);
   }
@@ -7121,7 +7132,7 @@ body {
   .coach {
     left: max(8px, env(safe-area-inset-left));
     right: auto;
-    bottom: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
     width: min(340px, 44vw);
     max-height: calc(100% - 120px);
     overflow-y: auto;
@@ -7149,7 +7160,7 @@ body {
   .placement {
     left: auto;
     right: calc(max(8px, env(safe-area-inset-right)) + 66px);
-    bottom: 8px;
+    bottom: max(8px, env(safe-area-inset-bottom));
     transform: none;
     gap: 8px;
     padding: 7px 8px 7px 10px;
@@ -8000,3 +8011,10 @@ body {
 .worker-skill.on { background: rgba(63, 143, 99, 0.13); }
 .worker-skill span { display: flex; flex-direction: column; min-width: 0; font-size: 13px; }
 .worker-skill small { opacity: 0.75; line-height: 1.25; }
+
+/* application installée (écran d'accueil) : elle occupe déjà tout l'écran, le bouton plein écran ne sert plus */
+@media (display-mode: standalone), (display-mode: fullscreen) {
+  .fs-btn {
+    display: none !important;
+  }
+}

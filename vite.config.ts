@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { readFileSync, readdirSync } from 'node:fs';
 import { defineConfig, type Plugin } from 'vite';
 import preact from '@preact/preset-vite';
 
@@ -17,8 +19,41 @@ function fullReload(): Plugin {
   };
 }
 
+/**
+ * Application installable (PWA) : à chaque construction, écrit sw.js avec la liste exacte des fichiers
+ * de cette version et une empreinte de leur contenu. Une nouvelle version déployée a donc toujours un
+ * sw.js différent : le téléphone la détecte, la met en cache, puis efface l'ancienne.
+ */
+function serviceWorker(): Plugin {
+  return {
+    name: 'cocotte-service-worker',
+    apply: 'build',
+    // après la génération de index.html
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      // (les polices .woff ne servent qu'aux navigateurs trop anciens pour un service worker : inutile de les garder)
+      const files = Object.keys(bundle)
+        .filter((f) => !f.endsWith('.map') && !f.endsWith('.woff'))
+        .sort();
+      if (!files.includes('index.html')) throw new Error('sw.js : index.html absent de la construction');
+      const pub = readdirSync('public').filter((f) => !f.startsWith('.')).sort();
+      const hash = createHash('sha256');
+      for (const f of files) {
+        const out = bundle[f];
+        hash.update(f).update(out.type === 'chunk' ? out.code : out.source);
+      }
+      for (const f of pub) hash.update(f).update(readFileSync(`public/${f}`));
+      const version = hash.digest('hex').slice(0, 12);
+      const source = readFileSync('pwa/service-worker.js', 'utf8')
+        .replace('__VERSION__', version)
+        .replace('__PRECACHE__', JSON.stringify([...files, ...pub]));
+      this.emitFile({ type: 'asset', fileName: 'sw.js', source });
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [preact({ prefreshEnabled: false }), fullReload()],
+  plugins: [preact({ prefreshEnabled: false }), fullReload(), serviceWorker()],
   base: './',
   server: { port: 5173 },
   build: {

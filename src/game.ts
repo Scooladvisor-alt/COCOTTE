@@ -132,6 +132,8 @@ export class Game {
     });
     window.setInterval(() => this.background(), 1000);
     window.addEventListener('beforeunload', () => this.save());
+    // (sur iPhone, une application fermée depuis le sélecteur n'envoie souvent que pagehide)
+    window.addEventListener('pagehide', () => this.save());
     this.goHome();
     this.raf = requestAnimationFrame((t) => this.frame(t));
   }

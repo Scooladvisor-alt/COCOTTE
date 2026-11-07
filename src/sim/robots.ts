@@ -23,7 +23,7 @@ export function upgradeRobot(s: GameState, id: number): ActionResult {
   if (r.level === 2) return { ok: false, reason: 'Déjà amélioré' };
   if (!spend(s, ROBOT.upgradePrice, 'constructions', 'Robot ramasseur : niveau 2')) return { ok: false, reason: 'Fonds insuffisants' };
   r.level = 2;
-  notify(s, 'Robot amélioré : il file droit vers les œufs, sans manœuvres inutiles, et cueille deux fois plus vite.', 'good', '🤖');
+  notify(s, 'Robot amélioré : il file droit vers les œufs, sans manœuvres inutiles, et avale les œufs deux fois plus vite.', 'good', '🤖');
   return { ok: true };
 }
 
@@ -166,7 +166,7 @@ function plan(s: GameState, r: Robot) {
   if (n < robotCapacity(r)) {
     const eggs = s.worldEggs.filter((e) => e.where === 'ground' && !taken.has(`egg:${e.id}`)).sort((a, b) => dist(a.x, a.z) - dist(b.x, b.z));
     for (const e of eggs.slice(0, 6)) {
-      // il s'arrête juste devant l'œuf, pour le cueillir avec son bras (il ne roule jamais dessus)
+      // il s'arrête la bouche devant l'œuf, pour l'avaler (il ne roule jamais dessus)
       const d = Math.max(1e-3, dist(e.x, e.z));
       const back = Math.min(ROBOT.reach, d);
       const [ax, az] = [e.x - ((e.x - r.x) / d) * back, e.z - ((e.z - r.z) / d) * back];
@@ -198,7 +198,7 @@ function nextPick(s: GameState, r: Robot) {
   return null;
 }
 
-/** Arrivé devant l'œuf (ou le pondoir) : le bras commence sa cueillette. */
+/** Arrivé devant l'œuf (ou le pondoir) : il commence à l'avaler. */
 function startPick(s: GameState, r: Robot) {
   const e = nextPick(s, r);
   if (!e) return false;
@@ -206,7 +206,7 @@ function startPick(s: GameState, r: Robot) {
   return true;
 }
 
-/** Une cueillette : il se tourne vers l'œuf, le bras descend, la ventouse le saisit et le dépose dans le plateau. */
+/** Il avale l'œuf : face à lui, la bouche au ras du sol, la brosse l'aspire jusque dans le réservoir. */
 function updatePick(s: GameState, r: Robot, dt: number) {
   const p = r.pick!;
   const e = s.worldEggs.find((x) => x.id === p.eggId);
@@ -226,7 +226,7 @@ function updatePick(s: GameState, r: Robot, dt: number) {
     }
   }
   p.t += dt;
-  if (!p.grabbed && p.t >= p.dur * 0.42) {
+  if (!p.grabbed && p.t >= p.dur * 0.2) {
     if (!pick(s, r, p.eggId)) {
       delete r.pick;
       return;
@@ -267,7 +267,7 @@ export function updateRobots(s: GameState, dt: number) {
   for (const r of s.robots) {
     for (const l of r.hopper) l.freshness = Math.max(1, l.freshness - (9 * dt) / TIME.DAY);
     const [dx, dz] = dockPoint(s, r);
-    // une cueillette en cours : il ne bouge pas tant que le bras travaille
+    // il avale un œuf : il ne bouge pas tant que la brosse travaille
     if (r.pick) {
       updatePick(s, r, dt);
       continue;
@@ -355,7 +355,7 @@ export function updateRobots(s: GameState, dt: number) {
         h.z = nz;
       }
     }
-    // un œuf au sol juste devant lui, en chemin : il s'arrête et le cueille au passage
+    // un œuf au sol juste devant sa bouche, en chemin : il s'arrête et l'avale au passage
     if (hopperCount(r) < robotCapacity(r)) {
       const fx = r.x + Math.sin(r.heading) * ROBOT.reach;
       const fz = r.z + Math.cos(r.heading) * ROBOT.reach;

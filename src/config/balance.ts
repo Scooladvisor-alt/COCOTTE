@@ -715,15 +715,15 @@ export const ROBOT = {
   speed: 0.95,
   /** Contenance du bac (œufs). */
   capacity: 24,
-  /** Distance entre l'avant du robot et l'œuf qu'il cueille avec son bras. */
+  /** Distance entre le centre du robot et l'œuf qu'il avale (sa bouche est à l'avant). */
   reach: 0.34,
-  /** Durée d'une cueillette (le bras descend, saisit l'œuf, le dépose dans le plateau). */
-  pickTime: 1.3,
+  /** Durée pour avaler un œuf (il se met face à lui, la brosse l'aspire). */
+  pickTime: 1,
   /** Niveau 2 : plus rapide, il file vers les œufs sans s'arrêter pour pivoter, et cueille plus vite. */
   upgradePrice: 500000,
   speed2: 1.75,
   capacity2: 36,
-  pickTime2: 0.65,
+  pickTime2: 0.5,
   drainPerHour: 8,
   chargePerHour: 45,
   lowBattery: 18,

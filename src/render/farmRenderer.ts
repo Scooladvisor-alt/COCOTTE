@@ -26,7 +26,7 @@ import { buildDeliveryTruck, type DeliveryTruck } from './delivery';
 import { nearTruckRoad } from './truckRoad';
 import { ringTrees, wildPlants } from '../sim/wild';
 import { Droppings } from './droppings';
-import { ARM_DOWN, ARM_REST, ARM_TRAY, createRobotView, type RobotView } from './robotModel';
+import { MOUTH, createRobotView, type RobotView } from './robotModel';
 import { applyDogPose, createDogView, dogPose, type DogView } from './dogModel';
 import { HOUSE_DOG, kennelPoint } from '../sim/dog';
 import { growth, growthStage, hatchesGeese, isIncubator } from '../sim/breeding';
@@ -2125,24 +2125,23 @@ export class FarmRenderer {
       const t = this.time + v.phase;
       v.root.position.set(v.px, GRASS_TOP + (moving ? Math.abs(Math.sin(t * 18)) * 0.004 : 0), v.pz);
       v.brush.rotation.y += dt * (moving ? 18 : 2);
-      // le bras : il descend sur l'œuf, la ventouse le saisit, il le soulève au-dessus du plateau et l'y dépose
-      let armTo = ARM_REST;
-      let held = false;
+      // la bouche avale l'œuf : la brosse tourne, l'œuf roule vers l'ouverture et disparaît dedans
       const p = r.pick;
-      if (p) {
-        const k = p.t / Math.max(0.01, p.dur);
-        const ease = (x: number) => x * x * (3 - 2 * x);
-        if (k < 0.42) armTo = ARM_REST + (ARM_DOWN - ARM_REST) * ease(Math.min(1, k / 0.34));
-        else if (k < 0.52) armTo = ARM_DOWN;
-        else if (k < 0.86) armTo = ARM_DOWN + (ARM_TRAY - ARM_DOWN) * ease((k - 0.52) / 0.34);
-        else armTo = ARM_TRAY + (ARM_REST + Math.PI * 2 - ARM_TRAY) * ease((k - 0.86) / 0.14);
-        held = p.grabbed && k < 0.88;
-        if (held) v.cupEgg.material = p.type === 'phenix' ? PHOENIX_EGG_MAT : p.type === 'or' ? GOLD_EGG_MAT : EGG_MAT;
+      let swallow = false;
+      if (p?.grabbed) {
+        const k = Math.min(1, (p.t / Math.max(0.01, p.dur) - 0.2) / 0.55);
+        if (k < 1) {
+          swallow = true;
+          const ease = k * k;
+          // (il part de là où il était posé, à portée de la bouche, et file dessous)
+          v.cupEgg.position.set(0, 0.035 + ease * 0.02, MOUTH[2] + 0.12 * (1 - ease) - 0.07 * ease);
+          v.cupEgg.rotation.x = k * 6;
+          v.cupEgg.scale.setScalar(0.7 * (1 - ease * 0.35));
+          v.cupEgg.material = p.type === 'phenix' ? PHOENIX_EGG_MAT : p.type === 'or' ? GOLD_EGG_MAT : EGG_MAT;
+        }
       }
-      // (le bras suit sa consigne en douceur ; après le plateau, il remonte et revient par l'avant)
-      if (!p && v.arm.rotation.x > Math.PI) v.arm.rotation.x -= Math.PI * 2;
-      v.arm.rotation.x += (armTo - v.arm.rotation.x) * Math.min(1, dt * (p ? 30 : 8));
-      v.cupEgg.visible = held;
+      v.cupEgg.visible = swallow;
+      v.roller.rotation.x -= dt * (p ? 26 : moving ? 6 : 0);
       // bac : les œufs ramassés y apparaissent
       const n = r.hopper.reduce((a, l) => a + l.count, 0);
       const shown = Math.min(v.eggs.length, Math.ceil((n / robotCapacity(r)) * v.eggs.length));

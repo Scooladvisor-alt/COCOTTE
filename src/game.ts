@@ -699,7 +699,7 @@ export class Game {
       const L1 = lvl(b);
       let info = '';
       let cls = '';
-      const height = b.type === 'goosehouse' ? 2.2 + b.level * 0.25 : b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 * STORAGE_SCALE : b.type === 'stand' ? (b.level >= 4 ? 3.6 : 1.9) : b.type === 'nursery' ? 2.4 : b.type === 'petshop' ? 3.2 : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.1;
+      const height = b.type === 'goosehouse' ? 2.2 + b.level * 0.25 : b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? (b.level === 6 ? 2.6 : 1.9) * STORAGE_SCALE : b.type === 'stand' ? (b.level >= 4 ? 3.6 : 1.9) : b.type === 'nursery' ? 2.4 : b.type === 'petshop' ? 3.2 : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.1;
       if (b.type === 'nest') {
         if (b.eggIds.length > 0) {
           info = `<em>${b.eggIds.length} œuf${b.eggIds.length > 1 ? 's' : ''}</em>`;
@@ -851,7 +851,7 @@ export class Game {
       else if (b.type === 'storage' && storedCount(s) >= storageCapacity(s)) text = 'Stockage plein';
       else continue;
       const c = buildingCenter(b);
-      const y = b.type === 'goosehouse' ? 2.1 + b.level * 0.25 : b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? 1.9 * STORAGE_SCALE : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.05;
+      const y = b.type === 'goosehouse' ? 2.1 + b.level * 0.25 : b.type === 'coop' ? (2.3 + b.level * 0.15) * COOP_SCALE : b.type === 'storage' ? (b.level === 6 ? 2.6 : 1.9) * STORAGE_SCALE : b.type === 'feeder' && b.level === 3 ? 2.2 : 1.05;
       L.set(`b${b.id}`, c.x, y, c.z, `<i></i>${text}`, `todo ${urgent ? 'urgent' : ''}`);
     }
     // œufs pondus au sol qui vont bientôt pourrir

@@ -2493,7 +2493,10 @@ describe('Poussins et réserve', () => {
   });
 
   it('la réserve à œufs est plus grande', () => {
-    expect(BUILDINGS.storage.levels.map((l) => l.capacity)).toEqual([100, 350, 900, 2500, 6000]);
+    expect(BUILDINGS.storage.levels.map((l) => l.capacity)).toEqual([100, 350, 900, 2500, 6000, 15000]);
+    // la Maison des œufs : 40 000 €, sur l'emprise de la maison des oies
+    expect(BUILDINGS.storage.levels[5].cost).toBe(4000000);
+    expect(sizeOf('storage', 6)).toEqual(sizeOf('goosehouse', 3));
   });
 });
 

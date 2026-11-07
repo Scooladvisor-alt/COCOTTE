@@ -1133,6 +1133,112 @@ export function storeColdHub(parts: Parts, windows: THREE.Mesh[]): CrateSpot[] {
   return spots;
 }
 
+/**
+ * Maison des œufs (dernier niveau du stockage), sur 3 × 2 comme la plateforme : une belle grange de
+ * pierre et de colombages, toit de tuiles et lucarnes, lanterneau d'aération surmonté d'un œuf doré,
+ * grande porte cintrée sous un médaillon en forme d'œuf, et une terrasse de pierre où s'empilent les
+ * cageots devant la façade.
+ */
+export function storeEggHouse(parts: Parts, windows: THREE.Mesh[]): CrateSpot[] {
+  const x0 = 0.12;
+  const x1 = 2.88;
+  const zb = 0.12;
+  const zf = 1.28;
+  const cx = (x0 + x1) / 2;
+  const cz = (zb + zf) / 2;
+  const W = x1 - x0;
+  const D = zf - zb;
+  const STONE_WALL = 0xcfc3ad;
+  const TILE = 0xb5523b;
+  const TILE_DARK = 0x93402e;
+  const SHUTTER = 0x3f7a5a;
+  const GOLD = 0xd9a93a;
+  // soubassement et rez-de-chaussée en pierre de taille, joints marqués
+  parts.push(box(W + 0.06, 0.12, D + 0.06, STONE_DARK, [cx, 0.06, cz]));
+  parts.push(box(W, 0.62, D, STONE_WALL, [cx, 0.43, cz]));
+  for (let y = 0.24; y < 0.74; y += 0.12) {
+    parts.push(box(W + 0.005, 0.01, 0.012, STONE_DARK, [cx, y, zf + 0.002]));
+    parts.push(box(0.012, 0.01, D + 0.005, STONE_DARK, [x1 + 0.002, y, cz]));
+  }
+  // étage enduit à colombages
+  parts.push(box(W, 0.42, D, PLASTER, [cx, 0.95, cz]));
+  parts.push(box(W + 0.04, 0.05, D + 0.04, TIMBER, [cx, 0.76, cz]));
+  parts.push(box(W + 0.04, 0.05, D + 0.04, TIMBER, [cx, 1.16, cz]));
+  for (let x = x0 + 0.1; x <= x1 - 0.05; x += 0.34) parts.push(box(0.045, 0.42, 0.02, TIMBER, [x, 0.95, zf + 0.012]));
+  for (let x = x0 + 0.1; x < x1 - 0.3; x += 0.68) {
+    const len = Math.hypot(0.34, 0.36);
+    parts.push(box(0.035, len, 0.018, TIMBER, [x + 0.17, 0.96, zf + 0.014], [0, 0, Math.atan2(0.34, 0.36)]));
+  }
+  for (let z = zb + 0.1; z <= zf - 0.05; z += 0.34) parts.push(box(0.02, 0.42, 0.045, TIMBER, [x1 + 0.012, 0.95, z]));
+  // toit de tuiles à deux pans, débordant, et ses rangs de tuiles
+  parts.push(prism(W + 0.24, 0.72, D + 0.34, TILE, [cx, 1.18, cz]));
+  const slope = Math.atan2(0.72, (D + 0.34) / 2);
+  for (let k = 1; k < 6; k++) {
+    const t = k / 6;
+    const y = 1.18 + 0.72 * t;
+    const off = ((D + 0.34) / 2) * (1 - t);
+    parts.push(box(W + 0.26, 0.018, 0.03, TILE_DARK, [cx, y + 0.005, cz + off + 0.01], [slope, 0, 0]));
+  }
+  parts.push(box(W + 0.28, 0.06, 0.08, TILE_DARK, [cx, 1.9, cz]));
+  // deux lucarnes sur le pan avant
+  for (const lx of [0.75, 2.25]) {
+    parts.push(box(0.32, 0.3, 0.3, PLASTER, [lx, 1.4, cz + 0.42]));
+    parts.push(prism(0.38, 0.18, 0.36, TILE, [lx, 1.55, cz + 0.42], Math.PI / 2));
+    windows.push(glassPane(0.16, 0.16, [lx, 1.4, cz + 0.575], 0, 0.02));
+    parts.push(box(0.2, 0.025, 0.03, TIMBER, [lx, 1.31, cz + 0.58]));
+    parts.push(box(0.025, 0.2, 0.03, TIMBER, [lx, 1.41, cz + 0.585]));
+  }
+  // lanterneau d'aération sur le faîte, et son œuf doré
+  parts.push(box(0.3, 0.22, 0.3, PLASTER, [cx, 2.0, cz]));
+  for (let k = -1; k <= 1; k++) parts.push(box(0.2, 0.025, 0.012, TIMBER, [cx, 2.0 + k * 0.06, cz + 0.155]));
+  parts.push(prism(0.36, 0.16, 0.36, TILE, [cx, 2.11, cz]));
+  parts.push(cyl(0.012, 0.012, 0.1, 6, IRON, [cx, 2.32, cz]));
+  parts.push(sph(0.07, 12, 10, GOLD, [cx, 2.43, cz], [0.8, 1.1, 0.8]));
+  // la grande porte cintrée, à deux battants, ferrures noires
+  const dw = 0.56;
+  const dh = 0.58;
+  parts.push(box(dw + 0.1, dh + 0.08, 0.05, STONE_DARK, [cx, 0.12 + dh / 2, zf + 0.02]));
+  parts.push(cyl(dw / 2 + 0.05, dw / 2 + 0.05, 0.05, 16, STONE_DARK, [cx, 0.12 + dh, zf + 0.02], [Math.PI / 2, 0, 0]));
+  parts.push(box(dw, dh, 0.05, C.woodDark, [cx, 0.12 + dh / 2, zf + 0.04]));
+  parts.push(cyl(dw / 2, dw / 2, 0.05, 16, C.woodDark, [cx, 0.12 + dh, zf + 0.04], [Math.PI / 2, 0, 0]));
+  parts.push(box(0.015, dh + dw / 2 - 0.02, 0.06, 0x5e3f24, [cx, 0.12 + (dh + dw / 2) / 2, zf + 0.05]));
+  for (let x = cx - dw / 2 + 0.07; x < cx + dw / 2 - 0.02; x += 0.07) parts.push(box(0.008, dh - 0.04, 0.055, 0x8c5d34, [x, 0.12 + dh / 2, zf + 0.048]));
+  for (const y of [0.3, 0.58]) for (const sx of [-1, 1]) parts.push(box(0.16, 0.025, 0.065, IRON, [cx + sx * 0.17, y, zf + 0.06]));
+  for (const sx of [-1, 1]) parts.push(box(0.025, 0.025, 0.07, IRON, [cx + sx * 0.04, 0.42, zf + 0.07]));
+  // le médaillon en forme d'œuf au-dessus de la porte
+  parts.push(sph(0.13, 16, 12, GOLD, [cx, 1.0, zf + 0.04], [0.82, 1.08, 0.3]));
+  parts.push(sph(0.112, 16, 12, 0xf8ecd2, [cx, 1.0, zf + 0.06], [0.82, 1.08, 0.3]));
+  // fenêtres à petits carreaux et volets, jardinières
+  for (const wx of [0.55, 0.95, 2.05, 2.45]) {
+    windows.push(glassPane(0.2, 0.26, [wx, 0.95, zf + 0.012], 0, 0.02));
+    parts.push(box(0.24, 0.03, 0.04, TRIM, [wx, 0.81, zf + 0.03]));
+    parts.push(box(0.012, 0.26, 0.03, TIMBER, [wx, 0.95, zf + 0.025]));
+    parts.push(box(0.2, 0.012, 0.03, TIMBER, [wx, 0.95, zf + 0.025]));
+    for (const sx of [-1, 1]) parts.push(box(0.09, 0.28, 0.02, SHUTTER, [wx + sx * 0.15, 0.95, zf + 0.03]));
+  }
+  for (const wx of [0.55, 2.45]) {
+    windows.push(glassPane(0.2, 0.18, [wx, 0.48, zf + 0.012], 0, 0.02));
+    parts.push(box(0.26, 0.06, 0.08, C.woodDark, [wx, 0.36, zf + 0.06]));
+    for (let k = 0; k < 5; k++) parts.push(ico(0.028, 0, GERANIUMS[k % GERANIUMS.length], [wx - 0.1 + k * 0.05, 0.41, zf + 0.07]));
+  }
+  // fenêtres sur le pignon
+  for (const wz of [0.45, 0.95]) windows.push(glassPane(0.2, 0.24, [x1 + 0.012, 0.95, wz], Math.PI / 2, 0.02));
+  lantern(parts, windows, cx - dw / 2 - 0.14, 0.7, zf);
+  lantern(parts, windows, cx + dw / 2 + 0.14, 0.7, zf);
+  // la terrasse de pierre devant la façade, trois marches devant la porte
+  parts.push(box(W, 0.1, 0.56, 0xd7ccb8, [cx, 0.05, zf + 0.3]));
+  for (let x = x0 + 0.2; x < x1; x += 0.4) parts.push(box(0.01, 0.003, 0.54, 0xbfb39e, [x, 0.101, zf + 0.3]));
+  // cageots d'œufs sur des palettes, de part et d'autre de la porte (remplis selon le stock)
+  const spots: CrateSpot[] = [];
+  for (const dx of [0.35, 0.85, 2.15, 2.65])
+    for (const k of [0, 1, 2]) {
+      spots.push([dx - 0.08, zf + 0.22, 0.14 + k * 0.17, 0]);
+      spots.push([dx + 0.12, zf + 0.38, 0.14 + k * 0.17, 0.08]);
+    }
+  for (const dx of [0.35, 0.85, 2.15, 2.65]) parts.push(box(0.42, 0.04, 0.36, 0xc8a46f, [dx + 0.02, 0.12, zf + 0.3]));
+  return spots;
+}
+
 // ================================================================ PONDOIRS ====
 // Repères communs : bâtiment de 2 × 1, compartiments répartis sur x ∈ [0,1 ; 1,9], fond de nid
 // (paille ou tapis) à y = 0,42, poule et œufs vers z = 0,5. Le toit couvre seulement l'arrière :

@@ -36,6 +36,7 @@ import {
   storeVented,
   storeWarehouse,
   storeColdHub,
+  storeEggHouse,
 } from './farmBuildings';
 
 // ================================================================ POULES ====
@@ -1074,10 +1075,10 @@ function storageModel(level: number): BuildingView {
   // dessinée sur 2 × 2 (3 × 2 pour la plateforme frigorifique), puis agrandie (le groupe
   // extérieur reste libre pour l'animation de pose)
   const outer = new THREE.Group();
-  const parts: THREE.BufferGeometry[] = [slab(level === 5 ? 3 : 2, 2, level >= 3 ? 0xd6d8da : 0xe0d4bc)];
+  const parts: THREE.BufferGeometry[] = [slab(level >= 5 ? 3 : 2, 2, level === 6 ? 0xd7ccb8 : level >= 3 ? 0xd6d8da : 0xe0d4bc)];
   const windows: THREE.Mesh[] = [];
   const spots =
-    level === 1 ? storeLarder(parts, windows) : level === 2 ? storeVented(parts, windows) : level === 3 ? storeCold(parts, windows) : level === 4 ? storeWarehouse(parts, windows) : storeColdHub(parts, windows);
+    level === 6 ? storeEggHouse(parts, windows) : level === 1 ? storeLarder(parts, windows) : level === 2 ? storeVented(parts, windows) : level === 3 ? storeCold(parts, windows) : level === 4 ? storeWarehouse(parts, windows) : storeColdHub(parts, windows);
   const g = new THREE.Group();
   g.scale.setScalar(STORAGE_SCALE);
   outer.add(g);

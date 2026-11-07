@@ -174,7 +174,7 @@ function RobotCard({ r }: { r: Robot }) {
           <Btn kind="primary" disabled={s.money < ROBOT.upgradePrice} title={s.money < ROBOT.upgradePrice ? 'Fonds insuffisants' : undefined} onClick={() => game.act(() => upgradeRobot(s, r.id), 'build')}>
             Améliorer · {fmtMoney(ROBOT.upgradePrice)}
           </Btn>
-          <small class="hint">Niveau 2 : il file droit vers les œufs en virant sans s’arrêter, roule presque deux fois plus vite, cueille deux fois plus vite et porte {ROBOT.capacity2} œufs.</small>
+          <small class="hint">Niveau 2 : il file droit vers les œufs en virant sans s’arrêter, roule presque deux fois plus vite, avale les œufs deux fois plus vite et porte {ROBOT.capacity2} œufs.</small>
         </div>
       )}
       <div class="actions small">

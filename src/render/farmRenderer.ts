@@ -252,6 +252,16 @@ function hash(i: number) {
   return x - Math.floor(x);
 }
 
+/**
+ * Finesse de l'image : sur un téléphone (petit écran très dense), deux pixels par point, sans quoi tout
+ * paraît flou ; sur un grand écran, 1,5 suffit et ménage la carte graphique.
+ */
+function fullRatio() {
+  const dpr = window.devicePixelRatio || 1;
+  const small = Math.min(window.screen.width, window.screen.height) < 600;
+  return Math.min(dpr, small ? 2 : 1.5);
+}
+
 export class FarmRenderer {
   private hall: TownHall | null = null;
   renderer: THREE.WebGLRenderer;
@@ -353,7 +363,7 @@ export class FarmRenderer {
 
   constructor(private container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, stencil: true, powerPreference: 'high-performance' });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    this.renderer.setPixelRatio(fullRatio());
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
@@ -2670,14 +2680,14 @@ export class FarmRenderer {
   }
 
   /**
-   * Graphismes allégés, sur demande du joueur (ou d'office sur les petits téléphones) : image moins fine,
+   * Graphismes allégés, seulement sur demande du joueur (Réglages) : image moins fine,
    * ombres moins précises, herbe et arbres simplifiés, poules plus simples dès qu'elles sont nombreuses.
    */
   lowGraphics = false;
   setLowGraphics(low: boolean) {
     if (low === this.lowGraphics) return;
     this.lowGraphics = low;
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, low ? 1 : 1.5));
+    this.renderer.setPixelRatio(low ? 1 : fullRatio());
     this.sun.shadow.mapSize.setScalar(low ? 1024 : 2048);
     this.sun.shadow.map?.dispose();
     this.sun.shadow.map = null;

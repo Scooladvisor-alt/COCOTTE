@@ -11,6 +11,7 @@ import { unlocksAt } from '../sim/progression';
 import { newFarm } from '../sim/starter';
 import { NAME_RE, OnlineError, clearIdentity, identity, onlineIsNewer, pushFarm, restoreFarm } from '../online/farms';
 import { OnlineForm } from './Online';
+import { installMode, onInstallChange, promptInstall } from '../pwa/install';
 import type { GameState } from '../sim/types';
 import { Btn, Icon, useGame } from './common';
 import { PREDATOR_INFO, livePredators } from '../sim/predators';
@@ -353,6 +354,7 @@ export function TitleScreen() {
   const [step, setStep] = useState<'home' | 'create' | 'join' | 'restore'>('home');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
+  const [installHelp, setInstallHelp] = useState(false);
   if (game.started) return null;
   // partie de démonstration (?nosave) : ni inscription ni sauvegarde
   const id = game.persist ? identity() : null;
@@ -487,8 +489,10 @@ export function TitleScreen() {
             J’ai déjà une ferme en ligne
           </button>
         )}
+        <InstallButton onHelp={() => setInstallHelp(true)} />
         <small class="ld-note">Gratuit · dans le navigateur · sauvegarde automatique</small>
       </main>
+      {installHelp && <InstallHelp onClose={() => setInstallHelp(false)} />}
       <footer class="ld-feats">
         <span>Élever</span>
         <i />
@@ -496,6 +500,45 @@ export function TitleScreen() {
         <i />
         <span>Vendre</span>
       </footer>
+    </div>
+  );
+}
+
+/** « Installer l'application » : d'un clic sur Android ; sur iPhone, il ouvre l'aide (onHelp). */
+function InstallButton({ onHelp }: { onHelp: () => void }) {
+  const [, redraw] = useState(0);
+  useEffect(() => onInstallChange(() => redraw((n) => n + 1)), []);
+  const mode = installMode();
+  if (!mode) return null;
+  return (
+    <button class="ld-install" onClick={() => (mode === 'prompt' ? void promptInstall() : onHelp())}>
+      <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+        <path d="M12 3v11m0 0-4.5-4.5M12 14l4.5-4.5M5 16v3a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      Installer l’application
+    </button>
+  );
+}
+
+/** Sur iPhone, Safari n'installe pas depuis une page : les deux gestes à faire. */
+function InstallHelp({ onClose }: { onClose: () => void }) {
+  return (
+    <div class="ld-install-help" onClick={onClose}>
+      <div class="lih-box" onClick={(e) => e.stopPropagation()}>
+        <b>Installer Cocotte sur l’iPhone</b>
+        <ol>
+          <li>
+            Touchez le bouton <b>Partager</b> <span class="lih-share" aria-hidden="true" /> de Safari (en bas de l’écran, ou en haut sur iPad).
+          </li>
+          <li>
+            Choisissez <b>Sur l’écran d’accueil</b>, puis <b>Ajouter</b>.
+          </li>
+        </ol>
+        <small>Cocotte s’ouvrira ensuite comme une application, en plein écran. Votre ferme vous y attend : « J’ai déjà une ferme en ligne », avec votre nom et votre code secret.</small>
+        <button class="ld-play" onClick={onClose}>
+          Compris
+        </button>
+      </div>
     </div>
   );
 }

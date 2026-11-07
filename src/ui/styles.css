@@ -4876,6 +4876,85 @@ kbd {
   cursor: pointer;
   text-decoration: underline;
 }
+.ld-install {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(47, 111, 78, 0.35);
+  background: rgba(255, 255, 255, 0.7);
+  color: #2f6f4e;
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.ld-install:hover {
+  background: #fff;
+}
+.ld-install-help {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(34, 37, 46, 0.45);
+}
+.lih-box {
+  width: min(380px, 100%);
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 22px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+}
+.lih-box > b {
+  font-size: 17px;
+}
+.lih-box ol {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+.lih-box small {
+  color: var(--muted);
+  font-weight: 600;
+}
+.lih-box .ld-play {
+  align-self: flex-end;
+}
+/* l'icône « Partager » de Safari : une boîte ouverte et une flèche vers le haut */
+.lih-share {
+  display: inline-block;
+  width: 13px;
+  height: 12px;
+  margin: 0 2px -1px;
+  border: 2px solid #2f6bff;
+  border-top: 0;
+  border-radius: 0 0 3px 3px;
+  position: relative;
+}
+.lih-share::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: -7px;
+  width: 2px;
+  height: 11px;
+  margin-left: -1px;
+  background: #2f6bff;
+}
 .ld-note {
   font-size: 12.5px;
   font-weight: 700;

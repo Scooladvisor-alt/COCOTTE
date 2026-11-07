@@ -12,6 +12,20 @@ import { storage } from './queries';
 import type { ActionResult, GameState, Robot } from './types';
 
 export const hopperCount = (r: Robot) => r.hopper.reduce((a, l) => a + l.count, 0);
+export const robotCapacity = (r: Robot) => (r.level === 2 ? ROBOT.capacity2 : ROBOT.capacity);
+const robotSpeed = (r: Robot) => (r.level === 2 ? ROBOT.speed2 : ROBOT.speed);
+const pickTime = (r: Robot) => (r.level === 2 ? ROBOT.pickTime2 : ROBOT.pickTime);
+
+/** Niveau 2 : plus rapide, plus fluide, un plus grand plateau. */
+export function upgradeRobot(s: GameState, id: number): ActionResult {
+  const r = s.robots.find((x) => x.id === id);
+  if (!r) return { ok: false, reason: 'Robot introuvable' };
+  if (r.level === 2) return { ok: false, reason: 'Déjà amélioré' };
+  if (!spend(s, ROBOT.upgradePrice, 'constructions', 'Robot ramasseur : niveau 2')) return { ok: false, reason: 'Fonds insuffisants' };
+  r.level = 2;
+  notify(s, 'Robot amélioré : il file droit vers les œufs, sans manœuvres inutiles, et cueille deux fois plus vite.', 'good', '🤖');
+  return { ok: true };
+}
 
 /** Une borne : où le robot se gare pour charger, et la direction du stockage vers lui. */
 export type DockSpot = [x: number, z: number, nx: number, nz: number];
@@ -33,10 +47,12 @@ export function dockSpots(s: GameState): DockSpot[] {
   const spots: DockSpot[] = [];
   const offsets = (half: number) => {
     const out = [0];
-    for (let k = 0.8; k <= half; k += 0.8) out.push(-k, k);
+    for (let k = 1.05; k <= half + 0.3; k += 1.05) out.push(-k, k);
     return out;
   };
-  for (const ring of [0.55, 1.45]) {
+  // (assez loin du mur pour ne pas mordre sur le dallage du stockage, et assez espacées pour qu'on
+  // gare un robot sur chacune sans qu'ils se touchent)
+  for (const ring of [0.8, 1.95]) {
     const sides: Array<[number, number, number]> = [
       [0, 1, w / 2 - 0.2],
       [1, 0, d / 2 - 0.2],
@@ -47,8 +63,8 @@ export function dockSpots(s: GameState): DockSpot[] {
       for (const u of offsets(half)) {
         const x = c.x + nx * (w / 2 + ring) + (nz !== 0 ? u : 0);
         const z = c.z + nz * (d / 2 + ring) + (nx !== 0 ? u : 0);
-        if (!canStand(s, x, z, 0.22)) continue;
-        if (spots.some(([ox, oz]) => Math.hypot(ox - x, oz - z) < 0.7)) continue;
+        if (!canStand(s, x, z, 0.32)) continue;
+        if (spots.some(([ox, oz]) => Math.hypot(ox - x, oz - z) < 0.95)) continue;
         spots.push([x, z, nx, nz]);
       }
   }
@@ -98,7 +114,7 @@ export function sellRobot(s: GameState, id: number): ActionResult {
 }
 
 function pick(s: GameState, r: Robot, eggId: number) {
-  if (hopperCount(r) >= ROBOT.capacity) return false;
+  if (hopperCount(r) >= robotCapacity(r)) return false;
   const e = s.worldEggs.find((x) => x.id === eggId);
   if (!e) return false;
   removeWorldEgg(s, e);
@@ -144,12 +160,18 @@ function plan(s: GameState, r: Robot) {
   const n = hopperCount(r);
   const [dx, dz] = dockPoint(s, r);
   if (r.battery < ROBOT.lowBattery) return go(s, r, 'dock', -1, dx, dz) || void (r.task = 'idle');
-  if (n >= ROBOT.capacity * 0.8 && storage(s)) return go(s, r, 'unload', -1, dx, dz);
+  if (n >= robotCapacity(r) * 0.8 && storage(s)) return go(s, r, 'unload', -1, dx, dz);
   const taken = new Set(s.robots.filter((o) => o !== r).map((o) => `${o.task}:${o.target}`));
   const dist = (x: number, z: number) => Math.hypot(x - r.x, z - r.z);
-  if (n < ROBOT.capacity) {
+  if (n < robotCapacity(r)) {
     const eggs = s.worldEggs.filter((e) => e.where === 'ground' && !taken.has(`egg:${e.id}`)).sort((a, b) => dist(a.x, a.z) - dist(b.x, b.z));
-    for (const e of eggs.slice(0, 6)) if (go(s, r, 'egg', e.id, e.x, e.z)) return;
+    for (const e of eggs.slice(0, 6)) {
+      // il s'arrête juste devant l'œuf, pour le cueillir avec son bras (il ne roule jamais dessus)
+      const d = Math.max(1e-3, dist(e.x, e.z));
+      const back = Math.min(ROBOT.reach, d);
+      const [ax, az] = [e.x - ((e.x - r.x) / d) * back, e.z - ((e.z - r.z) / d) * back];
+      if (go(s, r, 'egg', e.id, canStand(s, ax, az, 0.2) ? ax : e.x, canStand(s, ax, az, 0.2) ? az : e.z)) return;
+    }
     const nests = s.buildings
       .filter((b) => b.type === 'nest' && b.eggIds.length > 0 && !taken.has(`nest:${b.id}`))
       .sort((a, b) => b.eggIds.length - a.eggIds.length || dist(a.x, a.z) - dist(b.x, b.z));
@@ -164,26 +186,79 @@ function plan(s: GameState, r: Robot) {
   r.path = [];
 }
 
+/** Le prochain œuf à cueillir sur place : celui visé au sol, ou le suivant du pondoir. */
+function nextPick(s: GameState, r: Robot) {
+  if (hopperCount(r) >= robotCapacity(r)) return null;
+  if (r.task === 'egg') return s.worldEggs.find((e) => e.id === r.target) ?? null;
+  if (r.task === 'nest') {
+    const b = s.buildings.find((x) => x.id === r.target);
+    const id = b?.eggIds[0];
+    return id === undefined ? null : s.worldEggs.find((e) => e.id === id) ?? null;
+  }
+  return null;
+}
+
+/** Arrivé devant l'œuf (ou le pondoir) : le bras commence sa cueillette. */
+function startPick(s: GameState, r: Robot) {
+  const e = nextPick(s, r);
+  if (!e) return false;
+  r.pick = { t: 0, dur: pickTime(r), eggId: e.id, type: e.type, grabbed: false };
+  return true;
+}
+
+/** Une cueillette : il se tourne vers l'œuf, le bras descend, la ventouse le saisit et le dépose dans le plateau. */
+function updatePick(s: GameState, r: Robot, dt: number) {
+  const p = r.pick!;
+  const e = s.worldEggs.find((x) => x.id === p.eggId);
+  if (!p.grabbed) {
+    if (!e) {
+      delete r.pick;
+      return;
+    }
+    // face à l'œuf d'abord (au sol ; devant un pondoir, il est déjà tourné vers lui)
+    if (e.where === 'ground') {
+      const want = Math.atan2(e.x - r.x, e.z - r.z);
+      let diff = want - r.heading;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      r.heading += Math.max(-6 * dt, Math.min(6 * dt, diff));
+      if (Math.abs(diff) > 0.25) return;
+    }
+  }
+  p.t += dt;
+  if (!p.grabbed && p.t >= p.dur * 0.42) {
+    if (!pick(s, r, p.eggId)) {
+      delete r.pick;
+      return;
+    }
+    p.grabbed = true;
+    if (r.task === 'nest') {
+      const b = s.buildings.find((x) => x.id === r.target);
+      if (b) {
+        const c = buildingCenter(b);
+        emit(s, { kind: 'eggsCollected', count: 1, x: c.x, z: c.z });
+      }
+    }
+  }
+  if (p.t >= p.dur) {
+    delete r.pick;
+    // un pondoir : œuf suivant ; sinon, nouvelle tournée
+    if (!(r.task === 'nest' && startPick(s, r))) plan(s, r);
+  }
+}
+
 function arrive(s: GameState, r: Robot) {
   switch (r.task) {
     case 'egg':
-      pick(s, r, r.target);
+    case 'nest':
+      if (startPick(s, r)) return true;
       break;
-    case 'nest': {
-      const b = s.buildings.find((x) => x.id === r.target);
-      if (b) {
-        let n = 0;
-        for (const id of [...b.eggIds]) if (pick(s, r, id)) n++;
-        const c = buildingCenter(b);
-        if (n) emit(s, { kind: 'eggsCollected', count: n, x: c.x, z: c.z });
-      }
-      break;
-    }
     case 'unload':
     case 'dock':
       unload(s, r);
       break;
   }
+  return false;
 }
 
 const thinkT = new WeakMap<Robot, number>();
@@ -192,6 +267,11 @@ export function updateRobots(s: GameState, dt: number) {
   for (const r of s.robots) {
     for (const l of r.hopper) l.freshness = Math.max(1, l.freshness - (9 * dt) / TIME.DAY);
     const [dx, dz] = dockPoint(s, r);
+    // une cueillette en cours : il ne bouge pas tant que le bras travaille
+    if (r.pick) {
+      updatePick(s, r, dt);
+      continue;
+    }
     const docked = r.task === 'dock' && !r.path.length && Math.hypot(dx - r.x, dz - r.z) < 0.35;
     if (docked) {
       // en charge sur sa borne, dos à la colonne ; il repart dès qu'il y a du travail et assez d'énergie
@@ -222,7 +302,7 @@ export function updateRobots(s: GameState, dt: number) {
     if (!r.path.length) {
       // à l'arrêt sans rien à faire : il patiente avant de réessayer (pas de calcul à chaque pas)
       if (r.task === 'idle' && t > 0) continue;
-      if (r.task !== 'idle') arrive(s, r);
+      if (r.task !== 'idle' && arrive(s, r)) continue;
       plan(s, r);
       if (!r.path.length && r.task !== 'dock') {
         r.task = 'idle';
@@ -230,8 +310,11 @@ export function updateRobots(s: GameState, dt: number) {
       }
       continue;
     }
-    // déplacement : il roule doucement et pivote sur place
-    let budget = ROBOT.speed * dt;
+    // déplacement. Niveau 1 : il roule doucement et pivote sur place avant chaque virage.
+    // Niveau 2 : il vire en roulant, en ralentissant à peine, et file droit vers sa cible.
+    const smooth = r.level === 2;
+    let budget = robotSpeed(r) * dt;
+    let turned = false;
     while (budget > 1e-6 && r.path.length >= 2) {
       const ex = r.path[0] - r.x;
       const ez = r.path[1] - r.z;
@@ -244,8 +327,13 @@ export function updateRobots(s: GameState, dt: number) {
       let diff = want - r.heading;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
-      r.heading += Math.max(-4 * dt, Math.min(4 * dt, diff));
-      if (Math.abs(diff) > 0.6) break; // il s'oriente avant d'avancer
+      if (!turned) {
+        const rate = (smooth ? 7 : 4) * dt;
+        r.heading += Math.max(-rate, Math.min(rate, diff));
+        turned = true;
+      }
+      if (!smooth && Math.abs(diff) > 0.6) break; // il s'oriente avant d'avancer
+      if (smooth && Math.abs(diff) > 1.4) budget *= 0.35; // demi-tour : il ralentit dans la courbe
       const step = Math.min(d, budget);
       r.x += (ex / d) * step;
       r.z += (ez / d) * step;
@@ -267,8 +355,12 @@ export function updateRobots(s: GameState, dt: number) {
         h.z = nz;
       }
     }
-    // œufs au sol croisés en chemin
-    if (hopperCount(r) < ROBOT.capacity)
-      for (const e of s.worldEggs) if (e.where === 'ground' && Math.hypot(e.x - r.x, e.z - r.z) < 0.4) pick(s, r, e.id);
+    // un œuf au sol juste devant lui, en chemin : il s'arrête et le cueille au passage
+    if (hopperCount(r) < robotCapacity(r)) {
+      const fx = r.x + Math.sin(r.heading) * ROBOT.reach;
+      const fz = r.z + Math.cos(r.heading) * ROBOT.reach;
+      const near = s.worldEggs.find((e) => e.where === 'ground' && Math.hypot(e.x - fx, e.z - fz) < 0.16 && !s.robots.some((o) => o !== r && o.pick?.eggId === e.id));
+      if (near) r.pick = { t: 0, dur: pickTime(r), eggId: near.id, type: near.type, grabbed: false };
+    }
   }
 }

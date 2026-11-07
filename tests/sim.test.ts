@@ -13,7 +13,7 @@ import { makeBuilding } from '../src/sim/state';
 import { wildPlants } from '../src/sim/wild';
 import { nearestTree } from '../src/sim/perks';
 import { accessCells, blocksMover, buildingCenter, cellIndex, parcelKeyOfCell, coopDoor, coopDoorCells, crossesFence, currentDay, drainEvents, footprint, invalidateLayout, isOwnedCell, isWalkable, rt, toLocal, toWorld } from '../src/sim/core';
-import { freeSeats, hostedIncubators, nurseryCount, nurseryPlan, nurseryWithRoom, readyToLeave } from '../src/sim/nursery';
+import { freeSeats, hostedIncubators, nurseryCount, nurseryCrowding, nurseryPlan, nurseryWithRoom, readyToLeave } from '../src/sim/nursery';
 import {
   birdOrdersNewDay,
   birdOrdersOpen,
@@ -81,10 +81,11 @@ import {
   maxContracts,
   maxOrders,
   palletsPerDay,
+  sellLegendEggs,
 } from '../src/sim/market';
 import { FEED_REACH, feedLayout, feedPose } from '../src/sim/feeding';
 import { updateVaults, vaultOf } from '../src/sim/vault';
-import { buildingsOf, coopCapacity, coopOccupancy, flockCapacity, landCapacity, lvl, storageCapacity, storageFree, storedCount } from '../src/sim/queries';
+import { adultCount, buildingsOf, coopCapacity, coopOccupancy, flockCapacity, landCapacity, lvl, storageCapacity, storageFree, storedCount } from '../src/sim/queries';
 import { advance, advanceRealtime, canSkipNight, closeDay, dailyCharges, simulateOffline, skipNight, step } from '../src/sim/simulation';
 import { createNewGame } from '../src/sim/state';
 import { newFarm } from '../src/sim/starter';
@@ -95,7 +96,8 @@ import { buyWorkerSkill, dailyWages, fire, herdSpot, hire, sellerSpot, workerSki
 import { enterNursery } from '../src/sim/hens';
 import { catchable, distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
 import { buyDog, kennelPoint } from '../src/sim/dog';
-import { buyRobot, dockOf } from '../src/sim/robots';
+import { buyRobot, dockOf, upgradeRobot } from '../src/sim/robots';
+import { farmStats } from '../src/online/farms';
 import { crowdedChicks, dadCount, eggHatchIn, fertileStock, fertility, fertilize, incubatable, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
 import { ageFactor, baseLaying, createHen, eggsPerDayOf, henValue, productivity, refreshVitals, slotSpots, wellbeingTarget } from '../src/sim/hens';
 import { COMPOST, NATURE, RARE } from '../src/config/balance';
@@ -2327,6 +2329,24 @@ describe('Commandes et contrats', () => {
     expect(storedCount(s)).toBe(0);
   });
 
+  it('commandes et contrats se livrent d’eux-mêmes dès que le stock le permet', () => {
+    const s = createNewGame(84);
+    s.orders.push({ id: 910, client: 'Café', type: 'roux', qty: 10, minGrade: 'A', unitPrice: 160, deadlineDay: 9, status: 'active', offerUntilDay: 9 });
+    s.contracts.push({ id: 960, client: 'Épicerie', type: 'roux', qtyPerDay: 12, unitPrice: 120, days: 5, daysLeft: 5, status: 'active', missed: 0, delivered: 0, offerUntilDay: 9 });
+    step(s, TIME.STEP);
+    expect(s.orders[0].status).toBe('active');
+    const m = s.money;
+    addToStorage(s, 'roux', 'A', 100, 30);
+    step(s, TIME.STEP);
+    expect(s.orders.find((o) => o.id === 910)?.status ?? 'done').toBe('done');
+    expect(s.contracts[0].delivered).toBe(12);
+    expect(s.money - m).toBe(10 * 160 + 12 * 120);
+    // une seule livraison par jour pour le contrat
+    addToStorage(s, 'roux', 'A', 100, 30);
+    step(s, TIME.STEP);
+    expect(s.contracts[0].delivered).toBe(12);
+  });
+
   it('un contrat se livre en avance (pas deux fois le même jour) et peut être résilié', () => {
     const s = createNewGame(83);
     s.contracts.push({ id: 950, client: 'Épicerie', type: 'roux', qtyPerDay: 12, unitPrice: 120, days: 5, daysLeft: 5, status: 'active', missed: 0, delivered: 0, offerUntilDay: 3 });
@@ -2664,7 +2684,7 @@ describe('Une borne par robot', () => {
     const docks = s.robots.map((r) => dockOf(s, r));
     // quatre bornes distinctes, bien séparées, le long du stockage
     for (let i = 0; i < docks.length; i++)
-      for (let j = i + 1; j < docks.length; j++) expect(Math.hypot(docks[i][0] - docks[j][0], docks[i][1] - docks[j][1])).toBeGreaterThan(0.65);
+      for (let j = i + 1; j < docks.length; j++) expect(Math.hypot(docks[i][0] - docks[j][0], docks[i][1] - docks[j][1])).toBeGreaterThan(0.94);
     // batteries faibles : chacun rentre sur la sienne et charge
     for (const r of s.robots) (r.battery = 10), (r.task = 'idle'), (r.path = []);
     run(s, 120, undefined, 1);
@@ -2673,6 +2693,75 @@ describe('Une borne par robot', () => {
       expect(Math.hypot(r.x - x, r.z - z)).toBeLessThan(0.4);
       expect(r.battery).toBeGreaterThan(10);
     }
+  });
+});
+
+describe('Robot ramasseur : le bras, et le niveau 2', () => {
+  const field = (seed: number) => {
+    const s = newFarm(seed);
+    morning(s);
+    s.money = 1e8;
+    s.hens.length = 0;
+    s.worldEggs.length = 0;
+    for (const n of buildingsOf(s, 'nest')) n.eggIds = [];
+    expect(buyRobot(s).ok).toBe(true);
+    const r = s.robots[0];
+    return { s, r };
+  };
+  const dropEgg = (s: GameState, x: number, z: number) => {
+    const e = { id: s.nextId++, type: 'roux' as const, quality: 80, freshness: 100, laidAt: s.clock.t, where: 'ground' as const, x, z };
+    s.worldEggs.push(e as never);
+    return e;
+  };
+
+  it('il s’arrête devant l’œuf et le cueille avec son bras, sans rouler dessus', () => {
+    const { s, r } = field(410);
+    const e = dropEgg(s, r.x - 3, r.z - 1.5);
+    let closest = 9;
+    let picking = false;
+    for (let i = 0; i < 600 && s.worldEggs.includes(e as never); i++) {
+      run(s, 0.1);
+      if (s.worldEggs.includes(e as never)) closest = Math.min(closest, Math.hypot(r.x - e.x, r.z - e.z));
+      if (r.pick) picking = true;
+    }
+    expect(s.worldEggs.includes(e as never)).toBe(false);
+    expect(picking).toBe(true);
+    expect(closest).toBeGreaterThan(0.25);
+    expect(r.hopper.reduce((a, l) => a + l.count, 0)).toBe(1);
+  });
+
+  it('le niveau 2 coûte 5 000 € et va bien plus vite chercher les œufs', () => {
+    const time = (lvl2: boolean, seed: number) => {
+      const { s, r } = field(seed);
+      if (lvl2) {
+        const m = s.money;
+        expect(upgradeRobot(s, r.id).ok).toBe(true);
+        expect(m - s.money).toBe(500000);
+        expect(upgradeRobot(s, r.id).ok).toBe(false);
+      }
+      const eggs = [dropEgg(s, r.x - 4, r.z - 2), dropEgg(s, r.x - 1, r.z - 5), dropEgg(s, r.x - 6, r.z - 4)];
+      let t = 0;
+      while (eggs.some((e) => s.worldEggs.includes(e as never)) && t < 300) {
+        run(s, 0.1);
+        t += 0.1;
+      }
+      return t;
+    };
+    const slow = time(false, 411);
+    const fast = time(true, 411);
+    expect(fast).toBeLessThan(slow * 0.7);
+    // amélioration gardée à la relecture
+    const { s, r } = field(412);
+    upgradeRobot(s, r.id);
+    expect(deserialize(serialize(s))!.robots[0].level).toBe(2);
+  });
+
+  it('le classement compte les volailles adultes, comme le tableau de bord', () => {
+    const s = newFarm(413);
+    const coop = buildingsOf(s, 'coop')[0];
+    s.hens.push(createHen(s, 'rousse', coop, false, { young: 6 }));
+    expect(farmStats(s).hens).toBe(adultCount(s));
+    expect(farmStats(s).hens).toBeLessThan(s.hens.length);
   });
 });
 
@@ -3415,17 +3504,38 @@ describe('Poussinière', () => {
     for (const h of chicks) if (!['enter', 'exit', 'lay', 'sleep'].includes(h.act)) expect(isWalkable(s, h.x, h.z)).toBe(true);
   });
 
-  it('pleine, elle laisse les suivants grandir avec les poules ; les jeunes déjà là s’y installent', () => {
+  it('pleine, elle garde quand même tous les poussins : à l’étroit, ils perdent confort et santé', () => {
     const { s, b } = nurseryFarm(964);
     const cap = BUILDINGS.nursery.levels[0].capacity;
     hatch(s, cap + 3);
-    expect(nurseryCount(s, b)).toBe(cap);
-    expect(s.hens.filter((h) => h.young && !h.nursery && !readyToLeave(h)).length).toBeGreaterThanOrEqual(3);
+    // aucun poussin ne sort grandir avec les poules
+    expect(s.hens.filter((h) => h.young && !h.nursery && !readyToLeave(h))).toHaveLength(0);
+    expect(nurseryCount(s, b)).toBeGreaterThan(cap);
     expect(nurseryWithRoom(s)).toBeNull();
-    // on l'agrandit : ceux qui couraient dehors entrent
+    expect(nurseryCrowding(s, b)).toBeGreaterThan(0);
+    // à l'étroit : leur bien-être baisse par rapport à une poussinière à l'aise
+    const packed = raised(s)[0];
+    run(s, 1 * TIME.DAY);
+    const tight = packed.wellbeing;
     expect(A.upgrade(s, b.id).ok).toBe(true);
     expect(sizeOf('nursery', 2)).toEqual({ w: 10, d: 8 });
-    expect(s.hens.filter((h) => h.young && !h.nursery && !readyToLeave(h)).length).toBe(0);
+    expect(nurseryCrowding(s, b)).toBe(0);
+    run(s, 1 * TIME.DAY);
+    expect(packed.wellbeing).toBeGreaterThan(tight);
+  });
+
+  it('beaucoup trop de poussins dans une poussinière : certains en meurent', () => {
+    const { s, b } = nurseryFarm(965);
+    const cap = BUILDINGS.nursery.levels[0].capacity;
+    hatch(s, cap * 3);
+    expect(nurseryCrowding(s, b)).toBeGreaterThan(1.5);
+    const before = s.hens.filter((h) => h.nursery).length;
+    for (let d = 0; d < 5; d++) {
+      s.grain = 500;
+      s.water = 500;
+      run(s, TIME.DAY);
+    }
+    expect(s.hens.filter((h) => h.nursery).length).toBeLessThan(before);
   });
 
   it('fonctionne dans les quatre orientations, et le portillon donne dehors', () => {
@@ -3796,7 +3906,7 @@ describe('La poule légendaire', () => {
     drainEvents(s);
   });
 
-  it('pond des œufs de phénix que le collectionneur achète aussitôt, même stockage plein', () => {
+  it('pond des œufs légendaires, gardés en réserve (même stockage plein) et vendus au collectionneur', () => {
     const s = farm(902);
     const coop = buildingsOf(s, 'coop')[0];
     const h = createHen(s, 'rousse', coop, false, { legendary: true });
@@ -3810,9 +3920,16 @@ describe('La poule légendaire', () => {
     const m = s.money;
     const stored = storedCount(s);
     expect(A.collectGroundEgg(s, egg.id).ok).toBe(true);
-    expect(s.money - m).toBe(RARE.phoenixEggPrice);
+    // on le voit dans la réserve, rien n'est vendu tant qu'on ne l'a pas décidé
+    expect(s.legendEggs).toBe(1);
+    expect(s.money).toBe(m);
     expect(storedCount(s)).toBe(stored);
     expect(s.stats.phoenixEggs).toBe(1);
+    expect(deserialize(serialize(s))!.legendEggs).toBe(1);
+    expect(sellLegendEggs(s, 1).ok).toBe(true);
+    expect(s.money - m).toBe(RARE.phoenixEggPrice);
+    expect(s.legendEggs).toBe(0);
+    expect(sellLegendEggs(s).ok).toBe(false);
   });
 
   it('son œuf ne pourrit pas, et ne se perd pas au rechargement', () => {
@@ -4025,6 +4142,18 @@ describe('Vente de poules pondeuses', () => {
     expect(isWalkable(s, back.x, back.z)).toBe(true);
   });
 
+  it('un jeune coq peut partir en vente avant d’être adulte, pas une jeune poule', () => {
+    const s = farm(1506);
+    open(s);
+    const coop = buildingsOf(s, 'coop')[0];
+    const cock = createHen(s, 'rousse', coop, false, { young: 8, rooster: true, at: [coop.x + 1, coop.z + 5] });
+    const pullet = createHen(s, 'rousse', coop, false, { young: 8, rooster: false, at: [coop.x + 1, coop.z + 5] });
+    s.hens.push(cock, pullet);
+    expect(stockBird(s, cock.id).ok).toBe(true);
+    expect(s.petShop.birds).toContain(cock);
+    expect(stockBird(s, pullet.id).ok).toBe(false);
+  });
+
   it('coqs et jars vont en vente, mais ni les jeunes ni les trésors de la ferme', () => {
     const s = farm(1504);
     open(s);
@@ -4035,7 +4164,9 @@ describe('Vente de poules pondeuses', () => {
     const jars = s.hens.at(-1)!;
     expect(stockBird(s, coq.id).ok).toBe(true);
     expect(stockBird(s, jars.id).ok).toBe(true);
-    const chick = s.hens.find((h) => h.young)!;
+    // une jeune poule reste à la ferme (un jeune coq, lui, peut partir)
+    const chick = createHen(s, 'rousse', buildingsOf(s, 'coop')[0], false, { young: 8, rooster: false });
+    s.hens.push(chick);
     expect(stockBird(s, chick.id).ok).toBe(false);
     flock(s, 'rousse', 1);
     const gold = s.hens.at(-1)!;

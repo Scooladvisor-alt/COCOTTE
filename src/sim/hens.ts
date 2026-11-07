@@ -25,7 +25,7 @@ import { BREEDS, HEN_NAMES, ROOSTER_NAMES, pickSkin, GANDER_NAMES, GOOSE_NAMES, 
 import { sizeOf } from '../config/buildings';
 import { STAFF } from '../config/staff';
 import { recordUse, takeGrain, takeWater } from './stocks';
-import { NURSERY_REACH, NURSERY_RING, nurseryCount, nurseryPlan, readyToLeave } from './nursery';
+import { NURSERY_REACH, NURSERY_RING, nurseryCrowding, nurseryPlan, readyToLeave } from './nursery';
 import { GATE, buildingCenter, canStand, coopDoor, crossesFence, facadeHeading, frontOf, toLocal, toWorld, exitSide, cellIndex, currentHour, distanceTo, emit, inGrid, isNightHour, flowField, isWalkable, lineClear, newId, planPath, nearestWalkable, notify, parcelCenter, parcelCoords, parcelKeyOfCell, parcelOrigin, pick, rand, randRange, rt, sameArea, isShelter, isShelterType } from './core';
 import { fmtMoney } from './economy';
 import { nearestTree, parcelPerks, perksAt } from './perks';
@@ -336,9 +336,13 @@ function vitalsTick(s: GameState, dt: number) {
   const dead: Array<[Hen, string]> = [];
   const grown: Hen[] = [];
   const leaving: Hen[] = [];
+  // poussinières surpeuplées : un calcul par bâtiment, pas par poussin
+  const crowd = new Map<number, number>();
+  for (const n of s.buildings) if (n.type === 'nursery') crowd.set(n.id, nurseryCrowding(s, n));
   for (const h of s.hens) {
     const b = BREEDS[h.breed];
-    const target = wellbeingTarget(s, h, v);
+    const packed = h.nursery ? crowd.get(h.coopId) ?? 0 : 0;
+    const target = clamp(wellbeingTarget(s, h, v) - packed * BREEDING.nurseryCrowdWellbeing, 0, 100);
     rtHen(h).thirst = perksAt(s, h.x, h.z).thirst;
     const maxStep = WELLBEING.approachPerDay * dtDay;
     h.wellbeing = clamp(h.wellbeing + clamp(target - h.wellbeing, -maxStep, maxStep), 0, 100);
@@ -361,8 +365,11 @@ function vitalsTick(s: GameState, dt: number) {
     if (clean < 25) dh -= HEALTH.dirtyLoss * b.sensitivity * frail;
     if (h.wellbeing < 30) dh -= HEALTH.unhappyLoss * b.sensitivity * frail;
     if (h.sick) dh -= HEALTH.sickLoss * frail;
+    // entassés à la poussinière, les poussins s'épuisent
+    if (packed > 0) dh -= packed * BREEDING.nurseryCrowdHealth * frail;
     // tant qu'elle n'est ni malade ni en manque, la fatigue ne descend pas sous un plancher : pas de mort sans raison
-    const floor = !h.sick && h.satiety >= HEALTH.starvingAt && h.hydration >= HEALTH.starvingAt ? Math.min(h.health, HEALTH.safeFloor) : 0;
+    // (sauf pour des poussins vraiment trop nombreux)
+    const floor = !h.sick && h.satiety >= HEALTH.starvingAt && h.hydration >= HEALTH.starvingAt && packed < 0.25 ? Math.min(h.health, HEALTH.safeFloor) : 0;
     h.health = clamp(h.health + dh * dtDay, floor, 100);
     h.protein = Math.max(0, (h.protein ?? 0) - COMPOST.proteinDecayPerDay * dtDay);
     h.age += dtDay;
@@ -386,7 +393,7 @@ function vitalsTick(s: GameState, dt: number) {
       emit(s, { kind: 'phoenix', x: h.x, z: h.z, big: true });
       notify(s, `${h.name} s’est effondrée… puis se relève, plus belle que jamais : on ne tue pas une légende !`, 'good', '✨');
     } else if (h.health <= 0) {
-      const cause = h.hydration < HEALTH.starvingAt ? 'de soif' : h.satiety < HEALTH.starvingAt ? 'de faim' : h.sick ? 'de maladie' : 'de mauvaises conditions';
+      const cause = h.hydration < HEALTH.starvingAt ? 'de soif' : h.satiety < HEALTH.starvingAt ? 'de faim' : h.sick ? 'de maladie' : packed > 0 ? 'entassé dans une poussinière trop pleine' : 'de mauvaises conditions';
       dead.push([h, cause]);
     }
   }
@@ -1956,15 +1963,12 @@ export function enterNursery(s: GameState, h: Hen, b: Building) {
   r.spd = 0;
 }
 
-/** Nouvelle poussinière (ou agrandie) : les jeunes qui courent encore avec les poules s'y installent. */
+/** Nouvelle poussinière (ou agrandie) : tous les jeunes qui courent encore avec les poules s'y installent. */
 export function adoptChicks(s: GameState, b: Building) {
-  let room = lvl(b).capacity - nurseryCount(s, b);
   for (const h of s.hens) {
-    if (room <= 0) break;
     // les oisons ne passent pas par la poussinière : ils vivent avec les oies dès leur sortie de la couveuse
     if (h.nursery || !h.young || isGoose(h.breed) || readyToLeave(h) || h.act === 'caught' || h.act === 'stray') continue;
     enterNursery(s, h, b);
-    room--;
   }
 }
 

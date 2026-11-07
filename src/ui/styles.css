@@ -7357,6 +7357,15 @@ body {
   background: #f2c230;
   color: #5a3c00;
 }
+.pcard2.gold.legend {
+  background: linear-gradient(135deg, #f6fff9 0%, #ffe6f1 55%, #ffd2df 100%);
+  border-color: #e8488a;
+  box-shadow: 0 0 0 1px rgba(232, 72, 138, 0.3), 0 6px 18px rgba(200, 40, 100, 0.14);
+}
+.pcard2.gold.legend .tag {
+  background: #e8488a;
+  color: #fff;
+}
 .pcard2.gold .row-btns {
   margin-top: 6px;
 }

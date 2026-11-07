@@ -496,6 +496,22 @@ export function cancelOrder(s: GameState, id: number) {
   return { ok: true };
 }
 
+/**
+ * Commandes et contrats se livrent d'eux-mêmes dès que le stock le permet : la commande entière,
+ * et la quantité du jour de chaque contrat (une fois par jour).
+ */
+export function autoDeliverEggs(s: GameState) {
+  for (const o of s.orders) {
+    if (o.status !== 'active' || !canDeliver(s, o)) continue;
+    if (deliverOrder(s, o.id).ok) notify(s, `Commande ${o.client} livrée : ${o.qty} œufs ${EGG_TYPES[o.type].short.toLowerCase()}, +${fmtMoney(o.qty * o.unitPrice)}.`, 'good', '📦');
+  }
+  const day = currentDay(s);
+  for (const c of s.contracts) {
+    if (c.status !== 'active' || c.lastDay === day || storedCount(s, c.type) < c.qtyPerDay) continue;
+    deliverContractDay(s, c);
+  }
+}
+
 /** Prévient le joueur dès que le stock permet de livrer une commande (avec un bouton « Livrer »). */
 export function checkOrdersReady(s: GameState) {
   for (const o of s.orders) {
@@ -689,6 +705,19 @@ export function marketNewDay(s: GameState) {
 
 export function gradeAtLeast(g: Grade, min: Grade) {
   return GRADE_RANK[g] >= GRADE_RANK[min];
+}
+
+/** Le collectionneur achète les œufs légendaires (tous, ou n), à leur prix. */
+export function sellLegendEggs(s: GameState, n = s.legendEggs ?? 0): { ok: boolean; reason?: string } {
+  const have = s.legendEggs ?? 0;
+  n = Math.min(Math.floor(n), have);
+  if (n <= 0) return { ok: false, reason: 'Aucun œuf légendaire en réserve' };
+  s.legendEggs = have - n;
+  const amount = n * RARE.phoenixEggPrice;
+  earn(s, amount, 'reventes', n > 1 ? `${n} œufs légendaires (collectionneur)` : 'Œuf légendaire (collectionneur)');
+  emit(s, { kind: 'sale', amount, qty: n, ...saleSpot(s), channel: 'reventes' });
+  notify(s, `Le collectionneur vous achète ${n > 1 ? `${n} œufs légendaires` : 'un œuf légendaire'} : +${fmtMoney(amount)} !`, 'good', '✨');
+  return { ok: true };
 }
 
 /** Le collectionneur rachète les œufs d'or (tous, ou n), à prix fixe : ils ne passent pas par le marché. */

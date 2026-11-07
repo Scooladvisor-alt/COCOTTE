@@ -96,6 +96,25 @@ export function nurseryWithRoom(s: GameState): Building | null {
   return best;
 }
 
+/** La poussinière la moins remplie, même pleine (null s'il n'y en a aucune). */
+export function leastCrowdedNursery(s: GameState): Building | null {
+  let best: Building | null = null;
+  let bestRatio = Infinity;
+  for (const b of buildingsOf(s, 'nursery')) {
+    const ratio = nurseryCount(s, b) / Math.max(1, lvl(b).capacity);
+    if (ratio < bestRatio) {
+      best = b;
+      bestRatio = ratio;
+    }
+  }
+  return best;
+}
+
+/** Surpeuplement d'une poussinière : 0 si elle n'est pas pleine, 1 s'il y a deux fois trop de poussins. */
+export function nurseryCrowding(s: GameState, b: Building) {
+  return Math.max(0, nurseryCount(s, b) / Math.max(1, lvl(b).capacity) - 1);
+}
+
 // ---------------------------------------------------------- Couveuses ----
 /** Couveuses installées dans cette poussinière (toujours dans le même ordre). */
 export const hostedIncubators = (s: GameState, b: Building) => s.buildings.filter((c) => c.type === 'incubator' && c.hostId === b.id).sort((a, c) => a.id - c.id);

@@ -26,14 +26,14 @@ import { buildDeliveryTruck, type DeliveryTruck } from './delivery';
 import { nearTruckRoad } from './truckRoad';
 import { ringTrees, wildPlants } from '../sim/wild';
 import { Droppings } from './droppings';
-import { createRobotView, type RobotView } from './robotModel';
+import { ARM_DOWN, ARM_REST, ARM_TRAY, createRobotView, type RobotView } from './robotModel';
 import { applyDogPose, createDogView, dogPose, type DogView } from './dogModel';
 import { HOUSE_DOG, kennelPoint } from '../sim/dog';
 import { growth, growthStage, hatchesGeese, isIncubator } from '../sim/breeding';
 import { seasonBlend, snowCover, weatherOf } from '../sim/seasons';
 import { Snowfall } from './snowfall';
 import { FallingLeaves } from './leaves';
-import { dockOf } from '../sim/robots';
+import { dockOf, robotCapacity } from '../sim/robots';
 import { sound } from '../audio/sound';
 import { buildCountryside } from './countryside';
 import { townHall, type TownHall } from './farmBuildings';
@@ -850,6 +850,13 @@ export class FarmRenderer {
           if (!roofed && !paved && inGrid(x, z)) parkLawn.add(cellIndex(x, z));
         }
     }
+    // ni sur le socle des bornes des robots (l'herbe le traverserait)
+    const docks = new Set<number>();
+    for (const r of s.robots) {
+      const [dx, dz] = dockOf(s, r);
+      for (let z = Math.floor(dz - 0.45); z <= Math.floor(dz + 0.45); z++)
+        for (let x = Math.floor(dx - 0.45); x <= Math.floor(dx + 0.45); x++) if (inGrid(x, z)) docks.add(cellIndex(x, z));
+    }
     for (const ch of this.grassChunks.values()) ch.nl = ch.nw = 0;
     let f = 0;
     for (let i = 0; i < N; i++) {
@@ -871,7 +878,7 @@ export class FarmRenderer {
         this.cellCol[i * 3 + 1] = tmpC.g;
         this.cellCol[i * 3 + 2] = tmpC.b;
         // pas d'herbe haute sous un bâtiment (elle traverserait l'eau d'une mare)
-        const under = (blocked[i] === 1 && !parkLawn.has(i)) || doorway.has(i) || inTruckBay(cellX(i), cellZ(i));
+        const under = (blocked[i] === 1 && !parkLawn.has(i)) || doorway.has(i) || inTruckBay(cellX(i), cellZ(i)) || docks.has(i);
         // teinte des brins : l'herbe broutée jaunit, la saison et la neige s'y ajoutent
         tuftC.setRGB(1, 1, 1).lerp(DRY_BLADE, clamp((0.75 - g) * 1.4, 0, 0.85)).lerp(seasonTint, amt * 0.55);
         if (patch > 0) tuftC.lerp(SNOW, patch * 0.6);
@@ -2090,8 +2097,14 @@ export class FarmRenderer {
     for (const r of s.robots) {
       seen.add(r.id);
       let v = this.robots.get(r.id);
+      // amélioré : il change de livrée (bandeau bleu)
+      if (v && v.level !== (r.level ?? 1)) {
+        this.robotsG.remove(v.root, v.dock);
+        this.robots.delete(r.id);
+        v = undefined;
+      }
       if (!v) {
-        v = createRobotView();
+        v = createRobotView(r.level ?? 1);
         v.px = r.x;
         v.pz = r.z;
         v.root.rotation.y = r.heading;
@@ -2112,9 +2125,27 @@ export class FarmRenderer {
       const t = this.time + v.phase;
       v.root.position.set(v.px, GRASS_TOP + (moving ? Math.abs(Math.sin(t * 18)) * 0.004 : 0), v.pz);
       v.brush.rotation.y += dt * (moving ? 18 : 2);
+      // le bras : il descend sur l'œuf, la ventouse le saisit, il le soulève au-dessus du plateau et l'y dépose
+      let armTo = ARM_REST;
+      let held = false;
+      const p = r.pick;
+      if (p) {
+        const k = p.t / Math.max(0.01, p.dur);
+        const ease = (x: number) => x * x * (3 - 2 * x);
+        if (k < 0.42) armTo = ARM_REST + (ARM_DOWN - ARM_REST) * ease(Math.min(1, k / 0.34));
+        else if (k < 0.52) armTo = ARM_DOWN;
+        else if (k < 0.86) armTo = ARM_DOWN + (ARM_TRAY - ARM_DOWN) * ease((k - 0.52) / 0.34);
+        else armTo = ARM_TRAY + (ARM_REST + Math.PI * 2 - ARM_TRAY) * ease((k - 0.86) / 0.14);
+        held = p.grabbed && k < 0.88;
+        if (held) v.cupEgg.material = p.type === 'phenix' ? PHOENIX_EGG_MAT : p.type === 'or' ? GOLD_EGG_MAT : EGG_MAT;
+      }
+      // (le bras suit sa consigne en douceur ; après le plateau, il remonte et revient par l'avant)
+      if (!p && v.arm.rotation.x > Math.PI) v.arm.rotation.x -= Math.PI * 2;
+      v.arm.rotation.x += (armTo - v.arm.rotation.x) * Math.min(1, dt * (p ? 30 : 8));
+      v.cupEgg.visible = held;
       // bac : les œufs ramassés y apparaissent
       const n = r.hopper.reduce((a, l) => a + l.count, 0);
-      const shown = Math.min(v.eggs.length, Math.ceil(n / 4));
+      const shown = Math.min(v.eggs.length, Math.ceil((n / robotCapacity(r)) * v.eggs.length));
       v.eggs.forEach((e, i) => (e.visible = i < shown));
       // voyant : vert qui respire en charge, bleu en tournée, rouge si batterie faible
       const charging = r.task === 'dock' && !r.path.length;

@@ -550,6 +550,7 @@ export function sanitize(input: unknown): GameState | null {
   }
   // Œufs d'or en réserve
   s.goldEggs = int(raw.goldEggs, 0, 0, 100000);
+  s.legendEggs = int(raw.legendEggs, 0, 0, 100000);
 
   // Robots ramasseurs
   for (const rr of arr(raw.robots).slice(0, 60)) {
@@ -572,6 +573,7 @@ export function sanitize(input: unknown): GameState | null {
       tz: 0,
       path: [],
       total: int(r.total, 0, 0),
+      ...(r.level === 2 ? { level: 2 as const } : {}),
       boughtDay: int(r.boughtDay, 1),
     });
   }

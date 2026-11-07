@@ -669,6 +669,13 @@ export const BREEDING = {
   growthDays: 30,
   /** Quand il ne reste que ces jours de croissance, les jeunes quittent la poussinière pour le troupeau. */
   nurseryLeaveDays: 6,
+  /**
+   * Poussinière surpeuplée : les poussins y restent quand même, mais à l'étroit. Pour chaque place
+   * manquante (en proportion de la capacité), leur bien-être baisse et leur santé s'use ; trop
+   * entassés, ils peuvent en mourir.
+   */
+  nurseryCrowdWellbeing: 45,
+  nurseryCrowdHealth: 16,
   /** Part de mâles à l'éclosion : un poussin sur deux, comme dans la nature. */
   roosterShare: 0.5,
   /** Taux d'éclosion : base + bonus de fraîcheur de l'œuf (+ bonus de la couveuse). */
@@ -708,6 +715,15 @@ export const ROBOT = {
   speed: 0.95,
   /** Contenance du bac (œufs). */
   capacity: 24,
+  /** Distance entre l'avant du robot et l'œuf qu'il cueille avec son bras. */
+  reach: 0.34,
+  /** Durée d'une cueillette (le bras descend, saisit l'œuf, le dépose dans le plateau). */
+  pickTime: 1.3,
+  /** Niveau 2 : plus rapide, il file vers les œufs sans s'arrêter pour pivoter, et cueille plus vite. */
+  upgradePrice: 500000,
+  speed2: 1.75,
+  capacity2: 36,
+  pickTime2: 0.65,
   drainPerHour: 8,
   chargePerHour: 45,
   lowBattery: 18,

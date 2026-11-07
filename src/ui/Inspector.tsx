@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks';
 import { AUTO_DOOR, BIRD_ORDERS, BREEDING, CLEARING, COMPOST, EGG_TYPES, TIME, GRADES, HEALTH, LAYING, NATURE, PARCELS, ROBOT, WORKER_SKILLS, parcelPrice, WORLD } from '../config/balance';
 import { season, seasonIndex } from '../sim/seasons';
-import { hopperCount, sellRobot } from '../sim/robots';
+import { hopperCount, robotCapacity, sellRobot, upgradeRobot } from '../sim/robots';
 import { crowdedChicks, crowdedGoslings, dadCount, eggHatchIn, fertileStock, fertility, hatchesGeese, isIncubator, growthLabel, growthStage, incubatable, incubateAll, incubatingCount, loadIncubator, nextHatchIn, roosterCount, toggleIncubatorAuto } from '../sim/breeding';
 import { birdThumb, buildingThumb, dogThumb, robotThumb } from '../render/thumbs';
 import { parcelPerks } from '../sim/perks';
@@ -149,7 +149,7 @@ function RobotCard({ r }: { r: Robot }) {
         <div>
           <h3>Robot ramasseur</h3>
           <div class="chips">
-            <Chip tone="blue">Autonome</Chip>
+            <Chip tone="blue">{r.level === 2 ? 'Niveau 2 · rapide' : 'Niveau 1'}</Chip>
             <Chip>Électricité {fmtMoney(ROBOT.upkeepPerDay)}/j</Chip>
           </div>
         </div>
@@ -161,7 +161,7 @@ function RobotCard({ r }: { r: Robot }) {
       <div class="kv">
         <span>Bac</span>
         <b>
-          {n} / {ROBOT.capacity} œufs
+          {n} / {robotCapacity(r)} œufs
         </b>
       </div>
       <div class="kv">
@@ -169,6 +169,14 @@ function RobotCard({ r }: { r: Robot }) {
         <b>{r.total} œufs</b>
       </div>
       <p class="hint">Il ramasse d’abord les œufs pondus au sol (avant qu’ils ne pourrissent), puis vide les pondoirs et décharge au stockage. Il reste à l’intérieur des clôtures et retourne se recharger seul.</p>
+      {r.level !== 2 && (
+        <div class="actions">
+          <Btn kind="primary" disabled={s.money < ROBOT.upgradePrice} title={s.money < ROBOT.upgradePrice ? 'Fonds insuffisants' : undefined} onClick={() => game.act(() => upgradeRobot(s, r.id), 'build')}>
+            Améliorer · {fmtMoney(ROBOT.upgradePrice)}
+          </Btn>
+          <small class="hint">Niveau 2 : il file droit vers les œufs en virant sans s’arrêter, roule presque deux fois plus vite, cueille deux fois plus vite et porte {ROBOT.capacity2} œufs.</small>
+        </div>
+      )}
       <div class="actions small">
         {confirm ? (
           <>

@@ -8,7 +8,7 @@ import { BREEDS, isGoose } from '../config/breeds';
 import { sizeOf } from '../config/buildings';
 import { buildingCenter, currentHour, emit, frontOf, notify, rand, randRange, toWorld } from './core';
 import { createHen, enterNursery } from './hens';
-import { nurseryCount, nurseryWithRoom } from './nursery';
+import { leastCrowdedNursery, nurseryCount, nurseryWithRoom } from './nursery';
 import { GENE_INFO, decodeGenes, encodeGenes, genesOf, inherit } from './genetics';
 import { buildingsOf, coopCapacity, getBuilding, homeForYoung, landCapacity, lvl } from './queries';
 import type { ActionResult, BreedId, Building, GameState, Hen } from './types';
@@ -210,9 +210,10 @@ function hatchOut(s: GameState, b: Building) {
   for (const e of due) {
     if (!e.ok) continue;
     // l'oison sort de sa couveuse et rejoint les oies ; le poussin naît dans la poussinière de sa
-    // couveuse : s'il n'y a plus de place, il va dans une autre, sinon avec les poules
+    // couveuse, ou dans une autre qui a de la place : il ne sort jamais avec les poules, même si
+    // toutes sont pleines (il y sera à l'étroit)
     const gosling = isGoose(e.breed);
-    const room = gosling ? null : host && lvl(host).capacity > nurseryCount(s, host) ? host : nurseryWithRoom(s);
+    const room = gosling ? null : host && lvl(host).capacity > nurseryCount(s, host) ? host : nurseryWithRoom(s) ?? host ?? leastCrowdedNursery(s);
     const coop = room ?? homeForYoung(s, e.breed);
     if (!coop) continue;
     const at = host ? frontOf(host, 0.6 + rand(s) * 0.4, randRange(s, -0.5, 0.5)) : toWorld(b, w / 2 + randRange(s, -0.7, 0.7), d + 0.35 + randRange(s, 0, 0.5));
@@ -236,7 +237,8 @@ function hatchOut(s: GameState, b: Building) {
     const rest = lost ? ` · ${lost} œuf${lost > 1 ? 's' : ''} n’${lost > 1 ? 'ont' : 'a'} pas éclos` : '';
     if (goslings) notify(s, `${goslings} oison${goslings > 1 ? 's sortent' : ' sort'} de la couveuse et ${goslings > 1 ? 'rejoignent' : 'rejoint'} les oies${chicks ? '' : rest}. Adulte${goslings > 1 ? 's' : ''} dans ${BREEDING.growthDays} jours !`, 'good', '🪿');
     const breeds = [...new Set(due.filter((e) => e.ok && !isGoose(e.breed)).map((e) => BREEDS[e.breed].name))].join(', ');
-    const where = raised === chicks ? ' Ils grandissent à la poussinière.' : raised ? ` ${raised} restent à la poussinière (pleine), les autres grandissent avec les poules.` : buildingsOf(s, 'nursery').length ? ' Poussinière pleine : ils grandissent avec les poules.' : '';
+    const packed = raised > 0 && buildingsOf(s, 'nursery').some((n) => nurseryCount(s, n) > lvl(n).capacity);
+    const where = packed ? ' La poussinière est surpeuplée : ils sont à l’étroit, leur confort et leur santé en souffrent. Agrandissez-la !' : raised === chicks ? ' Ils grandissent à la poussinière.' : raised ? ` ${raised} restent à la poussinière (pleine), les autres grandissent avec les poules.` : buildingsOf(s, 'nursery').length ? ' Poussinière pleine : ils grandissent avec les poules.' : '';
     if (chicks) notify(s, `${chicks} poussin${chicks > 1 ? 's sont nés' : ' est né'} (${breeds})${rest}. Pondeuses dans ${BREEDING.growthDays} jours !${where}`, 'good', '🐣');
     if (promising.length) notify(s, `Poussin${promising.length > 1 ? 's' : ''} prometteur${promising.length > 1 ? 's' : ''} : ${promising.join(', ')}. Gardez-le${promising.length > 1 ? 's' : ''} pour la reproduction !`, 'good', '🌟');
   } else notify(s, `Aucun des ${due.length} œuf${due.length > 1 ? 's' : ''} de la couveuse n’a éclos. Des œufs plus frais éclosent mieux.`, 'warn', '🥚');

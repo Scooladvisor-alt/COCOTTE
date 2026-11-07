@@ -4,6 +4,7 @@ import { deserialize } from '../save/save';
 import { NAME_RE, OnlineError, SECRET_MIN, claimFarm, farmStats, identity, lastPushOk, loadBoard, pushFarm, restoreFarm, sendGreeting, setIdentity, type BoardRow, type BoardSort } from '../online/farms';
 import { ROLES, ROLE_ORDER } from '../config/staff';
 import { currentDay } from '../sim/core';
+import { adultCount } from '../sim/queries';
 import { fmtMoney, fmtSigned, levelDef, nextLevelDef, sumExpense, sumIncome, today } from '../sim/economy';
 import { season } from '../sim/seasons';
 import type { GameState } from '../sim/types';
@@ -184,13 +185,16 @@ export function RankingPanel() {
           {rows.map((r, i) => {
             const mine = r.name.toLowerCase() === me;
             const there = r.name.toLowerCase() === here;
+            // sa propre ferme : les chiffres du moment, ceux du tableau de bord (le serveur peut avoir une minute de retard)
+            const live = mine && !game.visiting;
+            const birds = live ? adultCount(game.state) : r.hens;
             return (
               <li key={r.name} class={`${mine ? 'mine' : ''} ${there ? 'there' : ''}`}>
                 <span class="rk">{medal(i)}</span>
                 <div class="rk-name">
                   <b>{r.name}</b>
                   <small>
-                    {r.hens.toLocaleString('fr-FR')} volaille{r.hens > 1 ? 's' : ''} · jour {r.game_day}
+                    {birds.toLocaleString('fr-FR')} volaille{birds > 1 ? 's' : ''} adulte{birds > 1 ? 's' : ''} · jour {live ? currentDay(game.state) : r.game_day}
                     {mine ? ' · vous' : ''}
                   </small>
                 </div>
@@ -357,8 +361,8 @@ export function VisitStats() {
           <h6>Sa force</h6>
           <div class="vs-grid">
             <div>
-              <span>Volailles</span>
-              <b>{s.hens.length.toLocaleString('fr-FR')}</b>
+              <span>Volailles adultes</span>
+              <b>{adults.length.toLocaleString('fr-FR')}</b>
             </div>
             <div>
               <span>Employés</span>

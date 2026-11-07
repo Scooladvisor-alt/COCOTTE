@@ -3,7 +3,7 @@
 import { COMPOST, FRESHNESS, GRADE_RANK, RARE, TIME, XP, clamp, gradeOf } from '../config/balance';
 import { BREEDS } from '../config/breeds';
 import { currentDay, emit, newId, buildingCenter, notify } from './core';
-import { addXp, earn, fmtMoney, today } from './economy';
+import { addXp, fmtMoney, today } from './economy';
 import { getBuilding, lvl, storage, storageFree } from './queries';
 import type { BreedId, Building, EggType, GameState, Grade, Hen, WorldEgg } from './types';
 import { fertilize } from './breeding';
@@ -66,12 +66,11 @@ export function layEgg(s: GameState, h: Hen, nest: Building | null): WorldEgg {
 /** Ajoute des œufs au stockage (fusion par type / catégorie / jour / fécondation). Retourne le nombre réellement stocké. */
 export function addToStorage(s: GameState, type: EggType, grade: Grade, freshness: number, count: number, fertile?: BreedId, genes?: string): number {
   if (type === 'phenix') {
-    // le collectionneur guette ces œufs : il l'achète à l'instant où on le ramasse
+    // il ne s'abîme pas et ne prend pas de place : il attend dans la réserve qu'on le vende au collectionneur
+    s.legendEggs = (s.legendEggs ?? 0) + count;
     s.stats.phoenixEggs = (s.stats.phoenixEggs ?? 0) + count;
-    const amount = RARE.phoenixEggPrice * count;
-    earn(s, amount, 'reventes', count > 1 ? `${count} œufs légendaires (collectionneur)` : 'Œuf légendaire (collectionneur)');
     addXp(s, 25 * count);
-    notify(s, `Un œuf légendaire ! Le collectionneur accourt et vous l’achète ${fmtMoney(amount)} !`, 'good', '✨');
+    notify(s, `${count > 1 ? `${count} œufs légendaires ramassés` : 'Un œuf légendaire ramassé'} ! Il vous attend dans l’onglet Vente : le collectionneur le paie ${fmtMoney(RARE.phoenixEggPrice)}.`, 'good', '✨');
     return count;
   }
   if (type === 'or') {

@@ -287,6 +287,10 @@ export interface Robot {
   /** Œufs ramassés depuis l'achat. */
   total: number;
   boughtDay: number;
+  /** Robot amélioré (niveau 2). */
+  level?: 2;
+  /** Cueillette en cours : avancement (s), durée, œuf visé, et s'il est déjà dans la ventouse. */
+  pick?: { t: number; dur: number; eggId: number; type: EggType; grabbed: boolean };
 }
 
 /** Chien de garde. */
@@ -728,6 +732,8 @@ export interface GameState {
   deliveries: Delivery[];
   /** Œufs d'or en réserve (ils ne vont pas au stockage : on les vend au collectionneur). */
   goldEggs?: number;
+  /** Œufs légendaires en réserve, en attendant qu'on les vende au collectionneur. */
+  legendEggs?: number;
   dog: GuardDog | null;
   /** Concours agricole : catégorie, inscription, palmarès. */
   show: ShowState;

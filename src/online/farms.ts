@@ -6,6 +6,7 @@ import { serialize } from '../save/save';
 import { farmLevel } from '../sim/economy';
 import { currentDay } from '../sim/core';
 import { isLayer, productivity } from '../sim/hens';
+import { adultCount } from '../sim/queries';
 import type { GameState } from '../sim/types';
 
 // La clé « publishable » est faite pour être publique : la sécurité est dans la base.
@@ -143,7 +144,8 @@ export function farmStats(s: GameState) {
   const layers = s.hens.filter(isLayer);
   const laying = layers.length ? layers.reduce((a, h) => a + productivity(h), 0) / layers.length : 0;
   const wellbeing = s.hens.length ? s.hens.reduce((a, h) => a + h.wellbeing, 0) / s.hens.length : 0;
-  return { level: farmLevel(s), xp: Math.round(s.xp), hens: s.hens.length, laying: Math.round(laying * 1000) / 1000, wellbeing: Math.round(wellbeing * 10) / 10 };
+  // (les volailles adultes, comme sur le tableau de bord : les poussins ne comptent pas)
+  return { level: farmLevel(s), xp: Math.round(s.xp), hens: adultCount(s), laying: Math.round(laying * 1000) / 1000, wellbeing: Math.round(wellbeing * 10) / 10 };
 }
 
 let lastPush = 0;

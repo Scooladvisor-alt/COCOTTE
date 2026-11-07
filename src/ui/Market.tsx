@@ -34,6 +34,7 @@ import {
   goldDemand,
   goldPrice,
   sellGoldEggs,
+  sellLegendEggs,
   setGoldPrice,
 } from '../sim/market';
 import { lvl, stand, storedCount } from '../sim/queries';
@@ -160,6 +161,7 @@ function StandTab() {
         Les villageois passent de {TIME.SHOP_OPEN} h à {TIME.SHOP_CLOSE} h. Prix bas : les œufs partent vite. Prix haut : plus de marge… si les clients suivent.
       </p>
       <div class="price-list" data-tut="prices">
+        {((s.legendEggs ?? 0) > 0 || s.hens.some((h) => h.legendary)) && <LegendEggCard />}
         {(gold > 0 || s.hens.some((h) => h.golden)) && <GoldPriceCard />}
         {types.map((t) => (
           <PriceCard key={t} type={t} />
@@ -260,6 +262,46 @@ function StandCard() {
  * L'œuf d'or exposé sur l'étal : on fixe son prix comme les autres (prix doux : il part vite ; prix
  * fort : il attend l'amateur), ou on le cède tout de suite au collectionneur, moins cher.
  */
+/** Les œufs légendaires ramassés : on les voit, et le collectionneur les achète à leur prix. */
+function LegendEggCard() {
+  const game = useGame();
+  const s = game.state;
+  const n = s.legendEggs ?? 0;
+  const hens = s.hens.filter((h) => h.legendary && !h.young).length;
+  return (
+    <div class="pcard2 gold legend">
+      <img class="pc-egg" src={eggThumb('phenix')} alt="" />
+      <div class="pc-main">
+        <div class="pc-top">
+          <b>Œuf légendaire</b>
+          <span class="tag">Légendaire</span>
+          <small>
+            {n} en réserve · ne s’abîme jamais
+          </small>
+        </div>
+        <small class="pc-foot">
+          {hens ? `La poule légendaire en pond un tous les ${Math.round(1 / RARE.phoenixEggsPerDay)} jours environ.` : 'La poule légendaire n’est plus là.'} Seul le collectionneur peut se les offrir.
+        </small>
+        <div class="row-btns">
+          <Btn small kind="primary" disabled={n <= 0} onClick={() => game.act(() => sellLegendEggs(s, 1), 'coin')}>
+            Vendre un œuf · {fmtMoney(RARE.phoenixEggPrice)}
+          </Btn>
+          {n > 1 && (
+            <Btn small kind="ghost" onClick={() => game.act(() => sellLegendEggs(s), 'coin')}>
+              Tout vendre · {fmtMoney(n * RARE.phoenixEggPrice)}
+            </Btn>
+          )}
+        </div>
+      </div>
+      <div class="pc-price">
+        <b>{fmtMoney(RARE.phoenixEggPrice)}</b>
+        <small>par œuf</small>
+        <span class="mkt">Prix du collectionneur</span>
+      </div>
+    </div>
+  );
+}
+
 function GoldPriceCard() {
   const game = useGame();
   const s = game.state;
@@ -510,7 +552,7 @@ function OrdersTab() {
                 <EggDot type={o.type} /> {o.qty} × {EGG_TYPES[o.type].short} ({o.minGrade === 'extra' ? 'Extra' : 'cat. A min.'}) à {fmtMoney(o.unitPrice)}
               </span>
               <small class={o.deadlineDay - day <= 0 ? 'neg' : ''}>
-                Livrer avant la fin du jour {o.deadlineDay} · stock compatible {have}/{o.qty}
+                Livrée d’elle-même dès que le stock suffit (avant la fin du jour {o.deadlineDay}) · stock compatible {have}/{o.qty}
               </small>
             </div>
             <div class="o-side">
@@ -564,7 +606,7 @@ function ContractsTab() {
   return (
     <>
       <p class="hint">
-        Chaque jour à {TIME.CONTRACT_HOUR} h, les œufs prévus sont prélevés automatiquement dans le stock (ou plus tôt avec « Livrer aujourd’hui »). Œufs manquants = pénalité et perte de réputation. Un contrat peut être résilié
+        Chaque jour, les œufs prévus partent d’eux-mêmes dès qu’ils sont en stock ; à {TIME.CONTRACT_HOUR} h, ce qui manque est compté. Œufs manquants = pénalité et perte de réputation. Un contrat peut être résilié
         contre une journée de pénalité. Contrats simultanés : {maxContracts(s)} (un de plus tous les deux niveaux après le niveau 10).
       </p>
       <h5>Actifs ({active.length})</h5>

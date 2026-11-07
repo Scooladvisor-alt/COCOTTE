@@ -22,7 +22,7 @@ import { dogUpkeep, updateDog } from './dog';
 import { updateVaults } from './vault';
 import { updateDeliveries } from './actions';
 import { petSellerWage, petShopHourly, updateBirdLoad, updatePetCustomers } from './petshop';
-import { autoWholesale, checkOrdersReady, deliverContracts, marketNewDay, updateCustomers } from './market';
+import { autoDeliverEggs, autoWholesale, checkOrdersReady, deliverContracts, marketNewDay, updateCustomers } from './market';
 import { checkMissions } from './progression';
 import { dailyWages, hasRole, onDuty, resetWorkersDay, separateBodies, updateWorkers, workerSkillsHourly } from './workers';
 import { ROLES, STAFF } from '../config/staff';
@@ -194,6 +194,8 @@ export function step(s: GameState, dt: number) {
     deliverContracts(s);
   }
 
+  // commandes et contrats : livrés dès que le stock le permet
+  autoDeliverEggs(s);
   updatePredators(s, dt);
   updateHens(s, dt);
   updateWorkers(s, dt);

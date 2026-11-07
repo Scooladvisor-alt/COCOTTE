@@ -26,7 +26,8 @@ const fail = (reason: string): ActionResult => ({ ok: false, reason });
  * et où qu'ils soient sur le terrain. Seuls restent à part les jeunes et les deux trésors de la ferme (poule
  * d'or et poule légendaire). Les coqs noirs ne partent qu'avec les revendeurs, à leur vraie valeur.
  */
-export const sellable = (h: Hen) => !h.young && !h.golden && !h.legendary && !h.ship && h.act !== 'caught';
+// (un jeune coq ou un jeune jars, lui, peut partir avant d'être adulte)
+export const sellable = (h: Hen) => (!h.young || !!h.rooster) && !h.golden && !h.legendary && !h.ship && h.act !== 'caught';
 
 export const petShopOf = (s: GameState) => s.buildings.find((b) => b.type === 'petshop');
 /** Nom d'une volaille, jamais l'un pour l'autre : une oie n'est pas une poule. */
@@ -217,7 +218,7 @@ export function spareOf(s: GameState, t: SellTarget): Hen[] {
   const list = s.hens.filter((h) => isTarget(t)(h) && sellable(h) && !isRareBird(h)).sort(weakestFirst);
   if (t.male) {
     // il laisse toujours un mâle de l'espèce à la ferme : le meilleur, puisque les moins bons partent d'abord
-    const males = s.hens.filter((h) => h.rooster && !h.young && !h.black && isGoose(h.breed) === goose).length;
+    const males = s.hens.filter((h) => h.rooster && !h.black && isGoose(h.breed) === goose).length;
     return males > list.length ? list : list.slice(0, Math.max(0, males - 1));
   }
   const flock = s.hens.filter((h) => isGoose(h.breed) === goose && !h.young && !h.rooster).length;

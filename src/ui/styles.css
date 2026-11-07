@@ -8282,3 +8282,67 @@ body {
     height: 19px;
   }
 }
+
+/* Téléphone à l'horizontale : le tableau de bord tout à gauche, le menu tout à droite (l'encoche n'occupe
+   que le milieu du bord : on ne garde qu'une petite marge), des notifications discrètes. */
+@media (orientation: landscape) and (max-height: 540px) {
+  :root {
+    --sl: max(4px, calc(env(safe-area-inset-left) - 34px));
+    --sr: max(4px, calc(env(safe-area-inset-right) - 34px));
+  }
+  .left-panel {
+    top: 4px;
+    left: var(--sl);
+  }
+  .dock {
+    top: 4px;
+    right: var(--sr);
+    bottom: max(4px, calc(env(safe-area-inset-bottom) - 12px));
+  }
+  .top-right {
+    top: 4px;
+    right: calc(var(--sr) + 50px);
+  }
+  .inspector {
+    top: 4px !important;
+    right: calc(var(--sr) + 50px) !important;
+  }
+  /* notifications : une petite pastille d'une ligne, en bas au centre */
+  .toasts {
+    --toast-w: 290px;
+    --toast-h: 34px;
+    bottom: max(6px, calc(env(safe-area-inset-bottom) - 10px));
+  }
+  .toast {
+    padding: 4px 10px 4px 5px;
+    gap: 7px;
+    border-radius: 11px;
+    opacity: 0.93;
+  }
+  .toast-ic {
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+    font-size: 12px;
+  }
+  .toast-ic svg {
+    width: 13px;
+    height: 13px;
+  }
+  .toast-txt b {
+    font-size: 11.5px;
+    -webkit-line-clamp: 1;
+  }
+  .toast-txt span {
+    display: none;
+  }
+  .toast-side small,
+  .toast-n {
+    font-size: 10px;
+  }
+  .toast-act {
+    padding: 3px 8px !important;
+    font-size: 11px !important;
+  }
+}
+

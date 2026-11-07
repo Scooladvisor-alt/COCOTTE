@@ -431,7 +431,26 @@ export class FarmRenderer {
     this.scene.add(this.ghostTiles);
 
     this.resize();
-    // téléphones : on part directement d'un cran au-dessous
+    // L'image suit toujours la vraie taille de l'écran. Sur iPhone, quand on tourne le téléphone, l'événement
+    // « resize » arrive avant que l'écran ait fini de tourner : on recalculait alors l'image aux dimensions du
+    // portrait, puis le navigateur l'étirait en paysage (tout paraissait déformé). On surveille donc la taille
+    // réelle du conteneur, et on la revérifie après chaque rotation.
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(() => this.resize()).observe(this.container);
+    const later = () => {
+      for (const ms of [60, 250, 600, 1200]) window.setTimeout(() => this.resize(), ms);
+    };
+    window.addEventListener('orientationchange', later);
+    window.visualViewport?.addEventListener('resize', later);
+    document.addEventListener('visibilitychange', later);
+  }
+
+  /** Revérifie de temps en temps que l'image a bien la taille de l'écran (sinon, elle serait étirée). */
+  private sizeCheck = 0;
+  private checkSize() {
+    if (++this.sizeCheck % 15 !== 0) return;
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight;
+    if (w > 0 && h > 0 && (Math.abs(w - this.width) > 1 || Math.abs(h - this.height) > 1)) this.resize();
   }
 
   // --------------------------------------------------------- Décor fixe ----
@@ -2569,6 +2588,7 @@ export class FarmRenderer {
 
   // ------------------------------------------------------------ Images ----
   update(s: GameState, dt: number) {
+    this.checkSize();
     LEGEND_TIME.value = this.time;
     this.hall?.tick(((s.clock.t % TIME.DAY) / TIME.DAY) * 24, this.time);
     this.time += dt;

@@ -11,7 +11,7 @@ export function makeBuilding(id: number, type: BuildingType, x: number, z: numbe
     level: 1,
     x,
     z,
-    stock: type === 'feeder' || type === 'drinker' || type === 'pond' ? lvl.capacity : type === 'compost' ? lvl.capacity * 0.5 : 0,
+    stock: type === 'feeder' || type === 'drinker' || type === 'pond' || type === 'fountain' ? lvl.capacity : type === 'compost' || type === 'meadow' ? lvl.capacity * 0.5 : 0,
     cleanliness: 100,
     closed: false,
     eggIds: [],

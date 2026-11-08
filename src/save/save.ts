@@ -252,6 +252,7 @@ export function sanitize(input: unknown): GameState | null {
     }
     nb.eggIds = [];
     if (type === 'incubator' && typeof b.hostId === 'number') nb.hostId = b.hostId;
+    if (type === 'nursery' && bool(b.letOut, false)) nb.letOut = true;
     if (type === 'incubator' || type === 'gooseincubator') {
       nb.auto = bool(b.auto, true);
       nb.hatch = arr(b.hatch)
@@ -573,7 +574,7 @@ export function sanitize(input: unknown): GameState | null {
       tz: 0,
       path: [],
       total: int(r.total, 0, 0),
-      ...(r.level === 2 ? { level: 2 as const } : {}),
+      ...(r.level === 2 || r.level === 3 ? { level: r.level as 2 | 3 } : {}),
       ...(typeof r.dock === 'number' ? { dock: int(r.dock, 0, 0, 500) } : {}),
       boughtDay: int(r.boughtDay, 1),
     });

@@ -25,7 +25,7 @@ import { BREEDS, HEN_NAMES, ROOSTER_NAMES, pickSkin, GANDER_NAMES, GOOSE_NAMES, 
 import { sizeOf } from '../config/buildings';
 import { STAFF } from '../config/staff';
 import { recordUse, takeGrain, takeWater } from './stocks';
-import { NURSERY_REACH, NURSERY_RING, nurseryCrowding, nurseryPlan, readyToLeave } from './nursery';
+import { NURSERY_REACH, NURSERY_RING, nurseryCrowding, nurseryPlan, readyToLeave, surplusChick } from './nursery';
 import { GATE, buildingCenter, canStand, coopDoor, crossesFence, facadeHeading, frontOf, toLocal, toWorld, exitSide, cellIndex, currentHour, distanceTo, emit, inGrid, isNightHour, flowField, isWalkable, lineClear, newId, planPath, nearestWalkable, notify, parcelCenter, parcelCoords, parcelKeyOfCell, parcelOrigin, pick, rand, randRange, rt, sameArea, isShelter, isShelterType } from './core';
 import { fmtMoney } from './economy';
 import { nearestTree, parcelPerks, perksAt } from './perks';
@@ -33,7 +33,7 @@ import { layEgg } from './eggs';
 import { threatNear } from './predators';
 import { eatGrass, grassAt, parcelGrass } from './grass';
 import { buildingsOf, getBuilding, homeForYoung, landCapacity, lvl, nestFree } from './queries';
-import type { BreedId, Building, GameState, Genes, Hen, HenAct } from './types';
+import type { BreedId, Building, BuildingType, GameState, Genes, Hen, HenAct } from './types';
 import { beautyValue, frailty, layingGene, shopGenes } from './genetics';
 import { season } from './seasons';
 import { feedLayout } from './feeding';
@@ -717,12 +717,13 @@ function computeSeparation(s: GameState) {
           r.sepZ += (oz / d) * k;
         }
       }
+    // (elles gardent leurs distances avec les robots et le chien : jamais contre leur carrosserie)
     for (const rb of s.dog ? [...s.robots, s.dog] : s.robots) {
       const ox = h.x - rb.x;
       const oz = h.z - rb.z;
       const d = Math.hypot(ox, oz);
-      if (d < 0.6 && d > 1e-4) {
-        const k = (1 - d / 0.6) * 1.4;
+      if (d < 0.8 && d > 1e-4) {
+        const k = (1 - d / 0.8) * 2;
         r.sepX += (ox / d) * k;
         r.sepZ += (oz / d) * k;
       }
@@ -870,6 +871,18 @@ function computeSlotSpots(s: GameState, b: Building): Array<[number, number]> {
       const x = c.x + Math.sin(a) * rad;
       const z = c.z + Math.cos(a) * rad;
       if (canStand(s, x, z, 0.12) && !out.some(([ox, oz]) => Math.hypot(ox - x, oz - z) < 0.4)) out.push([x, z]);
+    }
+    return out;
+  }
+  if (b.type === 'meadow') {
+    // dans les herbes hautes : des places réparties sur toute la prairie
+    const n = L.slots ?? 6;
+    const { w, d } = sizeOf(b.type, b.level, b.rot);
+    const out: Array<[number, number]> = [];
+    for (let i = 0; i < n * 4 && out.length < n; i++) {
+      const x = b.x + 0.55 + (((i * 0.618034) % 1) * (w - 1.1));
+      const z = b.z + 0.55 + (((i * 0.381966 + 0.21) % 1) * (d - 1.1));
+      if (canStand(s, x, z, 0.12) && !out.some(([ox, oz]) => Math.hypot(ox - x, oz - z) < 0.6)) out.push([x, z]);
     }
     return out;
   }
@@ -1217,8 +1230,8 @@ function findFeeder(s: GameState, h: Hen) {
   return nearest(s, h, buildingsOf(s, 'feeder').filter((b) => b.stock >= 0.05));
 }
 function findDrinker(s: GameState, h: Hen) {
-  // abreuvoirs et mares : la poule va au point d'eau le plus proche
-  return nearest(s, h, [...buildingsOf(s, 'drinker'), ...buildingsOf(s, 'pond')].filter((b) => b.stock >= 0.05));
+  // abreuvoirs, mares et fontaines : la poule va au point d'eau le plus proche
+  return nearest(s, h, [...buildingsOf(s, 'drinker'), ...buildingsOf(s, 'pond'), ...buildingsOf(s, 'fountain')].filter((b) => b.stock >= 0.05));
 }
 function findNest(s: GameState, h: Hen) {
   const nests = buildingsOf(s, 'nest').filter((b) => nestFree(b) - nesting(s, b) > 0 && slotsFree(s, b) > 0);
@@ -1250,7 +1263,7 @@ function goTo(s: GameState, h: Hen, act: HenAct, b: Building) {
 /** Toutes les places sont prises : la poule patiente à côté. */
 function waitNear(s: GameState, h: Hen, b: Building) {
   // mangeoire ou abreuvoir complet : sans urgence, elle va gratter un peu plus loin et reviendra
-  if ((b.type === 'feeder' || b.type === 'drinker' || b.type === 'pond') && h.satiety > 12 && h.hydration > 12) {
+  if ((b.type === 'feeder' || b.type === 'drinker' || b.type === 'pond' || b.type === 'fountain') && h.satiety > 12 && h.hydration > 12) {
     const t = pickForageTarget(s, h, 3, true);
     if (t) return startWalk(h, t[0], t[1]);
   }
@@ -1287,6 +1300,8 @@ function leaveFeeder(s: GameState, h: Hen, b: Building | undefined, night: boole
 /** Activités au pied d'un bâtiment : en repartant, la poule regagne volontiers son coin de pré. */
 const AT_BUILDING = new Set<HenAct>(['eat', 'drink', 'lay', 'bathe', 'worms', 'exit', 'wait']);
 
+/** Lieux où l'on flâne volontiers (pas des bâtiments qu'on quitte). */
+const CALM_SPOTS = new Set<BuildingType>(['fountain', 'flowerbed', 'scarecrow', 'forest', 'meadow', 'garden']);
 /** Au pied d'un bâtiment (poulailler, mangeoire…) ; l'ombre d'un arbre ou la mare ne comptent pas. */
 function besideBuilding(s: GameState, x: number, z: number) {
   const occ = rt(s).occupant;
@@ -1298,7 +1313,8 @@ function besideBuilding(s: GameState, x: number, z: number) {
       const id = occ[cellIndex(cx + dx, cz + dz)];
       if (id < 0) continue;
       const b = getBuilding(s, id);
-      if (b && b.type !== 'tree' && b.type !== 'bush' && b.type !== 'pond') return true;
+      // (les biomes et les décorations ne sont pas des bâtiments qu'on fuit : on s'y promène)
+      if (b && b.type !== 'tree' && b.type !== 'bush' && b.type !== 'pond' && !CALM_SPOTS.has(b.type)) return true;
     }
   return false;
 }
@@ -1374,7 +1390,8 @@ function decide(s: GameState, h: Hen, night: boolean) {
   }
   // envie de protéines : un tour au compost pour gratter vers et insectes
   if ((h.protein ?? 0) < COMPOST.seekBelow && rand(s) < COMPOST.seekChance) {
-    const heaps = buildingsOf(s, 'compost').filter((b) => b.stock >= 1 && slotsFree(s, b) > 0);
+    // (le compost, ou la prairie aux insectes)
+    const heaps = [...buildingsOf(s, 'compost'), ...buildingsOf(s, 'meadow')].filter((b) => b.stock >= 1 && slotsFree(s, b) > 0);
     const c = nearest(s, h, heaps);
     if (c && distanceTo(s, c, h.x, h.z) < 18) return goTo(s, h, 'goCompost', c);
   }
@@ -1676,6 +1693,42 @@ function endFight(s: GameState, a: Hen, b: Hen) {
 /** Une poule qu'on peut bousculer (elle n'est ni à table, ni au nid, ni dans un bâtiment). */
 export function henMovable(h: Hen) {
   return !ANCHORED.has(h.act);
+}
+
+/**
+ * Un robot arrive droit sur elle : la poule s'écarte vivement de sa route, du côté où elle se
+ * trouve (ou de l'autre si la place manque). Une poule occupée (qui mange, boit, pond, couve…)
+ * ne bouge pas : c'est au robot de la contourner. Renvoie vrai si elle s'écarte.
+ */
+export function stepAside(s: GameState, h: Hen, rx: number, rz: number, heading: number) {
+  if (h.nursery || !SCARED.has(h.act) || ANCHORED.has(h.act)) return false;
+  if (h.act === 'flee') return true;
+  const fx = Math.sin(heading);
+  const fz = Math.cos(heading);
+  // côté de la poule par rapport à la route du robot
+  const side = (h.x - rx) * fz - (h.z - rz) * fx >= 0 ? 1 : -1;
+  for (const [sgn, d, ahead] of [
+    [side, 0.95, 0.35],
+    [side, 1.25, 0],
+    [side, 0.8, 0.8],
+    [-side, 1.1, 0.4],
+  ] as const) {
+    const tx = h.x + fz * sgn * d + fx * ahead;
+    const tz = h.z - fx * sgn * d + fz * ahead;
+    if (canStand(s, tx, tz, 0.14) && lineClear(s, h.x, h.z, tx, tz, 0.12)) {
+      const r = rtHen(h);
+      if (rand(s) < 0.15) emit(s, { kind: 'cluck', henId: h.id });
+      h.act = 'flee';
+      h.tx = tx;
+      h.tz = tz;
+      h.actT = 1.1;
+      h.targetId = -1;
+      r.slot = -1;
+      r.pathKey = -1;
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Panique : la poule détale à l'opposé du prédateur, en évitant les obstacles. */
@@ -2075,8 +2128,9 @@ function nurseryDecide(s: GameState, h: Hen, r: HenRt, b: Building, night: boole
   r.slot = -1;
   // la nuit, tout le monde au chaud
   if (night) return nurseryToDoor(s, h, r, b);
-  // assez grand : direction le portillon, puis le troupeau
-  if (readyToLeave(h)) {
+  // assez grand (ou en trop, si l'on a choisi de laisser sortir l'excédent) : direction le
+  // portillon, puis le troupeau
+  if (readyToLeave(h) || surplusChick(s, b, h)) {
     const [x, z] = toWorld(b, plan.gate[0] + randRange(s, -0.1, 0.1), plan.park.z1);
     return nurseryWalk(h, r, 'gate', x, z);
   }

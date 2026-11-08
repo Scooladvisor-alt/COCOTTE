@@ -724,6 +724,17 @@ export const ROBOT = {
   speed2: 1.75,
   capacity2: 36,
   pickTime2: 0.5,
+  /** Niveau 3 : il fonce à travers les œufs et les avale au vol, plusieurs à la fois, sans s'arrêter. */
+  upgradePrice3: 8000000,
+  speed3: 2.3,
+  capacity3: 60,
+  pickTime3: 0.25,
+  /** Gabarit du robot (pour ne jamais toucher une poule) : demi-largeur, avant (brosses comprises), arrière. */
+  halfWidth: 0.27,
+  front: 0.42,
+  back: 0.25,
+  /** Distance gardée aux murs et aux grillages en roulant. */
+  clearance: 0.26,
   drainPerHour: 8,
   chargePerHour: 45,
   lowBattery: 18,
@@ -844,6 +855,19 @@ export const NATURE = {
   dustSick: [1, 0.5, 0.3, 0.2],
   /** La pluie remplit les mares : multiplicateur selon la saison (printemps, été, automne, hiver). */
   rainBySeason: [1.25, 0.45, 1.35, 0.8],
+  /** Fontaine : soif en moins sur sa parcelle, et réputation gagnée chaque jour. */
+  fountainThirst: 0.12,
+  fountainPrestige: 0.6,
+  /** Jardin fleuri : réputation gagnée chaque jour. */
+  gardenPrestige: 0.4,
+  /** Réputation par jour due à la décoration, au plus. */
+  prestigeMax: 2,
+  /** Massifs de fleurs qui comptent sur une même parcelle. */
+  flowerbedMax: 3,
+  /** Bien-être apporté par la décoration sur une parcelle, au plus. */
+  decoMax: 20,
+  /** Autour d'un épouvantail, aucune buse ne pique. */
+  scarecrowRadius: 6,
 };
 
 /**

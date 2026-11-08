@@ -454,6 +454,18 @@ export function checkBuild(s: GameState, type: BuildingType): ActionResult {
   return OK;
 }
 
+/**
+ * Poussinière : laisser sortir l'excédent (les poussins au-delà de sa capacité rejoignent les poules,
+ * au lieu de rester à se marcher dessus), ou les garder tous à l'abri.
+ */
+export function setNurseryLetOut(s: GameState, id: number, on: boolean): ActionResult {
+  const b = getBuilding(s, id);
+  if (!b || b.type !== 'nursery') return fail('Poussinière introuvable');
+  if (on) b.letOut = true;
+  else delete b.letOut;
+  return OK;
+}
+
 /** Achète une couveuse et l'installe dans une poussinière (celle demandée, ou la moins équipée). */
 export function installIncubator(s: GameState, nurseryId?: number): ActionResult {
   const chk = checkBuild(s, 'incubator');

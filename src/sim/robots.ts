@@ -5,27 +5,123 @@
 // toujours les places les plus proches du stockage. Ils restent à l'intérieur des clôtures.
 import { HOUR, ROBOT, TIME, gradeOf } from '../config/balance';
 import { BUILDINGS, sizeOf } from '../config/buildings';
-import { buildingCenter, canStand, crossesFence, emit, newId, notify, planPath, currentDay, rt, toWorld } from './core';
-import { henMovable } from './hens';
+import { buildingCenter, canStand, crossesFence, emit, lineClear, newId, notify, planPath, currentDay, rt, toWorld } from './core';
+import { stepAside } from './hens';
 import { addXp, earn, fmtMoney, spend } from './economy';
 import { addToStorage, removeWorldEgg } from './eggs';
 import { storage } from './queries';
-import type { ActionResult, GameState, Robot } from './types';
+import type { ActionResult, GameState, Hen, Robot } from './types';
 
 export const hopperCount = (r: Robot) => r.hopper.reduce((a, l) => a + l.count, 0);
-export const robotCapacity = (r: Robot) => (r.level === 2 ? ROBOT.capacity2 : ROBOT.capacity);
-const robotSpeed = (r: Robot) => (r.level === 2 ? ROBOT.speed2 : ROBOT.speed);
-const pickTime = (r: Robot) => (r.level === 2 ? ROBOT.pickTime2 : ROBOT.pickTime);
+export const robotLevel = (r: Robot) => r.level ?? 1;
+export const robotCapacity = (r: Robot) => (r.level === 3 ? ROBOT.capacity3 : r.level === 2 ? ROBOT.capacity2 : ROBOT.capacity);
+const robotSpeed = (r: Robot) => (r.level === 3 ? ROBOT.speed3 : r.level === 2 ? ROBOT.speed2 : ROBOT.speed);
+const pickTime = (r: Robot) => (r.level === 3 ? ROBOT.pickTime3 : r.level === 2 ? ROBOT.pickTime2 : ROBOT.pickTime);
+/** Prix de l'amélioration suivante (null au niveau 3). */
+export const nextUpgradePrice = (r: Robot) => (r.level === 3 ? null : r.level === 2 ? ROBOT.upgradePrice3 : ROBOT.upgradePrice);
 
-/** Niveau 2 : plus rapide, plus fluide, un plus grand plateau. */
+/**
+ * Niveau 2 : plus rapide, plus fluide, un plus grand plateau. Niveau 3 (après le 2) : il fonce à
+ * travers les œufs et les avale au vol, plusieurs à la fois, quasiment sans jamais s'arrêter.
+ */
 export function upgradeRobot(s: GameState, id: number): ActionResult {
   const r = s.robots.find((x) => x.id === id);
   if (!r) return { ok: false, reason: 'Robot introuvable' };
-  if (r.level === 2) return { ok: false, reason: 'Déjà amélioré' };
-  if (!spend(s, ROBOT.upgradePrice, 'constructions', 'Robot ramasseur : niveau 2')) return { ok: false, reason: 'Fonds insuffisants' };
-  r.level = 2;
-  notify(s, 'Robot amélioré : il file droit vers les œufs, sans manœuvres inutiles, et avale les œufs deux fois plus vite.', 'good', '🤖');
+  const price = nextUpgradePrice(r);
+  if (price === null) return { ok: false, reason: 'Déjà au niveau maximum' };
+  const next = r.level === 2 ? 3 : 2;
+  if (!spend(s, price, 'constructions', `Robot ramasseur : niveau ${next}`)) return { ok: false, reason: 'Fonds insuffisants' };
+  r.level = next;
+  notify(
+    s,
+    next === 3
+      ? 'Robot au niveau 3 : il fonce à travers les œufs et les avale tous au vol, plusieurs à la fois, sans s’arrêter.'
+      : 'Robot amélioré : il file droit vers les œufs, sans manœuvres inutiles, et avale les œufs deux fois plus vite.',
+    'good',
+    '🤖',
+  );
   return { ok: true };
+}
+
+/** Une poule contre sa carrosserie s'il se trouvait en (x, z), cap `heading` (et devant lui) ? */
+function henInTheWay(s: GameState, x: number, z: number, heading: number): Hen | null {
+  const fx = Math.sin(heading);
+  const fz = Math.cos(heading);
+  const R = 0.15;
+  for (const h of s.hens) {
+    if (h.nursery || h.act === 'sleep' || h.act === 'enter' || h.act === 'exit') continue;
+    const dx = h.x - x;
+    const dz = h.z - z;
+    if (dx * dx + dz * dz > 1) continue;
+    const ahead = dx * fx + dz * fz;
+    const side = dx * fz - dz * fx;
+    // (seule une poule devant le gêne : il ne recule jamais dans une poule restée à côté)
+    if (ahead > 0 && ahead < ROBOT.front + R && Math.abs(side) < ROBOT.halfWidth + R) return h;
+  }
+  return null;
+}
+
+/**
+ * Niveau 3 : il fonce droit dans l'œuf. Il le vise en ligne droite sur la fin (au moins 0,6 case),
+ * pour que l'œuf passe pile dans sa bouche, puis continue sa route.
+ */
+function rush(s: GameState, r: Robot, e: { id: number; x: number; z: number }) {
+  // (son centre passe juste avant l'œuf : la bouche l'a avalé avant qu'il ne roule dessus, et il
+  // n'a pas besoin de place au ras d'un mur ou d'un grillage)
+  const set = (path: number[]) => {
+    r.task = 'egg';
+    r.target = e.id;
+    r.tx = path[path.length - 2];
+    r.tz = path[path.length - 1];
+    r.path = path;
+    return true;
+  };
+  const base = Math.atan2(e.x - r.x, e.z - r.z);
+  for (const k of [0, 0.6, -0.6, 1.2, -1.2, Math.PI]) {
+    const ux = Math.sin(base + k);
+    const uz = Math.cos(base + k);
+    const sx = e.x - ux * 0.22;
+    const sz = e.z - uz * 0.22;
+    const wx = e.x - ux * 0.7;
+    const wz = e.z - uz * 0.7;
+    if (!canStand(s, sx, sz, ROBOT.clearance) || !canStand(s, wx, wz, ROBOT.clearance) || !lineClear(s, wx, wz, sx, sz, ROBOT.clearance * 0.8)) continue;
+    const ox = e.x + ux * 0.4;
+    const oz = e.z + uz * 0.4;
+    const past = canStand(s, ox, oz, ROBOT.clearance) && lineClear(s, sx, sz, ox, oz, ROBOT.clearance * 0.8);
+    // déjà dans l'axe : droit dessus
+    const ahead = (e.x - r.x) * Math.sin(r.heading) + (e.z - r.z) * Math.cos(r.heading);
+    if (k === 0 && ahead > 0.5 && Math.abs(Math.atan2(Math.sin(base - r.heading), Math.cos(base - r.heading))) < 0.2 && lineClear(s, r.x, r.z, sx, sz, ROBOT.clearance * 0.8)) return set([sx, sz, ...(past ? [ox, oz] : [])]);
+    const p1 = planPath(s, r.x, r.z, wx, wz, ROBOT.clearance, 'hen');
+    if (!p1) continue;
+    return set([...p1, sx, sz, ...(past ? [ox, oz] : [])]);
+  }
+  return false;
+}
+
+/** Bloqué par une poule depuis combien de temps (s). */
+const blockedT = new WeakMap<Robot, number>();
+
+/** Une poule occupée lui barre la route : il la contourne par le côté libre (null s'il ne peut pas). */
+function detour(s: GameState, r: Robot, h: Hen) {
+  const fx = Math.sin(r.heading);
+  const fz = Math.cos(r.heading);
+  const side = (h.x - r.x) * fz - (h.z - r.z) * fx >= 0 ? -1 : 1;
+  for (const sgn of [side, -side])
+    for (const [d, ahead] of [
+      [0.75, 0.55],
+      [0.95, 0.2],
+      [0.7, 0.9],
+    ]) {
+      const wx = r.x + fz * sgn * d + fx * ahead;
+      const wz = r.z - fx * sgn * d + fz * ahead;
+      if (!canStand(s, wx, wz, ROBOT.clearance) || !lineClear(s, r.x, r.z, wx, wz, ROBOT.clearance * 0.8)) continue;
+      if (Math.hypot(wx - h.x, wz - h.z) < ROBOT.halfWidth + 0.2) continue;
+      const rest = planPath(s, wx, wz, r.tx, r.tz, ROBOT.clearance, 'hen');
+      if (!rest) continue;
+      r.path = [wx, wz, ...rest];
+      return true;
+    }
+  return false;
 }
 
 /** Une borne : où le robot se gare pour charger, et la direction du stockage vers lui. */
@@ -155,6 +251,9 @@ function pick(s: GameState, r: Robot, eggId: number) {
   if (hopperCount(r) >= robotCapacity(r)) return false;
   const e = s.worldEggs.find((x) => x.id === eggId);
   if (!e) return false;
+  // (le rendu le fait entrer dans la bouche, même si tout s'est joué entre deux images)
+  (r.gulped ??= []).push([e.id, s.clock.t, e.where === 'nest' ? e.nestId ?? -1 : -1]);
+  if (r.gulped.length > 12) r.gulped.splice(0, r.gulped.length - 12);
   removeWorldEgg(s, e);
   const grade = gradeOf(e.quality);
   const lot = r.hopper.find((l) => l.type === e.type && l.grade === grade && l.fertile === e.fertile && l.genes === e.genes);
@@ -183,7 +282,8 @@ function unload(s: GameState, r: Robot) {
 }
 
 function go(s: GameState, r: Robot, task: Robot['task'], target: number, tx: number, tz: number) {
-  const path = planPath(s, r.x, r.z, tx, tz, 0.2, 'hen');
+  // (il garde ses distances avec les murs et les grillages : sa carrosserie ne les touche jamais)
+  const path = planPath(s, r.x, r.z, tx, tz, ROBOT.clearance, 'hen');
   if (!path) return false;
   r.task = task;
   r.target = target;
@@ -202,13 +302,26 @@ function plan(s: GameState, r: Robot) {
   const taken = new Set(s.robots.filter((o) => o !== r).map((o) => `${o.task}:${o.target}`));
   const dist = (x: number, z: number) => Math.hypot(x - r.x, z - r.z);
   if (n < robotCapacity(r)) {
-    const eggs = s.worldEggs.filter((e) => e.where === 'ground' && !taken.has(`egg:${e.id}`)).sort((a, b) => dist(a.x, a.z) - dist(b.x, b.z));
+    // niveau 3 : il fonce droit dans l'œuf (sa bouche l'avale au passage), de préférence ceux qui
+    // sont devant lui, pour enchaîner sans freiner
+    const fast = r.level === 3;
+    const cost = (x: number, z: number) => {
+      const d = dist(x, z);
+      if (!fast) return d;
+      let a = Math.atan2(x - r.x, z - r.z) - r.heading;
+      while (a > Math.PI) a -= Math.PI * 2;
+      while (a < -Math.PI) a += Math.PI * 2;
+      return d + Math.abs(a) * 0.9;
+    };
+    const eggs = s.worldEggs.filter((e) => e.where === 'ground' && !taken.has(`egg:${e.id}`)).sort((a, b) => cost(a.x, a.z) - cost(b.x, b.z));
     for (const e of eggs.slice(0, 6)) {
+      if (fast && rush(s, r, e)) return;
       // il s'arrête la bouche devant l'œuf, pour l'avaler (il ne roule jamais dessus)
       const d = Math.max(1e-3, dist(e.x, e.z));
       const back = Math.min(ROBOT.reach, d);
       const [ax, az] = [e.x - ((e.x - r.x) / d) * back, e.z - ((e.z - r.z) / d) * back];
-      if (go(s, r, 'egg', e.id, canStand(s, ax, az, 0.2) ? ax : e.x, canStand(s, ax, az, 0.2) ? az : e.z)) return;
+      const ok = canStand(s, ax, az, ROBOT.clearance);
+      if (go(s, r, 'egg', e.id, ok ? ax : e.x, ok ? az : e.z)) return;
     }
     const nests = s.buildings
       .filter((b) => b.type === 'nest' && b.eggIds.length > 0 && !taken.has(`nest:${b.id}`))
@@ -306,6 +419,7 @@ const thinkT = new WeakMap<Robot, number>();
 export function updateRobots(s: GameState, dt: number) {
   assignDocks(s);
   for (const r of s.robots) {
+    if (r.gulped?.length) r.gulped = r.gulped.filter(([, at]) => s.clock.t - at < 3);
     for (const l of r.hopper) l.freshness = Math.max(1, l.freshness - (9 * dt) / TIME.DAY);
     const [dx, dz] = dockPoint(s, r);
     // il avale un œuf : il ne bouge pas tant que la brosse travaille
@@ -329,15 +443,14 @@ export function updateRobots(s: GameState, dt: number) {
       }
       continue;
     }
-    // la cible a disparu (ramassée par quelqu'un d'autre) : nouvelle tournée
+    // la cible a disparu (ramassée par quelqu'un d'autre, ou avalée au vol) : nouvelle tournée
+    // (le niveau 3 enchaîne aussitôt sur l'œuf suivant, sans marquer d'arrêt)
     const t = (thinkT.get(r) ?? 0) - dt;
     thinkT.set(r, t);
-    if (t <= 0) {
+    const lost = r.task === 'egg' && !s.worldEggs.some((e) => e.id === r.target);
+    if (t <= 0 || (lost && r.level === 3)) {
       thinkT.set(r, 1);
-      const gone =
-        (r.task === 'egg' && !s.worldEggs.some((e) => e.id === r.target)) ||
-        (r.task === 'nest' && !s.buildings.some((b) => b.id === r.target && b.eggIds.length > 0)) ||
-        r.task === 'idle';
+      const gone = lost || (r.task === 'nest' && !s.buildings.some((b) => b.id === r.target && b.eggIds.length > 0)) || r.task === 'idle';
       if (gone) plan(s, r);
     }
     if (!r.path.length) {
@@ -352,10 +465,11 @@ export function updateRobots(s: GameState, dt: number) {
       continue;
     }
     // déplacement. Niveau 1 : il roule doucement et pivote sur place avant chaque virage.
-    // Niveau 2 : il vire en roulant, en ralentissant à peine, et file droit vers sa cible.
-    const smooth = r.level === 2;
+    // Niveaux 2 et 3 : il vire en roulant, en ralentissant à peine, et file droit vers sa cible.
+    const smooth = (r.level ?? 1) >= 2;
     let budget = robotSpeed(r) * dt;
     let turned = false;
+    let blocker: Hen | null = null;
     while (budget > 1e-6 && r.path.length >= 2) {
       const ex = r.path[0] - r.x;
       const ez = r.path[1] - r.z;
@@ -369,39 +483,56 @@ export function updateRobots(s: GameState, dt: number) {
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       if (!turned) {
-        const rate = (smooth ? 7 : 4) * dt;
+        const rate = (r.level === 3 ? 8 : smooth ? 7 : 4) * dt;
         r.heading += Math.max(-rate, Math.min(rate, diff));
         turned = true;
       }
       if (!smooth && Math.abs(diff) > 0.6) break; // il s'oriente avant d'avancer
       if (smooth && Math.abs(diff) > 1.4) budget *= 0.35; // demi-tour : il ralentit dans la courbe
       const step = Math.min(d, budget);
-      r.x += (ex / d) * step;
-      r.z += (ez / d) * step;
+      // une poule devant lui : il ne la touche jamais, il s'arrête (elle s'écarte, ou il la contourne)
+      const nx = r.x + (ex / d) * step;
+      const nz = r.z + (ez / d) * step;
+      blocker = henInTheWay(s, nx, nz, r.heading);
+      if (blocker) break;
+      r.x = nx;
+      r.z = nz;
       budget -= step;
       if (step >= d) r.path.splice(0, 2);
     }
-    r.battery = Math.max(0, r.battery - (ROBOT.drainPerHour * dt) / HOUR);
-    // il écarte doucement les poules sur son passage
-    for (const h of s.hens) {
-      if (!henMovable(h) || h.act === 'sleep') continue;
-      const ex = h.x - r.x;
-      const ez = h.z - r.z;
-      const d = Math.hypot(ex, ez);
-      if (d >= 0.44 || d < 1e-4) continue;
-      const nx = h.x + (ex / d) * (0.44 - d);
-      const nz = h.z + (ez / d) * (0.44 - d);
-      if (canStand(s, nx, nz, 0.1) && !crossesFence(s, h.x, h.z, nx, nz)) {
-        h.x = nx;
-        h.z = nz;
+    if (blocker) {
+      const w = (blockedT.get(r) ?? 0) + dt;
+      blockedT.set(r, w);
+      // elle s'écarte d'elle-même ; occupée (elle mange, boit…), il passe à côté d'elle
+      if (!stepAside(s, blocker, r.x, r.z, r.heading) && w > 0.8 && detour(s, r, blocker)) blockedT.set(r, 0);
+      // trop longtemps coincé : il change de tournée
+      else if (w > 6) {
+        blockedT.set(r, 0);
+        plan(s, r);
       }
+    } else blockedT.set(r, 0);
+    r.battery = Math.max(0, r.battery - (ROBOT.drainPerHour * dt) / HOUR);
+    if (hopperCount(r) >= robotCapacity(r)) continue;
+    if (r.level === 3) {
+      // niveau 3 : tous les œufs qui passent dans sa bouche sont avalés au vol, sans s'arrêter
+      const fx = Math.sin(r.heading);
+      const fz = Math.cos(r.heading);
+      for (const e of s.worldEggs.slice()) {
+        if (e.where !== 'ground') continue;
+        const dx = e.x - r.x;
+        const dz = e.z - r.z;
+        const ahead = dx * fx + dz * fz;
+        // (de l'entrée de la bouche, juste devant les brosses, jusqu'au fond du tunnel)
+        if (ahead < -0.08 || ahead > 0.46 || Math.abs(dx * fz - dz * fx) > 0.17) continue;
+        if (s.robots.some((o) => o !== r && o.pick?.eggId === e.id)) continue;
+        if (!pick(s, r, e.id)) break;
+      }
+      continue;
     }
     // un œuf au sol juste devant sa bouche, en chemin : il s'arrête et l'avale au passage
-    if (hopperCount(r) < robotCapacity(r)) {
-      const fx = r.x + Math.sin(r.heading) * ROBOT.reach;
-      const fz = r.z + Math.cos(r.heading) * ROBOT.reach;
-      const near = s.worldEggs.find((e) => e.where === 'ground' && Math.hypot(e.x - fx, e.z - fz) < 0.1 && !s.robots.some((o) => o !== r && o.pick?.eggId === e.id));
-      if (near) r.pick = { t: 0, dur: pickTime(r), eggId: near.id, type: near.type, grabbed: false };
-    }
+    const fx = r.x + Math.sin(r.heading) * ROBOT.reach;
+    const fz = r.z + Math.cos(r.heading) * ROBOT.reach;
+    const near = s.worldEggs.find((e) => e.where === 'ground' && Math.hypot(e.x - fx, e.z - fz) < 0.1 && !s.robots.some((o) => o !== r && o.pick?.eggId === e.id));
+    if (near) r.pick = { t: 0, dur: pickTime(r), eggId: near.id, type: near.type, grabbed: false };
   }
 }

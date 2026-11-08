@@ -18,9 +18,8 @@ export interface RobotView {
   sweepers: THREE.Mesh[];
   /** Les tasseaux du tapis roulant, au fond du tunnel (ils défilent vers l'intérieur). */
   belt: THREE.Mesh;
-  /** L'œuf en train d'être avalé : pivot placé au centre de l'œuf (repère du robot). */
-  swallow: THREE.Group;
-  cupEgg: THREE.Mesh;
+  /** Œufs en train d'être avalés (plusieurs à la fois au niveau 3) : pivot au centre de l'œuf. */
+  mouths: Array<{ pivot: THREE.Group; egg: THREE.Mesh; gulp: Gulp | null }>;
   level: number;
   eggs: THREE.Mesh[];
   led: THREE.Mesh;
@@ -33,10 +32,8 @@ export interface RobotView {
   phase: number;
   px: number;
   pz: number;
-  /** L'œuf en cours d'avalement (repère du robot), ou null. */
-  gulp: Gulp | null;
-  /** Dernier œuf pris en charge (pour ne pas le reprendre deux fois). */
-  gulpId: number;
+  /** Œufs déjà pris en charge (pour ne pas les reprendre deux fois). */
+  gulpSeen: Set<number>;
   /** Défilement du tapis roulant. */
   beltT: number;
 }
@@ -85,7 +82,8 @@ function robotGeometry(level = 1) {
   const hit = geos.get(level);
   if (hit) return hit;
   // (le niveau 2 se reconnaît à son bandeau bleu)
-  const GREEN = level === 2 ? 0x2f6bff : GREEN1;
+  // (niveau 2 : bandeau bleu ; niveau 3 : bandeau doré)
+  const GREEN = level === 3 ? 0xd9a520 : level === 2 ? 0x2f6bff : GREEN1;
   const { front, back, half, roof } = MOUTH;
   const depth = front - back;
   const midZ = (front + back) / 2;
@@ -215,13 +213,16 @@ export function createRobotView(level = 1): RobotView {
   for (let z = MOUTH.back + 0.02; z <= MOUTH.front - 0.02 - BELT_STEP; z += BELT_STEP) cleats.push(box(MOUTH.half * 2 - 0.02, 0.004, 0.01, 0x3a3f4a, [0, 0.014, z]));
   const belt = cmesh(merge(cleats), false, true);
   body.add(belt);
-  const swallow = new THREE.Group();
-  const cupEgg = new THREE.Mesh(eggGeometry('roux'), EGG_MAT.clone());
-  cupEgg.castShadow = true;
-  cupEgg.receiveShadow = true;
-  swallow.add(cupEgg);
-  swallow.visible = false;
-  body.add(swallow);
+  const mouths = Array.from({ length: level === 3 ? 4 : 1 }, () => {
+    const pivot = new THREE.Group();
+    const egg = new THREE.Mesh(eggGeometry('roux'), EGG_MAT.clone());
+    egg.castShadow = true;
+    egg.receiveShadow = true;
+    pivot.add(egg);
+    pivot.visible = false;
+    body.add(pivot);
+    return { pivot, egg, gulp: null as Gulp | null };
+  });
   const ledMat = new THREE.MeshBasicMaterial({ color: 0x3aa0ff });
   const led = new THREE.Mesh(new THREE.SphereGeometry(0.02, 8, 6), ledMat);
   led.position.set(-0.13, 0.475, -0.2);
@@ -246,6 +247,6 @@ export function createRobotView(level = 1): RobotView {
   const beacon = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.05, 0.07, 12), dockLedMat);
   beacon.position.set(0, 0.57, -0.3);
   dock.add(beacon);
-  return { root, body, sweepers, belt, swallow, cupEgg, level, eggs, led, ledMat, brush, dock, dockLedMat, phase: Math.random() * 6, px: 0, pz: 0, gulp: null, gulpId: -1, beltT: 0 };
+  return { root, body, sweepers, belt, mouths, level, eggs, led, ledMat, brush, dock, dockLedMat, phase: Math.random() * 6, px: 0, pz: 0, gulpSeen: new Set(), beltT: 0 };
 }
 export { C, MAT };

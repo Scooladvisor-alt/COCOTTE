@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import { petLayout } from '../config/buildings';
 import { BLACK_SKIN, BREEDS, GOLD_SKIN, LEGEND_SKIN } from '../config/breeds';
 import type { BreedId, BuildingType, EggType, Hen, WorkerRole } from '../sim/types';
-import { C, SNOW_UNIFORM, box, cyl, merge, mesh, sph } from './geo';
+import { C, GRASS_MAT, SNOW_UNIFORM, box, cyl, merge, mesh, sph } from './geo';
 import { ADULT_STAGE, EGG_MAT, HEN_MAT, HEN_PIVOT, buildingModel, createWorkerView, eggGeometry, henGeometry, type HenKind } from './models';
 import { growthStage } from '../sim/breeding';
 import { createRobotView } from './robotModel';
@@ -51,7 +51,11 @@ export function snapshot(key: string, build: () => THREE.Object3D, opts: { pad?:
     // vignettes toujours sans neige (elles sont gardées en cache toute la session)
     const snow = SNOW_UNIFORM.value;
     SNOW_UNIFORM.value = 0;
+    // (sous l'éclairage du studio, plantes et fleurs paraîtraient délavées : un ton plus soutenu)
+    const grass = GRASS_MAT.color.getHex();
+    GRASS_MAT.color.setScalar(0.7);
     r.render(scene, cam);
+    GRASS_MAT.color.setHex(grass);
     SNOW_UNIFORM.value = snow;
     url = r.domElement.toDataURL('image/png');
   } catch {

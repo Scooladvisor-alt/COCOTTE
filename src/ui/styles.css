@@ -8346,3 +8346,10 @@ body {
   }
 }
 
+
+/* Poussinière : laisser sortir l'excédent */
+.nursery-out { display: flex; align-items: flex-start; gap: 10px; margin: 10px 0 4px; padding: 9px 11px; border-radius: 12px; background: rgba(47, 111, 78, 0.07); cursor: pointer; }
+.nursery-out input { margin-top: 3px; width: 17px; height: 17px; accent-color: #2f8f5b; flex: none; }
+.nursery-out span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nursery-out b { font-size: 13px; }
+.nursery-out small { font-size: 11.5px; opacity: 0.75; line-height: 1.35; }

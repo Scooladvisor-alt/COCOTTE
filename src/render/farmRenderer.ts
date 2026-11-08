@@ -11,7 +11,7 @@ import { cellIndex, cellX, cellZ, coopDoorCells, currentHour, inGrid, isShelter,
 import { lvl } from '../sim/queries';
 import { rtHen } from '../sim/hens';
 import { simAlpha } from '../sim/simulation';
-import type { BreedId, Building, BuildingType, GameState, Hen, Predator, Robot } from '../sim/types';
+import type { BreedId, Building, BuildingType, EggType, GameState, Hen, Predator, Robot } from '../sim/types';
 import { BLACK_SKIN, BREEDS, GOLD_SKIN, LEGEND_SKIN, isGoose } from '../config/breeds';
 import { ROLES, femName } from '../config/staff';
 import { C, GLOW, GRASS_MAT, GRASS_PRESS, GRASS_PRESS_N, GRASS_WIND, SNOW_UNIFORM, box, cyl, merge, mesh } from './geo';
@@ -26,7 +26,7 @@ import { buildDeliveryTruck, type DeliveryTruck } from './delivery';
 import { nearTruckRoad } from './truckRoad';
 import { ringTrees, wildPlants } from '../sim/wild';
 import { Droppings } from './droppings';
-import { BELT_STEP, MOUTH, MOUTH_CLEAR, createRobotView, type Gulp, type RobotView } from './robotModel';
+import { BELT_STEP, MOUTH, MOUTH_CLEAR, createRobotView, type RobotView } from './robotModel';
 import { applyDogPose, createDogView, dogPose, type DogView } from './dogModel';
 import { HOUSE_DOG, kennelPoint } from '../sim/dog';
 import { growth, growthStage, hatchesGeese, isIncubator } from '../sim/breeding';
@@ -330,8 +330,10 @@ export class FarmRenderer {
   private robotsG = new THREE.Group();
   private robots = new Map<number, RobotView>();
   /** Œufs au sol que des robots viennent d'avaler (le robot reprend le modèle là où il était). */
-  private gulpFrom = new Map<number, THREE.Mesh>();
+  private gulpFrom = new Map<number, Map<number, THREE.Mesh>>();
   private dockKey = '';
+  /** Hauteur du gazon de chaque case (0 sans herbe) : le cercle de sélection se pose dessus. */
+  private lawnTop = new Float32Array(GRID_W * GRID_H);
   /** Halo doré sous chaque poule aux œufs d'or. */
   private goldGlows = new Map<number, THREE.Mesh>();
   /** Vitrine de l'œuf d'or devant l'étal (créée à la première occasion). */
@@ -414,9 +416,10 @@ export class FarmRenderer {
     this.scene.add(this.wildGroup);
     this.scene.add(this.fenceGroup, this.signGroup, this.bG, this.eggsG, this.peopleG, this.staffG, this.predG);
 
-    const ringGeo = new THREE.RingGeometry(0.3, 0.36, 32);
+    // cercle de sélection d'une volaille : un fin liseré clair, très discret, posé sur le gazon
+    const ringGeo = new THREE.RingGeometry(0.31, 0.33, 48);
     ringGeo.rotateX(-Math.PI / 2);
-    this.selRing = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.55, depthWrite: false }));
+    this.selRing = new THREE.Mesh(ringGeo, new THREE.MeshBasicMaterial({ color: 0xfffbf0, transparent: true, opacity: 0.2, depthWrite: false }));
     this.selRing.renderOrder = 2;
     // halo lumineux posé au sol sous l'élément sélectionné
     const haloGeo = new THREE.PlaneGeometry(1, 1);
@@ -863,8 +866,13 @@ export class FarmRenderer {
     const parkLawn = new Set<number>();
     for (const b of s.buildings) {
       if (isShelter(b)) for (const [cx, cz] of coopDoorCells(b)) if (inGrid(cx, cz)) doorway.add(cellIndex(cx, cz));
-      // l'herbe pousse au pied des arbres et des buissons
+      // l'herbe pousse au pied des arbres et des buissons, de l'épouvantail, autour du massif de
+      // fleurs, et partout dans les biomes (au pied des troncs du bois, autour du massif du jardin)
       if ((b.type === 'tree' || b.type === 'bush') && inGrid(b.x, b.z)) parkLawn.add(cellIndex(b.x, b.z));
+      if (b.type === 'scarecrow' || b.type === 'flowerbed' || b.type === 'forest' || b.type === 'garden') {
+        const fp = sizeOf(b.type, b.level, b.rot);
+        for (let z = b.z; z < b.z + fp.d; z++) for (let x = b.x; x < b.x + fp.w; x++) if (inGrid(x, z)) parkLawn.add(cellIndex(x, z));
+      }
       if (b.type !== 'nursery') continue;
       const { house, seats } = nurseryPlan(b.level);
       const fp = sizeOf(b.type, b.level, b.rot);
@@ -911,6 +919,7 @@ export class FarmRenderer {
         if (patch > 0) tuftC.lerp(SNOW, patch * 0.6);
         // tapis d'herbe de la case : sa hauteur suit l'herbe restante (rase là où les poules ont brouté)
         const hs = under || g < 0.08 ? 0 : (0.25 + Math.pow(g, 0.85) * 0.9) * tuftK * (1 - patch * 0.7);
+        this.lawnTop[i] = hs > 0.03 ? hs : 0;
         const ch = this.grassChunks.get(key);
         if (ch && hs > 0.03) {
           tmpO.position.set(x + 0.5 + (hash(i * 7) - 0.5) * 0.12, GRASS_TOP, z + 0.5 + (hash(i * 11) - 0.5) * 0.12);
@@ -1051,6 +1060,7 @@ export class FarmRenderer {
           v.fill.visible = ratio > 0.01;
         }
       }
+      v.tick?.(this.time, dt);
       if (b.type === 'nest') this.syncNestEggs(s, b, v);
       if (b.type === 'stand') this.syncGoldShowcase(s, v);
       if (isIncubator(b)) this.syncIncubatorEggs(b, v);
@@ -1709,8 +1719,12 @@ export class FarmRenderer {
     for (const [id, m] of this.eggs) {
       if (!seen.has(id)) {
         // avalé par un robot : il le reprend tel quel (pas d'éclat, pas de saut)
-        const bot = s.robots.find((r) => r.pick?.grabbed && r.pick.eggId === id);
-        if (bot) this.gulpFrom.set(bot.id, m);
+        const bot = s.robots.find((r) => (r.pick?.grabbed && r.pick.eggId === id) || r.gulped?.some(([e]) => e === id));
+        if (bot) {
+          let got = this.gulpFrom.get(bot.id);
+          if (!got) this.gulpFrom.set(bot.id, (got = new Map()));
+          got.set(id, m);
+        }
         else this.particles.burst(m.position.x, 0.2, m.position.z, 0xfff3c4, 8, { speed: 0.7, up: 1.6, size: 0.7 });
         this.eggsG.remove(m);
         this.eggs.delete(id);
@@ -2166,12 +2180,18 @@ export class FarmRenderer {
       if (pressN < GRASS_PRESS.value.length) GRASS_PRESS.value[pressN++].set(v.px + Math.sin(v.root.rotation.y) * 0.05, v.pz + Math.cos(v.root.rotation.y) * 0.05, 0.36);
       // la bouche avale l'œuf : les brosses le poussent, il se couche et roule tout entier dans le tunnel
       const p = r.pick;
-      if (p?.grabbed && v.gulpId !== p.eggId) {
-        v.gulpId = p.eggId;
-        v.gulp = this.startGulp(s, r, v);
+      // chaque œuf avalé (posément, ou au vol par le niveau 3, plusieurs à la fois) entre dans la bouche
+      for (const [id, , nestId] of r.gulped ?? []) {
+        if (v.gulpSeen.has(id)) continue;
+        v.gulpSeen.add(id);
+        const dur = (p && p.eggId === id ? p.dur * 0.92 : r.level === 3 ? 0.4 : 0.6) / Math.max(1, s.clock.speed);
+        this.startGulp(s, r, v, id, nestId, Math.max(0.12, dur));
       }
-      const working = !!p || !!v.gulp;
-      if (v.gulp) this.stepGulp(v, dt);
+      this.gulpFrom.delete(r.id);
+      if (v.gulpSeen.size > 60) v.gulpSeen = new Set([...v.gulpSeen].slice(-20));
+      let busy = false;
+      for (const mo of v.mouths) if (mo.gulp) (busy = true), this.stepGulp(mo, dt);
+      const working = !!p || busy;
       const spin = dt * (working ? 16 : moving ? 7 : 0);
       v.sweepers[0].rotation.y += spin;
       v.sweepers[1].rotation.y -= spin;
@@ -2215,13 +2235,20 @@ export class FarmRenderer {
     }
   }
 
-  /** Le robot prend l'œuf qu'il avale : là où il était dessiné, avec sa taille et son orientation. */
-  private startGulp(s: GameState, r: Robot, v: RobotView): Gulp | null {
-    const p = r.pick!;
+  /**
+   * Le robot prend l'œuf qu'il avale : là où il était dessiné (au sol ou dans le nid), avec sa taille
+   * et son orientation. `type` : celui de la cueillette en cours (null : œuf avalé au vol, niveau 3).
+   */
+  private startGulp(s: GameState, r: Robot, v: RobotView, id: number, nestId: number, dur: number) {
+    const mouth = v.mouths.find((mo) => !mo.gulp) ?? v.mouths[0];
     v.root.updateMatrixWorld(true);
     const inv = new THREE.Quaternion();
     v.root.getWorldQuaternion(inv).invert();
-    const geo = eggGeometry(p.type);
+    const src = this.gulpFrom.get(r.id)?.get(id);
+    const nest = nestId >= 0 ? s.buildings.find((x) => x.id === nestId) : undefined;
+    const nv = nest && this.buildings.get(nest.id);
+    const eggType: EggType = (nv?.eggMeshes[Math.min(nv.eggMeshes.length - 1, nest!.eggIds.length)]?.userData.type as EggType | undefined) ?? 'roux';
+    const geo = src ? (src.geometry as THREE.BufferGeometry) : eggGeometry(eggType);
     if (!geo.boundingBox) geo.computeBoundingBox();
     const bb = geo.boundingBox!;
     const cy = (bb.min.y + bb.max.y) / 2;
@@ -2229,21 +2256,19 @@ export class FarmRenderer {
     const c0 = new THREE.Vector3();
     const q0 = new THREE.Quaternion();
     let arc: THREE.Vector3 | null = null;
-    let mat: THREE.Material = p.type === 'phenix' ? PHOENIX_EGG_MAT : p.type === 'or' ? GOLD_EGG_MAT : EGG_MAT;
-    const src = this.gulpFrom.get(r.id);
-    this.gulpFrom.delete(r.id);
-    if (src && src.userData.eggId === p.eggId) {
+    let mat: THREE.Material = eggType === 'phenix' ? PHOENIX_EGG_MAT : eggType === 'or' ? GOLD_EGG_MAT : EGG_MAT;
+    if (src) {
       // œuf au sol : son centre, dans le repère du robot
       scale = src.scale.x;
       mat = src.material as THREE.Material;
       c0.set(0, cy * scale, 0).applyQuaternion(src.quaternion).add(src.position);
       q0.copy(inv).multiply(src.quaternion);
-    } else if (r.task === 'nest') {
+    } else if (nest && nv) {
       // œuf d'un pondoir : il part de sa place dans le nid et passe par-dessus le rebord
-      const b = s.buildings.find((x) => x.id === r.target);
-      const bv = b && this.buildings.get(b.id);
-      const slot = bv?.eggSlots[Math.min(bv.eggSlots.length - 1, b!.eggIds.length)];
-      if (!bv || !slot) return null;
+      const b = nest;
+      const bv = nv;
+      const slot = bv.eggSlots[Math.min(bv.eggSlots.length - 1, b.eggIds.length)];
+      if (!bv || !slot) return;
       scale = 1;
       bv.group.updateMatrixWorld(true);
       c0.set(slot.x, slot.y + cy, slot.z);
@@ -2254,17 +2279,18 @@ export class FarmRenderer {
       arc = new THREE.Vector3((slot.x + 1) / 2, 0.85, 0.9);
       bv.group.localToWorld(arc);
       v.root.worldToLocal(arc);
-    } else return null;
+    } else return;
     v.root.worldToLocal(c0);
-    v.cupEgg.geometry = geo;
+    const egg = mouth.egg;
+    egg.geometry = geo;
     // (sa propre teinte : il s'assombrit en s'enfonçant dans le noir du tunnel)
-    (v.cupEgg.material as THREE.Material).dispose();
+    (egg.material as THREE.Material).dispose();
     const own = mat.clone() as THREE.MeshLambertMaterial;
     own.userData.base = own.color.clone();
     own.userData.glow = (own as unknown as THREE.MeshPhongMaterial).emissive?.clone();
-    v.cupEgg.material = own;
-    v.cupEgg.scale.setScalar(scale);
-    v.cupEgg.position.set(0, -cy * scale, 0);
+    egg.material = own;
+    egg.scale.setScalar(scale);
+    egg.position.set(0, -cy * scale, 0);
     const rad = Math.max(bb.max.x, bb.max.z) * scale;
     const halfLen = ((bb.max.y - bb.min.y) / 2) * scale;
     // couché en travers, il roule ; trop long pour la bouche (l'œuf d'oie), il entre dans la longueur
@@ -2279,19 +2305,19 @@ export class FarmRenderer {
     // (puis il descend à la verticale devant la bouche, une fois le perchoir dépassé)
     const arc2 = arc ? new THREE.Vector3(0, 0.75, (cA.z = MOUTH.front + (roll ? rad : halfLen) + 0.03)) : null;
     const zEnd = MOUTH.back + (roll ? rad : halfLen) + 0.012;
-    v.swallow.visible = true;
-    // (au rythme du jeu : accéléré, il avale plus vite, et a fini avant l'œuf suivant)
-    return { id: p.eggId, t: 0, dur: Math.max(0.12, (p.dur * 0.92) / Math.max(1, s.clock.speed)), c0, q0, qLie, rad, roll, cA, zEnd, arc, arc2 };
+    mouth.pivot.visible = true;
+    mouth.gulp = { id, t: 0, dur, c0, q0, qLie, rad, roll, cA, zEnd, arc, arc2 };
+    this.stepGulp(mouth, 0);
   }
 
-  private stepGulp(v: RobotView, dt: number) {
-    const g = v.gulp!;
+  private stepGulp(mo: RobotView['mouths'][number], dt: number) {
+    const g = mo.gulp!;
     g.t += dt;
     const k = Math.min(1, g.t / g.dur);
     const ss = (x: number) => x * x * (3 - 2 * x);
     const split = g.arc ? 0.5 : 0.32;
-    const pos = v.swallow.position;
-    const q = v.swallow.quaternion;
+    const pos = mo.pivot.position;
+    const q = mo.pivot.quaternion;
     if (k < split) {
       // il se couche (ou, d'un pondoir, il vole par-dessus le rebord jusqu'à la bouche)
       const a = ss(k / split);
@@ -2310,12 +2336,12 @@ export class FarmRenderer {
     // dans le tunnel, il passe dans l'ombre (au fond, il est noyé dans le noir avant de disparaître)
     const deep = Math.min(1, Math.max(0, (MOUTH.front - pos.z) / Math.max(0.05, MOUTH.front - g.zEnd)));
     const dim = 1 - 0.9 * ss(deep);
-    const m = v.cupEgg.material as THREE.MeshPhongMaterial;
+    const m = mo.egg.material as THREE.MeshPhongMaterial;
     if (m.userData.base) m.color.copy(m.userData.base).multiplyScalar(dim);
     if (m.userData.glow && m.emissive) m.emissive.copy(m.userData.glow).multiplyScalar(dim);
     if (k >= 1) {
-      v.gulp = null;
-      v.swallow.visible = false;
+      mo.gulp = null;
+      mo.pivot.visible = false;
     }
   }
 
@@ -2811,7 +2837,8 @@ export class FarmRenderer {
       } else this.updateCamera();
     }
 
-    // sélection : l'élément s'illumine, un liseré clair souligne sa silhouette et un halo se pose au sol
+    // sélection : l'élément s'illumine et un liseré clair souligne sa silhouette ; une volaille a un
+    // fin cercle discret ; un bâtiment, un halo doux au sol
     const pulse = 0.5 + 0.5 * Math.sin(this.time * 3.6);
     const sh = this.selectedHen >= 0 ? this.hens.get(this.selectedHen) : undefined;
     const sb = this.selectedBuilding >= 0 ? s.buildings.find((b) => b.id === this.selectedBuilding) : undefined;
@@ -2820,10 +2847,16 @@ export class FarmRenderer {
     const sd = this.selectedDog ? this.dogView : null;
     const sp = this.selectedPetBird >= 0 ? this.petBirds.get(this.selectedPetBird) : undefined;
     this.selBox.visible = false;
-    this.selRing.visible = !!sh && sh.root.visible;
-    if (sh) {
-      this.selRing.position.set(sh.root.position.x, GRASS_TOP + 0.02, sh.root.position.z);
-      this.selRing.scale.setScalar(1 + pulse * 0.04);
+    const bird = sh && sh.root.visible ? sh.root.position : sp && sp.view.root.visible ? sp.view.root.position : null;
+    this.selRing.visible = !!bird;
+    if (bird) {
+      // (à hauteur de la pointe du gazon : on le voit en entier, sans tache claire au sol)
+      const x = bird.x;
+      const z = bird.z;
+      const top = inGrid(Math.floor(x), Math.floor(z)) ? this.lawnTop[cellIndex(Math.floor(x), Math.floor(z))] : 0;
+      this.selRing.position.set(x, GRASS_TOP + 0.015 + top * 0.13, z);
+      this.selRing.scale.setScalar(1 + pulse * 0.03);
+      (this.selRing.material as THREE.MeshBasicMaterial).opacity = 0.16 + 0.07 * pulse;
     }
     this.highlight.set(sb ? this.buildings.get(sb.id)?.group ?? null : sw ? sw.root : sr ? sr.body : sd ? sd.root : null);
     this.highlight.update(this.time);
@@ -2833,11 +2866,9 @@ export class FarmRenderer {
       const d = sb.type === 'stand' ? standLayout(sb.level) : sb.type === 'incubator' ? { w: 1.2, d: 1.2 } : sb.type === 'petshop' ? { w: petLayout(sb.level).w, d: 6.7 } : sizeOf(sb.type, sb.level, sb.rot);
       const c = this.center(sb);
       halo = { x: c.x, z: c.z, w: d.w + 1.1, d: d.d + 1.1 };
-    } else if (sw) halo = { x: sw.root.position.x, z: sw.root.position.z, w: 1.7, d: 1.7 };
-    else if (sr) halo = { x: sr.root.position.x, z: sr.root.position.z, w: 1.3, d: 1.3 };
-    else if (sd) halo = { x: sd.root.position.x, z: sd.root.position.z, w: 1.4, d: 1.4 };
-    else if (sh && sh.root.visible) halo = { x: sh.root.position.x, z: sh.root.position.z, w: 1.25, d: 1.25 };
-    else if (sp) halo = { x: sp.hen.x, z: sp.hen.z, w: 1.25, d: 1.25 };
+    }
+    // (une volaille, un commis, un robot ou le chien : pas de tache claire au sol sous lui, qui
+    // ressortirait entre les brins du gazon ; le liseré de sa silhouette ou le fin cercle suffisent)
     this.halo.visible = !!halo;
     if (halo) {
       this.halo.position.set(halo.x, GRASS_TOP + 0.012, halo.z);

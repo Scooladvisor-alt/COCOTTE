@@ -1,7 +1,7 @@
 import { useState } from 'preact/hooks';
 import { AUTO_DOOR, BIRD_ORDERS, BREEDING, CLEARING, COMPOST, EGG_TYPES, TIME, GRADES, HEALTH, LAYING, NATURE, PARCELS, ROBOT, WORKER_SKILLS, parcelPrice, WORLD } from '../config/balance';
 import { season, seasonIndex } from '../sim/seasons';
-import { hopperCount, robotCapacity, sellRobot, upgradeRobot } from '../sim/robots';
+import { hopperCount, nextUpgradePrice, robotCapacity, sellRobot, upgradeRobot } from '../sim/robots';
 import { crowdedChicks, crowdedGoslings, dadCount, eggHatchIn, fertileStock, fertility, hatchesGeese, isIncubator, growthLabel, growthStage, incubatable, incubateAll, incubatingCount, loadIncubator, nextHatchIn, roosterCount, toggleIncubatorAuto } from '../sim/breeding';
 import { birdThumb, buildingThumb, dogThumb, robotThumb } from '../render/thumbs';
 import { parcelPerks } from '../sim/perks';
@@ -141,6 +141,7 @@ function RobotCard({ r }: { r: Robot }) {
   const s = game.state;
   const [confirm, setConfirm] = useState(false);
   const n = hopperCount(r);
+  const up = nextUpgradePrice(r);
   const charging = r.task === 'dock' && !r.path.length;
   return (
     <div class="insp">
@@ -149,7 +150,7 @@ function RobotCard({ r }: { r: Robot }) {
         <div>
           <h3>Robot ramasseur</h3>
           <div class="chips">
-            <Chip tone="blue">{r.level === 2 ? 'Niveau 2 · rapide' : 'Niveau 1'}</Chip>
+            <Chip tone="blue">{r.level === 3 ? 'Niveau 3 · avale au vol' : r.level === 2 ? 'Niveau 2 · rapide' : 'Niveau 1'}</Chip>
             <Chip>Électricité {fmtMoney(ROBOT.upkeepPerDay)}/j</Chip>
           </div>
         </div>
@@ -168,13 +169,17 @@ function RobotCard({ r }: { r: Robot }) {
         <span>Ramassés depuis l’achat (jour {r.boughtDay})</span>
         <b>{r.total} œufs</b>
       </div>
-      <p class="hint">Il ramasse d’abord les œufs pondus au sol (avant qu’ils ne pourrissent), puis vide les pondoirs et décharge au stockage. Il reste à l’intérieur des clôtures et retourne se recharger seul.</p>
-      {r.level !== 2 && (
+      <p class="hint">Il ramasse d’abord les œufs pondus au sol (avant qu’ils ne pourrissent), puis vide les pondoirs et décharge au stockage. Il reste à l’intérieur des clôtures, ne touche jamais une poule (il s’arrête, elle s’écarte, ou il la contourne) et retourne se recharger seul.</p>
+      {up !== null && (
         <div class="actions">
-          <Btn kind="primary" disabled={s.money < ROBOT.upgradePrice} title={s.money < ROBOT.upgradePrice ? 'Fonds insuffisants' : undefined} onClick={() => game.act(() => upgradeRobot(s, r.id), 'build')}>
-            Améliorer · {fmtMoney(ROBOT.upgradePrice)}
+          <Btn kind="primary" disabled={s.money < up} title={s.money < up ? 'Fonds insuffisants' : undefined} onClick={() => game.act(() => upgradeRobot(s, r.id), 'build')}>
+            Niveau {r.level === 2 ? 3 : 2} · {fmtMoney(up)}
           </Btn>
-          <small class="hint">Niveau 2 : il file droit vers les œufs en virant sans s’arrêter, roule presque deux fois plus vite, avale les œufs deux fois plus vite et porte {ROBOT.capacity2} œufs.</small>
+          <small class="hint">
+            {r.level === 2
+              ? `Niveau 3 : il fonce à travers les œufs et les avale tous au vol, plusieurs à la fois, sans quasiment jamais s’arrêter ; encore plus rapide, il porte ${ROBOT.capacity3} œufs.`
+              : `Niveau 2 : il file droit vers les œufs en virant sans s’arrêter, roule presque deux fois plus vite, avale les œufs deux fois plus vite et porte ${ROBOT.capacity2} œufs.`}
+          </small>
         </div>
       )}
       <div class="actions small">
@@ -543,6 +548,13 @@ function NurseryInfo({ b }: { b: Building }) {
         </div>
       )}
       <NurserySeats b={b} />
+      <label class="nursery-out">
+        <input type="checkbox" checked={!!b.letOut} onChange={(e) => game.act(() => A.setNurseryLetOut(s, b.id, (e.target as HTMLInputElement).checked))} />
+        <span>
+          <b>Laisser sortir l’excédent</b>
+          <small>{b.letOut ? 'Quand elle est pleine, les plus grands poussins en trop sortent rejoindre les poules : les autres ne se marchent plus dessus.' : `Cochez pour que les poussins au-delà de ${L.capacity} sortent rejoindre les poules, au lieu de rester entassés (bien-être et santé en baisse).`}</small>
+        </span>
+      </label>
       {!sorted.length && <p class="hint">Aucun poussin pour l’instant. Ceux qui éclosent dans ses couveuses naissent ici directement.</p>}
       {(s.grain <= 0 || s.water <= 0) && <p class="hint warn">{s.grain <= 0 ? 'Plus de grain en réserve' : 'Plus d’eau en réserve'} : les poussins ont besoin de la réserve de la ferme.</p>}
       <p class="hint">Grain et eau sont pris dans la réserve. À l’abri du grillage, ni poules ni prédateurs. Quand il leur reste {BREEDING.nurseryLeaveDays} jours avant de pondre, ils sortent seuls rejoindre le troupeau.</p>

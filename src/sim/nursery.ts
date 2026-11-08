@@ -110,6 +110,19 @@ export function leastCrowdedNursery(s: GameState): Building | null {
   return best;
 }
 
+/**
+ * Option « laisser sortir l'excédent » : ce poussin est-il de trop ? Ce sont les plus grands qui
+ * sortent d'abord (les plus solides), jusqu'à ce que la poussinière ne soit plus surpeuplée.
+ */
+export function surplusChick(s: GameState, b: Building, h: Hen) {
+  if (!b.letOut) return false;
+  const chicks = s.hens.filter((o) => o.nursery && o.coopId === b.id);
+  const extra = chicks.length - lvl(b).capacity;
+  if (extra <= 0) return false;
+  chicks.sort((a, c) => (a.young ?? 0) - (c.young ?? 0) || a.id - c.id);
+  return chicks.indexOf(h) < extra;
+}
+
 /** Surpeuplement d'une poussinière : 0 si elle n'est pas pleine, 1 s'il y a deux fois trop de poussins. */
 export function nurseryCrowding(s: GameState, b: Building) {
   return Math.max(0, nurseryCount(s, b) / Math.max(1, lvl(b).capacity) - 1);

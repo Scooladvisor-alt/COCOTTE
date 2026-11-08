@@ -8,6 +8,8 @@ import type { Building } from './types';
  * et du cou) et distance du bec devant ses pattes dans cette posture.
  */
 export type FeedPose = 'mid' | 'low';
+/** Rayon extérieur de la margelle du bassin de la fontaine (modèle 3D, depuis son centre). */
+export const FOUNTAIN_RIM = 1.18;
 export const FEED_REACH: Record<FeedPose, number> = { mid: 0.285, low: 0.24 };
 
 export interface FeedSpot {
@@ -40,6 +42,8 @@ export function feedPose(b: Pick<Building, 'type' | 'level'>): FeedPose {
   // les auges sur pieds et les abreuvoirs en long sont à hauteur de poitrine ; le reste au ras du sol
   if (b.type === 'feeder') return b.level === 1 || b.level === 4 || b.level === 6 ? 'mid' : 'low';
   if (b.type === 'drinker') return b.level >= 3 ? 'mid' : 'low';
+  // la margelle de la fontaine arrive à la poitrine : elle se penche au-dessus de l'eau
+  if (b.type === 'fountain') return 'mid';
   return 'low';
 }
 
@@ -72,6 +76,10 @@ export function feedLayout(b: Pick<Building, 'type' | 'level'>): FeedSpot[] {
     if (b.level === 6) return [...trough(along(0.42, 5.58, 15), 1, 0.5, 0.21, pose), ...trough(along(0.42, 5.58, 15), -1, 0.5, 0.21, pose)];
     // grand bac en béton (x 0,15 → 3,8, eau large de 0,34) : onze poules de chaque côté
     return [...trough(along(0.4, 3.55, 11), 1, 0.5, 0.165, pose), ...trough(along(0.4, 3.55, 11), -1, 0.5, 0.165, pose)];
+  }
+  if (b.type === 'fountain') {
+    // tout autour de la margelle du grand bassin, le bec au-dessus de l'eau
+    return ring(1.5, 1.5, 8, FOUNTAIN_RIM - 0.08, 'mid', 0.2);
   }
   if (b.type === 'pond') {
     // sur la berge, le bec juste au-dessus de l'eau (on évite le ponton de la grande mare)

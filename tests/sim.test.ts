@@ -5,7 +5,7 @@ import { RAMP_FOOT, TRUCK_REAR, alongPath, boardPath, boardRoute } from '../src/
 import { autoEnclose } from '../src/sim/fences';
 import { waterCapacity } from '../src/sim/stocks';
 import { BREEDS, BREED_ORDER, GOOSE_NAMES, isGoose } from '../src/config/breeds';
-import { BUILDINGS, BUILD_ORDER, COOP_SCALE, HALL_ALLEY, HALL_BODY, HALL_COURT, HALL_DOOR, HALL_STEPS, PET_POS, STAND_POS, penGate, penHatch, petLane, petLayout, sizeOf, standLayout } from '../src/config/buildings';
+import { BUILDINGS, BUILD_ORDER, COOP_SCALE, FOREST_TRUNKS, HALL_ALLEY, HALL_BODY, HALL_COURT, HALL_DOOR, HALL_STEPS, PET_POS, STAND_POS, penGate, penHatch, petLane, petLayout, sizeOf, standLayout } from '../src/config/buildings';
 import { BACKUP_KEY, SAVE_KEY, deserialize, loadGame, saveGame, serialize, type Storage } from '../src/save/save';
 import * as A from '../src/sim/actions';
 import { canPlace } from '../src/sim/buildings';
@@ -90,18 +90,18 @@ import { advance, advanceRealtime, canSkipNight, closeDay, dailyCharges, simulat
 import { createNewGame } from '../src/sim/state';
 import { newFarm } from '../src/sim/starter';
 import { creditLimit, dailyDue, loanRate, pauseLoan, quoteLoan, repayLoan, takeLoan } from '../src/sim/bank';
-import type { GameState, Hen } from '../src/sim/types';
+import type { Building, BuildingType, GameState, Hen } from '../src/sim/types';
 import { goodPlayer, guard, lazyPlayer } from '../scripts/bot';
 import { buyWorkerSkill, dailyWages, fire, herdSpot, hire, sellerSpot, workerSkillsHourly } from '../src/sim/workers';
 import { enterNursery } from '../src/sim/hens';
 import { catchable, distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
 import { buyDog, kennelPoint } from '../src/sim/dog';
-import { buyRobot, dockOf, dockSpots, sellRobot, upgradeRobot } from '../src/sim/robots';
+import { buyRobot, dockOf, dockSpots, nextUpgradePrice, sellRobot, upgradeRobot } from '../src/sim/robots';
 import { farmStats } from '../src/online/farms';
 import { crowdedChicks, dadCount, eggHatchIn, fertileStock, fertility, fertilize, incubatable, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
 import { ageFactor, baseLaying, createHen, eggsPerDayOf, henValue, productivity, refreshVitals, slotSpots, wellbeingTarget } from '../src/sim/hens';
-import { COMPOST, NATURE, RARE } from '../src/config/balance';
-import { parcelPerks, shelteredByTree } from '../src/sim/perks';
+import { COMPOST, NATURE, RARE, ROBOT } from '../src/config/balance';
+import { decoPrestige, parcelPerks, shelteredByTree } from '../src/sim/perks';
 import { inherit, shopGenes } from '../src/sim/genetics';
 import { season } from '../src/sim/seasons';
 import { regrowGrass } from '../src/sim/grass';
@@ -2770,7 +2770,8 @@ describe('Robot ramasseur : le bras, et le niveau 2', () => {
         const m = s.money;
         expect(upgradeRobot(s, r.id).ok).toBe(true);
         expect(m - s.money).toBe(500000);
-        expect(upgradeRobot(s, r.id).ok).toBe(false);
+        // (le niveau suivant, le 3, coûte 80 000 €)
+        expect(nextUpgradePrice(r)).toBe(8000000);
       }
       const eggs = [dropEgg(s, r.x - 4, r.z - 2), dropEgg(s, r.x - 1, r.z - 5), dropEgg(s, r.x - 6, r.z - 4)];
       let t = 0;
@@ -2787,6 +2788,73 @@ describe('Robot ramasseur : le bras, et le niveau 2', () => {
     const { s, r } = field(412);
     upgradeRobot(s, r.id);
     expect(deserialize(serialize(s))!.robots[0].level).toBe(2);
+  });
+
+  it('le niveau 3 coûte 80 000 € et avale au vol toute une traînée d’œufs, sans s’arrêter', () => {
+    const trail = (lvl: 2 | 3, seed: number) => {
+      const { s, r } = field(seed);
+      expect(upgradeRobot(s, r.id).ok).toBe(true);
+      if (lvl === 3) {
+        const m = s.money;
+        expect(upgradeRobot(s, r.id).ok).toBe(true);
+        expect(m - s.money).toBe(8000000);
+        expect(r.level).toBe(3);
+        expect(upgradeRobot(s, r.id).ok).toBe(false);
+      }
+      const eggs = [];
+      for (let i = 0; i < 9 && eggs.length < 6; i++) {
+        const x = r.x - 1.6 - i * 0.55;
+        const z = r.z - 2.2;
+        if (isWalkable(s, x, z)) eggs.push(dropEgg(s, x, z));
+      }
+      expect(eggs.length).toBeGreaterThanOrEqual(4);
+      let t = 0;
+      let stops = 0;
+      while (eggs.some((e) => s.worldEggs.includes(e as never)) && t < 200) {
+        run(s, 0.1);
+        t += 0.1;
+        if (r.pick) stops++;
+      }
+      expect(eggs.every((e) => !s.worldEggs.includes(e as never))).toBe(true);
+      return { t, stops, s };
+    };
+    const two = trail(2, 420);
+    const three = trail(3, 420);
+    // il ne s'arrête jamais pour avaler un œuf au sol, et il a fini bien plus vite
+    expect(three.stops).toBe(0);
+    expect(two.stops).toBeGreaterThan(0);
+    expect(three.t).toBeLessThan(two.t * 0.75);
+    expect(deserialize(serialize(three.s))!.robots[0].level).toBe(3);
+  });
+
+  it('un robot ne passe jamais à travers une poule : il s’arrête, elle s’écarte ou il la contourne', () => {
+    const s = newFarm(421);
+    morning(s);
+    s.money = 1e8;
+    expect(buyRobot(s).ok).toBe(true);
+    expect(upgradeRobot(s, s.robots[0].id).ok).toBe(true);
+    const r = s.robots[0];
+    let inside = 0;
+    let picked = 0;
+    for (let step = 0; step < 1800; step++) {
+      // des œufs pondus au milieu des poules, sans arrêt
+      if (step % 60 === 0) {
+        const h = s.hens[step % s.hens.length];
+        if (h && !h.nursery && isWalkable(s, h.x + 0.6, h.z)) dropEgg(s, h.x + 0.6, h.z);
+      }
+      run(s, 0.1);
+      const fx = Math.sin(r.heading);
+      const fz = Math.cos(r.heading);
+      for (const h of s.hens) {
+        if (h.nursery || h.act === 'sleep' || h.act === 'enter' || h.act === 'exit') continue;
+        const ahead = (h.x - r.x) * fx + (h.z - r.z) * fz;
+        const side = (h.x - r.x) * fz - (h.z - r.z) * fx;
+        if (Math.abs(side) < ROBOT.halfWidth - 0.02 && ahead > -ROBOT.back + 0.02 && ahead < 0.3) inside++;
+      }
+      picked = r.total;
+    }
+    expect(picked).toBeGreaterThan(3);
+    expect(inside).toBe(0);
   });
 
   it('le classement compte les volailles adultes, comme le tableau de bord', () => {
@@ -5607,5 +5675,140 @@ describe('Prix de vente et grandes bassines', () => {
       if (s.hens.some((h) => h.targetId === b.id && (h.act === 'eat' || h.act === 'drink'))) used = true;
     }
     expect(used).toBe(true);
+  });
+});
+
+describe('Poussinière : laisser sortir l’excédent', () => {
+  it('pleine à craquer : avec l’option, les plus grands en trop sortent ; sans, tous restent', () => {
+    const go = (letOut: boolean) => {
+      const s = newFarm(440);
+      morning(s);
+      s.money = 1e8;
+      s.xp = 1e6;
+      const coop = buildingsOf(s, 'coop')[0];
+      let b: Building | undefined;
+      for (let z = 0; z < 28 && !b; z++)
+        for (let x = 0; x < 30 && !b; x++)
+          if (A.build(s, 'nursery', x, z).ok) b = buildingsOf(s, 'nursery')[0];
+      expect(b).toBeTruthy();
+      const cap = BUILDINGS.nursery.levels[0].capacity;
+      for (let i = 0; i < cap + 8; i++) {
+        const h = createHen(s, 'rousse', coop, false, { young: 12 + (i % 10) });
+        s.hens.push(h);
+        enterNursery(s, h, b!);
+      }
+      drainEvents(s);
+      expect(A.setNurseryLetOut(s, b!.id, letOut).ok).toBe(true);
+      run(s, 240 * 0.25);
+      return { n: nurseryCount(s, b!), cap, out: s.hens.filter((h) => h.young && !h.nursery).length, s };
+    };
+    const kept = go(false);
+    expect(kept.n).toBe(kept.cap + 8);
+    const freed = go(true);
+    expect(freed.n).toBeLessThanOrEqual(freed.cap);
+    expect(freed.out).toBeGreaterThanOrEqual(8);
+    // l'option est gardée à la relecture
+    const nb = deserialize(serialize(freed.s))!.buildings.find((x) => x.type === 'nursery')!;
+    expect(nb.letOut).toBe(true);
+  });
+});
+
+describe('Déco & biomes : chacun a un vrai effet', () => {
+  // (au plus près des poules, dans leur enclos : en spirale autour de leur centre)
+  const placeAny = (s: GameState, type: BuildingType) => {
+    const hens = s.hens.filter((h) => !h.nursery);
+    const cx = Math.round(hens.reduce((a, h) => a + h.x, 0) / hens.length);
+    const cz = Math.round(hens.reduce((a, h) => a + h.z, 0) / hens.length);
+    for (let r = 0; r < 30; r++)
+      for (let dz = -r; dz <= r; dz++)
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          if (A.build(s, type, cx + dx, cz + dz).ok) return s.buildings[s.buildings.length - 1];
+        }
+    return null;
+  };
+  const farm = (seed: number) => {
+    const s = newFarm(seed);
+    morning(s);
+    s.money = 1e9;
+    s.xp = 1e7;
+    s.parcels.push('0,1');
+    invalidateLayout(s);
+    return s;
+  };
+
+  it('fontaine : eau courante gratuite où les poules boivent, bien-être et prestige', () => {
+    const s = farm(450);
+    const f = placeAny(s, 'fountain')!;
+    expect(f).toBeTruthy();
+    expect(s.money).toBeLessThan(1e9 - 1000000 + 1);
+    const c = buildingCenter(f);
+    expect(parcelPerks(s, parcelKeyOfCell(Math.floor(c.x), Math.floor(c.z))).wellbeing).toBeGreaterThanOrEqual(10);
+    expect(decoPrestige(s)).toBeGreaterThan(0);
+    // les poules assoiffées y boivent, et elle ne se vide jamais
+    for (const h of s.hens) h.hydration = 20;
+    for (const d of buildingsOf(s, 'drinker')) d.stock = 0;
+    let drank = false;
+    for (let i = 0; i < 600 && !drank; i++) {
+      run(s, 0.5);
+      drank = s.hens.some((h) => h.act === 'drink' && h.targetId === f.id);
+    }
+    expect(drank).toBe(true);
+    expect(f.stock).toBe(BUILDINGS.fountain.levels[0].capacity);
+    // la réputation monte au fil des jours
+    const rep0 = s.reputation = 40;
+    run(s, 240 * 2);
+    expect(s.reputation).toBeGreaterThan(rep0);
+  });
+
+  it('biomes : on y marche, seuls les troncs et le massif central sont pleins', () => {
+    const s = farm(451);
+    const meadow = placeAny(s, 'meadow')!;
+    const wood = placeAny(s, 'forest')!;
+    const garden = placeAny(s, 'garden')!;
+    expect(wood && garden && meadow).toBeTruthy();
+    const walk = rt(s).walk;
+    let open = 0;
+    for (let j = 0; j < 4; j++)
+      for (let i = 0; i < 4; i++) {
+        const trunk = FOREST_TRUNKS.some(([a, b]) => a === i && b === j);
+        expect(walk[cellIndex(wood.x + i, wood.z + j)]).toBe(trunk ? 0 : 1);
+        expect(walk[cellIndex(meadow.x + i, meadow.z + j)]).toBe(1);
+        const centre = (i === 1 || i === 2) && (j === 1 || j === 2);
+        expect(walk[cellIndex(garden.x + i, garden.z + j)]).toBe(centre ? 0 : 1);
+        if (!trunk) open++;
+      }
+    expect(open).toBe(12);
+    // rien d'autre ne se construit dessus
+    expect(A.build(s, 'tree', meadow.x + 1, meadow.z + 1).ok).toBe(false);
+    // sous les arbres du bois, à l'abri des buses ; le bois et le jardin apaisent la parcelle
+    expect(shelteredByTree(s, wood.x + FOREST_TRUNKS[0][0] + 0.5, wood.z + FOREST_TRUNKS[0][1] + 1.3)).toBe(true);
+    const gc = buildingCenter(garden);
+    expect(parcelPerks(s, parcelKeyOfCell(Math.floor(gc.x), Math.floor(gc.z))).wellbeing).toBeGreaterThanOrEqual(8);
+    // la prairie aux insectes : les poules en manque de protéines y vont chasser
+    for (const b of buildingsOf(s, "compost")) A.demolish(s, b.id);
+    for (const h of s.hens) h.protein = 0;
+    const before = meadow.stock;
+    let hunting = false;
+    for (let i = 0; i < 800 && !hunting; i++) {
+      run(s, 0.5);
+      hunting = s.hens.some((h) => h.act === 'worms' && h.targetId === meadow.id);
+    }
+    expect(hunting).toBe(true);
+    expect(slotSpots(s, meadow).length).toBeGreaterThan(3);
+    expect(meadow.stock).toBeLessThanOrEqual(before + 5);
+  });
+
+  it('épouvantail et massifs de fleurs', () => {
+    const s = farm(452);
+    const sc = placeAny(s, 'scarecrow')!;
+    expect(shelteredByTree(s, sc.x + 0.5 + 4, sc.z + 0.5)).toBe(true);
+    expect(shelteredByTree(s, sc.x + 0.5 + 9, sc.z + 0.5 + 9)).toBe(false);
+    // les massifs se cumulent, jusqu'à trois par parcelle
+    const beds = [placeAny(s, 'flowerbed')!, placeAny(s, 'flowerbed')!, placeAny(s, 'flowerbed')!, placeAny(s, 'flowerbed')!];
+    const key = (b: Building) => parcelKeyOfCell(b.x, b.z);
+    const same = beds.filter((b) => key(b) === key(beds[0])).length;
+    expect(same).toBe(4);
+    expect(parcelPerks(s, key(beds[0])).deco).toBe(NATURE.flowerbedMax * BUILDINGS.flowerbed.levels[0].wellbeing!);
   });
 });

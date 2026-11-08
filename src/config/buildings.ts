@@ -308,6 +308,85 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Grande poussinière', cost: 70000, reqLevel: 6, upkeep: 60, capacity: 60, comfort: 1, growth: 1.25, w: 10, d: 8, perk: 'Deux emplacements de couveuse, grand parc de 10 × 8 cases pour 60 poussins, croissance +25 %' },
     ],
   },
+  // ------------------------------------------------------------ Déco & biomes ----
+  fountain: {
+    type: 'fountain',
+    name: 'Fontaine prestigieuse',
+    description: 'Une grande fontaine de pierre à trois vasques, l’eau chante en tombant de l’une à l’autre. Les poules viennent y boire une eau courante gratuite (elle ne se vide jamais), se sentent bien autour, et la ferme y gagne du prestige : la réputation monte chaque jour.',
+    w: 3,
+    d: 3,
+    access: 'around',
+    unique: false,
+    buildable: true,
+    movable: true,
+    icon: '⛲',
+    levels: [{ name: 'Fontaine prestigieuse', cost: 1000000, reqLevel: 5, upkeep: 150, capacity: 400, slots: 8, wellbeing: 10, perk: 'Eau courante gratuite (8 places), +10 de bien-être sur la parcelle, +0,6 de réputation par jour' }],
+  },
+  flowerbed: {
+    type: 'flowerbed',
+    name: 'Massif de fleurs',
+    description: 'Un bac de bois débordant de fleurs. Les poules de la parcelle sont plus sereines (jusqu’à trois massifs se cumulent).',
+    w: 2,
+    d: 1,
+    access: 'none',
+    unique: false,
+    buildable: true,
+    movable: true,
+    icon: '🌷',
+    levels: [{ name: 'Massif de fleurs', cost: 8000, reqLevel: 2, upkeep: 0, capacity: 0, wellbeing: 3 }],
+  },
+  scarecrow: {
+    type: 'scarecrow',
+    name: 'Épouvantail',
+    description: 'Chapeau de paille, chemise à carreaux et bras en croix : les buses n’osent pas piquer sur les poules qui picorent autour de lui.',
+    w: 1,
+    d: 1,
+    access: 'none',
+    unique: false,
+    buildable: true,
+    movable: true,
+    icon: '🧑‍🌾',
+    levels: [{ name: 'Épouvantail', cost: 12000, reqLevel: 3, upkeep: 0, capacity: 0, perk: 'Aucune buse ne peut attraper une poule à moins de 6 cases' }],
+  },
+  forest: {
+    type: 'forest',
+    name: 'Petit bois',
+    description: 'Un biome de sous-bois sur 4 × 4 cases : quatre grands arbres, fougères, champignons et une souche. Les poules s’y promènent entre les troncs : beaucoup d’ombre (moins de soif, surtout l’été), un vrai refuge contre les buses, et un calme qui apaise toute la parcelle.',
+    w: 4,
+    d: 4,
+    access: 'none',
+    unique: false,
+    buildable: true,
+    movable: true,
+    icon: '🌳',
+    levels: [{ name: 'Petit bois', cost: 300000, reqLevel: 5, upkeep: 0, capacity: 0, wellbeing: 4, perk: 'Ombre de quatre arbres, abri contre les buses, +4 de bien-être sur la parcelle' }],
+  },
+  meadow: {
+    type: 'meadow',
+    name: 'Prairie aux insectes',
+    description: 'Un biome de prairie sauvage sur 4 × 4 cases : herbes hautes très denses, fleurs des champs, papillons et sauterelles. Les poules y entrent chasser les insectes, comme au compost mais en bien plus grand : plus de protéines, une ponte plus forte et moins de grain consommé.',
+    w: 4,
+    d: 4,
+    access: 'around',
+    unique: false,
+    buildable: true,
+    movable: true,
+    icon: '🦗',
+    levels: [{ name: 'Prairie aux insectes', cost: 200000, reqLevel: 4, upkeep: 0, capacity: 90, slots: 8, regen: 140, perk: 'Insectes à volonté pour 8 poules à la fois, qui se renouvellent vite' }],
+  },
+  garden: {
+    type: 'garden',
+    name: 'Jardin fleuri',
+    description: 'Un biome très fleuri sur 4 × 4 cases : massifs de toutes les couleurs, une ruche et ses abeilles, des papillons. Les poules s’y promènent, très apaisées, et la ferme fleurie fait parler d’elle : la réputation monte chaque jour.',
+    w: 4,
+    d: 4,
+    access: 'none',
+    unique: false,
+    buildable: true,
+    movable: true,
+    icon: '🌼',
+    levels: [{ name: 'Jardin fleuri', cost: 150000, reqLevel: 4, upkeep: 0, capacity: 0, wellbeing: 8, perk: '+8 de bien-être sur la parcelle, +0,4 de réputation par jour' }],
+  },
   petshop: {
     type: 'petshop',
     name: 'Vente de poules pondeuses',
@@ -362,6 +441,28 @@ export function sizeOf(type: BuildingType, level = 1, rot = 0): { w: number; d: 
 }
 
 export const BUILD_ORDER: BuildingType[] = ['coop', 'goosehouse', 'nest', 'feeder', 'drinker', 'pond', 'tree', 'dustbath', 'compost', 'nursery', 'incubator', 'gooseincubator'];
+/** Rubrique « Déco & biomes » : de quoi embellir la ferme, chaque élément avec un vrai effet. */
+export const DECO_ORDER: BuildingType[] = ['flowerbed', 'scarecrow', 'garden', 'meadow', 'forest', 'fountain'];
+
+/** Biomes : on marche dedans (les poules y entrent), seuls quelques éléments sont pleins (le motif ne change pas quand on les tourne). */
+export const isBiome = (type: BuildingType) => type === 'forest' || type === 'meadow' || type === 'garden';
+/** Troncs du petit bois (cases de son emprise de 4 × 4) : le motif reste le même une fois tourné. */
+export const FOREST_TRUNKS: Array<[number, number]> = [
+  [0, 1],
+  [2, 0],
+  [3, 2],
+  [1, 3],
+];
+/**
+ * Case (i, j) de l'emprise réellement bâtie ? Toutes pour un bâtiment ; dans un biome, on circule :
+ * seuls les troncs du petit bois sont pleins.
+ */
+export function solidCell(type: BuildingType, i: number, j: number) {
+  if (type === 'forest') return FOREST_TRUNKS.some(([a, b]) => a === i && b === j);
+  // jardin fleuri : le grand massif rond du milieu (et sa ruche) occupe les quatre cases centrales
+  if (type === 'garden') return (i === 1 || i === 2) && (j === 1 || j === 2);
+  return !isBiome(type);
+}
 
 /**
  * Hôtel de ville (décor, à l'ouest de la grille), où logent les salariés : ligne de sa façade, et

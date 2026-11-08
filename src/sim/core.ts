@@ -1,6 +1,6 @@
 // Briques de base : hasard déterministe, horloge, grille et caches de navigation.
 import { GRID_H, GRID_W, GRID_Z0, GRID_Z1, HOUR, TIME, TRUCK_BAY, WORLD } from '../config/balance';
-import { BUILDINGS, sizeOf } from '../config/buildings';
+import { BUILDINGS, sizeOf, solidCell } from '../config/buildings';
 import type { Building, BuildingType, GameEvent, GameState, NotifyAction } from './types';
 
 // ------------------------------------------------------------- Hasard ----
@@ -266,7 +266,8 @@ function rebuild(s: GameState, r: Runtime) {
     for (let z = f.z; z < f.z + f.d; z++)
       for (let x = f.x; x < f.x + f.w; x++)
         if (inGrid(x, z)) {
-          r.blocked[cellIndex(x, z)] = 1;
+          // (dans un biome, on circule : seuls ses éléments pleins, les troncs du bois, bloquent)
+          if (solidCell(b.type, x - f.x, z - f.z)) r.blocked[cellIndex(x, z)] = 1;
           r.occupant[cellIndex(x, z)] = b.id;
         }
   }

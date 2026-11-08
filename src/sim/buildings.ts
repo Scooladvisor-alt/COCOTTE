@@ -1,7 +1,7 @@
 // Bâtiments : validation de placement, remplissages automatiques, encrassement.
 import { AUTO_DOOR, COOP_HYGIENE, GRID_H, GRID_W, NATURE, TIME, inTruckBay } from '../config/balance';
 import { seasonIndex } from './seasons';
-import { BUILDINGS, sizeOf } from '../config/buildings';
+import { BUILDINGS, sizeOf, solidCell } from '../config/buildings';
 import { GATE, accessCells, cellIndex, cellX, cellZ, coopDoorCells, currentDay, currentHour, fenceValue, hIdx, inGrid, invalidateLayout, isNightHour, isOwnedCell, notify, rt, vIdx, isShelter, isShelterType } from './core';
 import { coopOccupancy, lvl } from './queries';
 import { takeGrain, takeWater } from './stocks';
@@ -20,11 +20,13 @@ export function canPlace(s: GameState, type: BuildingType, x: number, z: number,
   const def = { ...BUILDINGS[type], ...sizeOf(type, level, rot) };
   const r = rt(s);
   const fp = new Set<number>();
+  const solid = new Set<number>();
   for (let j = 0; j < def.d; j++)
     for (let i = 0; i < def.w; i++) {
       const cx = x + i;
       const cz = z + j;
       if (!inGrid(cx, cz) || !isOwnedCell(s, cx, cz)) return { ok: false, reason: 'Hors de votre terrain' };
+      if (solidCell(type, i, j)) solid.add(cellIndex(cx, cz));
       const occ = r.occupant[cellIndex(cx, cz)];
       if (occ >= 0 && occ !== ignoreId) return { ok: false, reason: 'Emplacement occupé' };
       if (cx === GATE.x && cz === GATE.z) return { ok: false, reason: 'Laissez l’entrée libre' };
@@ -50,9 +52,9 @@ export function canPlace(s: GameState, type: BuildingType, x: number, z: number,
   for (const b of s.buildings) {
     if (b.id === ignoreId || b.type === 'stand') continue;
     const d = sizeOf(b.type, b.level, b.rot);
-    for (let j = 0; j < d.d; j++) for (let i = 0; i < d.w; i++) if (inGrid(b.x + i, b.z + j)) walk[cellIndex(b.x + i, b.z + j)] = 0;
+    for (let j = 0; j < d.d; j++) for (let i = 0; i < d.w; i++) if (inGrid(b.x + i, b.z + j) && solidCell(b.type, i, j)) walk[cellIndex(b.x + i, b.z + j)] = 0;
   }
-  for (const i of fp) walk[i] = 0;
+  for (const i of solid) walk[i] = 0;
 
   // l'accès du nouveau bâtiment doit exister
   const ownAccess = accessCells({ type, x, z, level, rot }).filter(([ax, az]) => walk[cellIndex(ax, az)]);
@@ -111,11 +113,16 @@ export function autoRefill(s: GameState) {
   }
 }
 
-/** Le compost se repeuple de vers et d'insectes ; la pluie remplit les mares (selon la saison). */
+/** Le compost et la prairie se repeuplent d'insectes ; la pluie remplit les mares (selon la saison). */
 export function compostTick(s: GameState, dt: number) {
   const rain = NATURE.rainBySeason[seasonIndex(s)];
   for (const b of s.buildings) {
-    if (b.type !== 'compost' && b.type !== 'pond') continue;
+    // la fontaine est branchée sur l'eau courante : elle ne se vide jamais
+    if (b.type === 'fountain') {
+      b.stock = lvl(b).capacity;
+      continue;
+    }
+    if (b.type !== 'compost' && b.type !== 'pond' && b.type !== 'meadow') continue;
     const L = lvl(b);
     const k = b.type === 'pond' ? rain : 1;
     b.stock = Math.min(L.capacity, b.stock + ((L.regen ?? 0) * k * dt) / TIME.DAY);

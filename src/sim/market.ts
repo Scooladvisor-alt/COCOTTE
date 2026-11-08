@@ -1,4 +1,5 @@
 // Le marché : clients de l'étal, coopérative, commandes et contrats.
+import { decoPrestige } from './perks';
 import {
   CONTRACTS,
   EGG_ORDER,
@@ -698,6 +699,9 @@ export function marketNewDay(s: GameState) {
   generateContracts(s);
   birdOrdersNewDay(s);
   if (s.reputation < REPUTATION.floor) rep(s, REPUTATION.floorRecoveryPerDay);
+  // une fontaine, des jardins fleuris : la belle ferme fait parler d'elle
+  const prestige = decoPrestige(s);
+  if (prestige > 0) rep(s, prestige);
   // les poules soie font parler de la ferme
   const soies = s.hens.filter((h) => h.breed === 'soie').length;
   if (soies > 0) rep(s, Math.min(3, soies * REPUTATION.soiePerDay));

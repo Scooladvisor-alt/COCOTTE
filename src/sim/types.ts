@@ -4,7 +4,30 @@
 export type BreedId = 'rousse' | 'leghorn' | 'sussex' | 'soie' | 'araucana' | 'marans' | 'oie';
 export type EggType = 'roux' | 'blanc' | 'creme' | 'mini' | 'bleu' | 'chocolat' | 'oie' | 'or' | 'phenix';
 export type Grade = 'extra' | 'A' | 'B';
-export type BuildingType = 'coop' | 'goosehouse' | 'nest' | 'feeder' | 'drinker' | 'storage' | 'dustbath' | 'stand' | 'compost' | 'incubator' | 'gooseincubator' | 'pond' | 'tree' | 'bush' | 'nursery' | 'petshop';
+export type BuildingType =
+  | 'coop'
+  | 'goosehouse'
+  | 'nest'
+  | 'feeder'
+  | 'drinker'
+  | 'storage'
+  | 'dustbath'
+  | 'stand'
+  | 'compost'
+  | 'incubator'
+  | 'gooseincubator'
+  | 'pond'
+  | 'tree'
+  | 'bush'
+  | 'nursery'
+  | 'petshop'
+  // décoration et biomes (rubrique « Déco & biomes » de la boutique)
+  | 'fountain'
+  | 'flowerbed'
+  | 'scarecrow'
+  | 'forest'
+  | 'meadow'
+  | 'garden';
 
 export type HenAct =
   | 'idle'
@@ -287,8 +310,10 @@ export interface Robot {
   /** Œufs ramassés depuis l'achat. */
   total: number;
   boughtDay: number;
-  /** Robot amélioré (niveau 2). */
-  level?: 2;
+  /** Robot amélioré (niveau 2 : rapide ; niveau 3 : il fonce et avale les œufs sans s'arrêter). */
+  level?: 2 | 3;
+  /** Œufs avalés tout récemment (le rendu les fait entrer dans la bouche) : id, instant, pondoir d'origine (-1 : au sol). */
+  gulped?: Array<[number, number, number]>;
   /** Sa borne de recharge (rang parmi les places le long du stockage, la plus proche d'abord). */
   dock?: number;
   /** Cueillette en cours : avancement (s), durée, œuf visé, et s'il est déjà dans la bouche. */
@@ -375,6 +400,8 @@ export interface Building {
   hatch?: IncubatingEgg[];
   /** Couveuse : remplissage automatique avec les œufs fécondés du stockage (vrai par défaut). */
   auto?: boolean;
+  /** Poussinière : les poussins en trop (au-delà de sa capacité) sortent rejoindre les poules. */
+  letOut?: boolean;
   /** Arbre ou buisson sauvage, resté en achetant la parcelle : son essence, sa taille, sa place dans la case. */
   wild?: { sp: number; sc: number; ox: number; oz: number };
   /** Total investi (construction + améliorations), en centimes — sert au remboursement. */

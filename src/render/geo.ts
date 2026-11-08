@@ -232,7 +232,8 @@ GRASS_MAT.onBeforeCompile = (shader) => {
       vec3 tuftPos = vec3( instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2] );
       vec2 pressXZ = ( modelMatrix * instanceMatrix * vec4( position, 1.0 ) ).xz;
     #else
-      vec3 tuftPos = vec3( 0.0 );
+      // (plantes d'un seul tenant : chaque brin prend la vague selon sa place)
+      vec3 tuftPos = ( modelMatrix * vec4( position.x, 0.0, position.z, 1.0 ) ).xyz;
       vec2 pressXZ = ( modelMatrix * vec4( position, 1.0 ) ).xz;
     #endif
     // couchée sous un robot : les brins ne traversent jamais sa coque

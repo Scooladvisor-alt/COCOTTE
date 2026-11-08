@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { BREEDING, COSTS, DELIVERY, HEN_PACKS, DOG, EGG_TYPES, GRAIN_BINS, GRAIN_SACKS, PARCELS, ROBOT, UNLOCKS, WATER, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice, type StoreLevel, COMPOST, NATURE } from '../config/balance';
 import { grainBinDef, grainPerDay, waterPerDay, waterTankDef } from '../sim/stocks';
 import { BREEDS, BREED_ORDER, ROOSTER_TITLES, isGoose } from '../config/breeds';
-import { BUILDINGS, BUILD_ORDER } from '../config/buildings';
+import { BUILDINGS, BUILD_ORDER, DECO_ORDER } from '../config/buildings';
 import * as A from '../sim/actions';
 import { parcelCenter } from '../sim/core';
 import { countOfType } from '../sim/buildings';
@@ -20,10 +20,11 @@ import { Btn, Icon, useGame } from './common';
 import { TeamPanel } from './Team';
 import { GeneRange } from './Show';
 
-type Cat = 'hens' | 'buildings' | 'gear' | 'grain' | 'land' | 'staff';
+type Cat = 'hens' | 'buildings' | 'deco' | 'gear' | 'grain' | 'land' | 'staff';
 const CATS: Array<{ id: Cat; label: string; icon: string; tint: string }> = [
   { id: 'hens', label: 'Poules', icon: 'hen', tint: '#fff1dc' },
   { id: 'buildings', label: 'Bâtiments', icon: 'hammer', tint: '#e9f0ff' },
+  { id: 'deco', label: 'Déco & biomes', icon: 'sprout', tint: '#e6f6e4' },
   { id: 'gear', label: 'Équipement', icon: 'bot', tint: '#eef4fb' },
   { id: 'grain', label: 'Grain & eau', icon: 'wheat', tint: '#fff6df' },
   { id: 'land', label: 'Terrain', icon: 'map', tint: '#eaf6e3' },
@@ -106,6 +107,9 @@ export function ShopPanel() {
         </section>
         <section class="shop-sect" data-cat="buildings">
           <BuildTab />
+        </section>
+        <section class="shop-sect" data-cat="deco">
+          <BuildTab deco />
         </section>
         <section class="shop-sect" data-cat="gear">
           <GearTab />
@@ -473,19 +477,49 @@ function keyStat(type: BuildingType): Array<[string, ComponentChildren]> {
         ['Capacité', `${L.capacity} poussins`],
         ['Croissance', `+${Math.round(((L.growth ?? 1) - 1) * 100)} %`],
       ];
+    case 'fountain':
+      return [
+        ['Eau courante', `gratuite · ${L.slots} places`],
+        ['Bien-être · soif', `+${L.wellbeing} · −${Math.round(NATURE.fountainThirst * 100)} %`],
+        ['Réputation', `+${String(NATURE.fountainPrestige).replace('.', ',')} / jour`],
+      ];
+    case 'flowerbed':
+      return [['Bien-être', `+${L.wellbeing} sur la parcelle (${NATURE.flowerbedMax} massifs au plus)`]];
+    case 'scarecrow':
+      return [['Buses', `aucune attaque à moins de ${NATURE.scarecrowRadius} cases`]];
+    case 'forest':
+      return [
+        ['Ombre', '4 grands arbres : moins de soif'],
+        ['Buses', 'abri sous les branches'],
+        ['Bien-être', `+${L.wellbeing} et l’ombre`],
+      ];
+    case 'meadow':
+      return [
+        ['Insectes', `${L.slots} poules à la fois · ${L.regen} portions / jour`],
+        ['Ponte · grain', `jusqu’à +${Math.round(COMPOST.laying * 100)} % · −${Math.round(COMPOST.grainSaving * 100)} %`],
+      ];
+    case 'garden':
+      return [
+        ['Bien-être', `+${L.wellbeing} sur la parcelle`],
+        ['Réputation', `+${String(NATURE.gardenPrestige).replace('.', ',')} / jour`],
+      ];
     default:
       return [];
   }
 }
 
-function BuildTab() {
+function BuildTab({ deco = false }: { deco?: boolean }) {
   const game = useGame();
   const s = game.state;
   return (
     <>
-      <Head title="Bâtiments" sub="Choisissez, puis cliquez sur votre terrain pour placer. Pour améliorer un bâtiment existant, cliquez dessus dans la ferme." />
+      {deco ? (
+        <Head title="Déco & biomes" sub="Embellissez la ferme, et pas seulement pour la vue : chaque décoration et chaque biome a un vrai effet sur les poules ou sur la réputation. Les poules se promènent dans les biomes." />
+      ) : (
+        <Head title="Bâtiments" sub="Choisissez, puis cliquez sur votre terrain pour placer. Pour améliorer un bâtiment existant, cliquez dessus dans la ferme." />
+      )}
       <div class="tiles">
-        {BUILD_ORDER.map((type) => {
+        {(deco ? DECO_ORDER : BUILD_ORDER).map((type) => {
           const def = BUILDINGS[type];
           const L = def.levels[0];
           const chk = A.checkBuild(s, type);
@@ -548,7 +582,7 @@ function GearTab() {
           pic={robotThumb()}
           title="Robot ramasseur"
           tag="Autonome"
-          desc="Comme un aspirateur robot : il ramasse les œufs au sol puis vide les pondoirs, décharge au stockage et se recharge seul."
+          desc="Comme un aspirateur robot : il ramasse les œufs au sol puis vide les pondoirs, décharge au stockage et se recharge seul. Améliorable dans sa fiche : niveau 2 (5 000 €, rapide), puis niveau 3 (80 000 €, il fonce et avale les œufs au vol, plusieurs à la fois)."
           stats={[
             ['Bac', `${ROBOT.capacity} œufs`],
             ['Électricité', `${fmtMoney(ROBOT.upkeepPerDay)} / jour`],

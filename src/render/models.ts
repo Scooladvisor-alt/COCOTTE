@@ -1,4 +1,5 @@
 // Modèles low-poly procéduraux : poules, œufs, bâtiments (par niveau), décor, clients.
+import { fountainModel, flowerbedModel, forestModel, gardenModel, meadowModel, scarecrowModel } from './decoModels';
 import * as THREE from 'three';
 import { EGG_TYPES } from '../config/balance';
 import { BREEDS } from '../config/breeds';
@@ -342,6 +343,8 @@ export interface BuildingView {
   hatches?: Array<{ pivot: THREE.Object3D; goose: boolean | null; side: 1 | -1 }>;
   /** Magasin : peint le nom de la ferme sur l'enseigne. */
   setSign?: (name: string) => void;
+  /** Animation propre (eau de la fontaine, papillons, abeilles, épouvantail au vent). */
+  tick?: (time: number, dt: number) => void;
   key: string;
 }
 
@@ -1825,6 +1828,18 @@ export function buildingModel(type: BuildingType, level: number): BuildingView {
       return gooseIncubatorModel(level);
     case 'nursery':
       return nurseryModel(level);
+    case 'fountain':
+      return fountainModel();
+    case 'flowerbed':
+      return flowerbedModel();
+    case 'scarecrow':
+      return scarecrowModel();
+    case 'forest':
+      return forestModel();
+    case 'meadow':
+      return meadowModel();
+    case 'garden':
+      return gardenModel();
   }
 }
 
@@ -2003,11 +2018,11 @@ export function grassPatchGeometry(wild = false, seed = 1, dense = true) {
 
 /**
  * Pelouse de la ferme pour une case (un peu plus large qu'elle, pour se fondre dans les voisines) :
- * un tapis serré de touffes de trois brins qui s'écartent en éventail, sombres au pied (l'ombre
- * entre les brins) et clairs à la pointe, plus quelques grands brins courbés qui donnent du relief.
- * Chaque brin court est un seul triangle effilé : on en met ainsi des centaines par case. Les brins
- * suivent la hauteur de l'herbe (rase là où les poules ont brouté, haute et drue ailleurs).
- * dense = false : vue de loin, moins de brins mais plus larges (même allure, même couleur).
+ * un gazon très dense de brins tout fins, comme une vraie pelouse. Des centaines de brins par case,
+ * en petites touffes de trois, presque droits, de hauteurs voisines (pas de grands brins qui
+ * dépassent), sombres au pied et clairs à la pointe. Chaque brin est un seul triangle très effilé.
+ * Les brins suivent la hauteur de l'herbe (rase là où les poules ont brouté, drue ailleurs).
+ * dense = false : vue de loin, moins de brins, un peu plus larges (même allure, même couleur).
  */
 export function farmLawnGeometry(dense = true, seed = 3) {
   const rnd = (k: number) => {
@@ -2018,9 +2033,9 @@ export function farmLawnGeometry(dense = true, seed = 3) {
   const nor: number[] = [];
   const col: number[] = [];
   const span = 1.18;
-  const base = new THREE.Color(0x3c7a26);
-  const mid = new THREE.Color(0x67ad3d);
-  const tips = [0x9fd35a, 0x8bc84f, 0xb4de6a, 0x7dbd47, 0xc4e37a, 0xa8d862].map((c) => new THREE.Color(c));
+  const base = new THREE.Color(0x427f2a);
+  const mid = new THREE.Color(0x63a83c);
+  const tips = [0x8fca52, 0x84c24d, 0x9bd25a, 0x7cb948, 0xa6d862].map((c) => new THREE.Color(c));
   const c = new THREE.Color();
   const tipC = new THREE.Color();
   const vert = (x: number, y: number, z: number, t: number, shade: number) => {
@@ -2032,67 +2047,33 @@ export function farmLawnGeometry(dense = true, seed = 3) {
     col.push(c.r, c.g, c.b);
   };
   let k = 0;
-  // les touffes : trois brins d'un seul triangle, en éventail autour d'un même pied
-  const grid = dense ? 8 : 5;
+  const grid = dense ? 11 : 6;
   const per = 3;
-  const wMul = dense ? 1 : 1.5;
+  const wMul = dense ? 1 : 1.7;
   for (let gx = 0; gx < grid; gx++)
     for (let gz = 0; gz < grid; gz++) {
-      const cx = -span / 2 + ((gx + 0.15 + rnd(k * 3 + 1) * 0.7) / grid) * span;
-      const cz = -span / 2 + ((gz + 0.15 + rnd(k * 3 + 2) * 0.7) / grid) * span;
+      const cx = -span / 2 + ((gx + 0.1 + rnd(k * 3 + 1) * 0.8) / grid) * span;
+      const cz = -span / 2 + ((gz + 0.1 + rnd(k * 3 + 2) * 0.8) / grid) * span;
       const fan = rnd(k * 5 + 3) * Math.PI * 2;
       for (let n = 0; n < per; n++, k++) {
-        const dir = fan + (n / per) * Math.PI * 2 + (rnd(k * 7) - 0.5) * 0.9;
-        const bx = cx + Math.cos(dir) * 0.012;
-        const bz = cz + Math.sin(dir) * 0.012;
-        const h = 0.09 + rnd(k * 11) * 0.1;
-        const w = (0.034 + rnd(k * 13) * 0.016) * wMul;
-        const lean = (0.25 + rnd(k * 17) * 0.45) * h;
+        const dir = fan + (n / per) * Math.PI * 2 + (rnd(k * 7) - 0.5) * 1.2;
+        const bx = cx + Math.cos(dir) * 0.01;
+        const bz = cz + Math.sin(dir) * 0.01;
+        // un gazon régulier : des brins de hauteurs voisines, quelques-uns à peine plus hauts
+        const h = 0.075 + rnd(k * 11) * 0.06 + (rnd(k * 37) < 0.08 ? 0.03 : 0);
+        const w = (0.014 + rnd(k * 13) * 0.009) * wMul;
+        const lean = (0.12 + rnd(k * 17) * 0.3) * h;
         const face = dir + Math.PI / 2 + (rnd(k * 19) - 0.5) * 0.6;
         const fx = (Math.cos(face) * w) / 2;
         const fz = (Math.sin(face) * w) / 2;
         tipC.copy(tips[Math.floor(rnd(k * 23) * tips.length)]);
-        // quelques brins plus sombres, dans l'ombre des autres : de la profondeur dans le tapis
-        const shade = rnd(k * 29) < 0.22 ? 0.74 + rnd(k * 31) * 0.1 : 0.9 + rnd(k * 31) * 0.18;
-        const tx = bx + Math.cos(dir) * lean;
-        const tz = bz + Math.sin(dir) * lean;
+        // quelques brins plus sombres, dans l'ombre des autres : de la profondeur dans le gazon
+        const shade = rnd(k * 29) < 0.25 ? 0.78 + rnd(k * 31) * 0.1 : 0.92 + rnd(k * 31) * 0.14;
         vert(bx - fx, 0, bz - fz, 0, shade);
         vert(bx + fx, 0, bz + fz, 0, shade);
-        vert(tx, h, tz, 1, shade);
+        vert(bx + Math.cos(dir) * lean, h, bz + Math.sin(dir) * lean, 1, shade);
       }
     }
-  // grands brins courbés (deux segments) qui dépassent du tapis
-  const tall = dense ? 16 : 7;
-  for (let i = 0; i < tall; i++, k++) {
-    const bx = -span / 2 + rnd(k * 3 + 101) * span;
-    const bz = -span / 2 + rnd(k * 3 + 102) * span;
-    const h = 0.2 + rnd(k * 5 + 7) * 0.12;
-    const w = (0.04 + rnd(k * 11 + 3) * 0.012) * wMul;
-    const dir = rnd(k * 17 + 5) * Math.PI * 2;
-    const lean = 0.3 + rnd(k * 13 + 9) * 0.4;
-    const face = dir + Math.PI / 2;
-    const fx = Math.cos(face);
-    const fz = Math.sin(face);
-    tipC.copy(tips[Math.floor(rnd(k * 23 + 1) * tips.length)]);
-    const shade = 0.92 + rnd(k * 29 + 2) * 0.14;
-    const rows: Array<[number, number, number, number, number]> = [];
-    for (let r = 0; r <= 2; r++) {
-      const t = r / 2;
-      const out = lean * h * t * t;
-      const x = bx + Math.cos(dir) * out;
-      const z = bz + Math.sin(dir) * out;
-      const y = h * t * (1 - 0.15 * t * t);
-      const half = r === 2 ? 0 : (w / 2) * (r === 0 ? 1 : 0.6);
-      rows.push([x, y, z, half, t]);
-    }
-    const P = (r: number, s: number): [number, number, number, number] => [rows[r][0] + fx * rows[r][3] * s, rows[r][1], rows[r][2] + fz * rows[r][3] * s, rows[r][4]];
-    const tris = [
-      [P(0, -1), P(0, 1), P(1, -1)],
-      [P(0, 1), P(1, 1), P(1, -1)],
-      [P(1, -1), P(1, 1), P(2, 0)],
-    ];
-    for (const tri of tris) for (const [x, y, z, t] of tri) vert(x, y, z, t, shade);
-  }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));

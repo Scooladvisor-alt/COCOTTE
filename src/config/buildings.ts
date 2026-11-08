@@ -160,7 +160,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
       { name: 'Chambre froide', cost: 42000, reqLevel: 4, upkeep: 60, capacity: 900, decay: 0.35, perk: 'Œufs frais 3× plus longtemps' },
       { name: 'Entrepôt réfrigéré', cost: 170000, reqLevel: 7, upkeep: 150, capacity: 2500, decay: 0.25 },
       { name: 'Plateforme frigorifique', cost: 420000, reqLevel: 9, upkeep: 320, capacity: 6000, decay: 0.15, w: 6, d: 4, perk: 'Trois quais de chargement : 6 000 œufs, fraîcheur prolongée (6 × 4 cases)' },
-      { name: 'Maison des œufs', cost: 4000000, reqLevel: 12, upkeep: 450, capacity: 15000, decay: 0.1, w: 6, d: 4, perk: 'Une belle réserve de pierre et de bois, de la taille de la maison des oies : 15 000 œufs, gardés frais deux fois plus longtemps' },
+      { name: 'Maison des œufs', cost: 4000000, reqLevel: 12, upkeep: 450, capacity: 15000, decay: 0.1, w: 6, d: 4, perk: 'Une réserve contemporaine de la taille de la maison des oies (bardage blanc et bois, pavillon vitré, toit solaire) : 15 000 œufs, gardés frais deux fois plus longtemps' },
     ],
   },
   dustbath: {

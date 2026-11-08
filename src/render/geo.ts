@@ -215,24 +215,39 @@ MAT.onBeforeCompile = (shader) => {
  * avec un décalage selon la position de chaque touffe pour que la prairie ondoie par vagues.
  */
 export const GRASS_WIND = { value: 0 };
+/** Herbe couchée sous ce qui roule dessus (les robots) : x, z et rayon, jusqu'à huit à la fois. */
+export const GRASS_PRESS = { value: Array.from({ length: 8 }, () => new THREE.Vector3()) };
+export const GRASS_PRESS_N = { value: 0 };
 export const GRASS_MAT = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide });
 GRASS_MAT.onBeforeCompile = (shader) => {
   shader.uniforms.uWind = GRASS_WIND;
+  shader.uniforms.uPress = GRASS_PRESS;
+  shader.uniforms.uPressN = GRASS_PRESS_N;
   // brins vus des deux côtés, mais toujours éclairés comme vus de dessus (pas de revers sombre)
   shader.fragmentShader = shader.fragmentShader.replace('#include <normal_fragment_begin>', '#include <normal_fragment_begin>\n  normal = normalize( vNormal );');
-  shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nuniform float uWind;').replace(
+  shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nuniform float uWind;\nuniform vec3 uPress[8];\nuniform int uPressN;').replace(
     '#include <begin_vertex>',
     `#include <begin_vertex>
     #ifdef USE_INSTANCING
       vec3 tuftPos = vec3( instanceMatrix[3][0], instanceMatrix[3][1], instanceMatrix[3][2] );
+      vec2 pressXZ = ( modelMatrix * instanceMatrix * vec4( position, 1.0 ) ).xz;
     #else
       vec3 tuftPos = vec3( 0.0 );
+      vec2 pressXZ = ( modelMatrix * vec4( position, 1.0 ) ).xz;
     #endif
+    // couchée sous un robot : les brins ne traversent jamais sa coque
+    float squash = 1.0;
+    for ( int i = 0; i < 8; i++ ) {
+      if ( i >= uPressN ) break;
+      float pd = distance( pressXZ, uPress[i].xy );
+      squash = min( squash, mix( 0.04, 1.0, smoothstep( uPress[i].z * 0.75, uPress[i].z * 1.15, pd ) ) );
+    }
     float bladeH = max( position.y, 0.0 );
     float gust = 0.6 + 0.4 * sin( uWind * 0.35 + tuftPos.x * 0.08 );
-    float sway = ( sin( uWind * 1.7 + tuftPos.x * 0.55 + tuftPos.z * 0.35 ) * 0.65 + sin( uWind * 2.9 + tuftPos.x * 1.3 - tuftPos.z * 0.8 ) * 0.25 ) * gust;
+    float sway = ( sin( uWind * 1.7 + tuftPos.x * 0.55 + tuftPos.z * 0.35 ) * 0.65 + sin( uWind * 2.9 + tuftPos.x * 1.3 - tuftPos.z * 0.8 ) * 0.25 ) * gust * squash;
     transformed.x += sway * bladeH * bladeH * 2.2;
-    transformed.z += sway * bladeH * bladeH * 1.1;`,
+    transformed.z += sway * bladeH * bladeH * 1.1;
+    transformed.y *= squash;`,
   );
 };
 

@@ -86,7 +86,7 @@ export interface Hen {
   genes?: Genes;
   /** Coq entièrement noir (rarissime, se revend très cher). */
   black?: boolean;
-  /** Poule aux plumes d'or (encore dix fois plus rare) : elle pond des œufs d'or. */
+  /** Poule aux plumes d'or (une poussine sur 830 environ) : elle pond des œufs d'or. */
   golden?: boolean;
   /** La poule légendaire : immortelle, elle pond des œufs légendaires et apaise tout le troupeau. */
   legendary?: boolean;
@@ -289,7 +289,9 @@ export interface Robot {
   boughtDay: number;
   /** Robot amélioré (niveau 2). */
   level?: 2;
-  /** Cueillette en cours : avancement (s), durée, œuf visé, et s'il est déjà dans la ventouse. */
+  /** Sa borne de recharge (rang parmi les places le long du stockage, la plus proche d'abord). */
+  dock?: number;
+  /** Cueillette en cours : avancement (s), durée, œuf visé, et s'il est déjà dans la bouche. */
   pick?: { t: number; dur: number; eggId: number; type: EggType; grabbed: boolean };
 }
 

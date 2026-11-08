@@ -858,8 +858,8 @@ export const RARE = {
   blackRoosterHatch: 0.04,
   /** Valeur de revente d'un coq noir adulte en bonne santé (centimes, selon l'oiseau). */
   blackValue: [60000, 70000] as [number, number],
-  /** Chance qu'une poussine née à la ferme ait des plumes d'or : dix fois plus rare que le coq noir. */
-  goldenHenHatch: 0.004,
+  /** Chance qu'une poussine née à la ferme ait des plumes d'or : environ une sur 830, plus de trente fois plus rare que le coq noir. */
+  goldenHenHatch: 0.0012,
   /** La poule aux œufs d'or pond un œuf d'or tous les deux jours (en bonne forme). */
   goldEggsPerDay: 0.5,
   /** Prix de référence d'un œuf d'or : ce qu'un amateur paie volontiers à l'étal (centimes). */
@@ -870,8 +870,8 @@ export const RARE = {
   goldCustomerShare: 0.06,
   /** Valeur de la poule elle-même : une vingtaine d'œufs d'or. */
   goldHenEggs: 20,
-  /** Chance qu'une poussine née à la ferme soit légendaire : dix fois plus rare que la poule aux œufs d'or. */
-  legendaryHenHatch: 0.0004,
+  /** Chance qu'une poussine née à la ferme soit légendaire : une sur 10 000, douze fois plus rare que la poule aux œufs d'or. */
+  legendaryHenHatch: 0.0001,
   /** La poule légendaire pond un œuf légendaire tous les quatre jours (en bonne forme). */
   phoenixEggsPerDay: 0.25,
   /** Le collectionneur achète chaque œuf légendaire à ce prix, dès qu'il est ramassé (centimes). */

@@ -1,7 +1,8 @@
-// Robots ramasseurs d'œufs : petits robots à roues munis d'un bras à ventouse, ils sillonnent la
-// ferme, ramassent d'abord les œufs pondus au sol (qui pourriraient), puis vident les pondoirs,
-// déchargent au stockage et retournent se recharger chacun sur sa borne (rangées le long du
-// stockage). Ils restent à l'intérieur des clôtures.
+// Robots ramasseurs d'œufs : petits robots à roues dont tout l'avant est une bouche (tunnel, brosses
+// et tapis roulant) qui avale les œufs. Ils sillonnent la ferme, ramassent d'abord les œufs pondus
+// au sol (qui pourriraient), puis vident les pondoirs,
+// déchargent au stockage et retournent se recharger chacun sur sa borne : une borne par robot,
+// toujours les places les plus proches du stockage. Ils restent à l'intérieur des clôtures.
 import { HOUR, ROBOT, TIME, gradeOf } from '../config/balance';
 import { BUILDINGS, sizeOf } from '../config/buildings';
 import { buildingCenter, canStand, crossesFence, emit, newId, notify, planPath, currentDay, rt, toWorld } from './core';
@@ -33,8 +34,9 @@ export type DockSpot = [x: number, z: number, nx: number, nz: number];
 const dockCache = new WeakMap<GameState, { key: string; spots: DockSpot[] }>();
 
 /**
- * Bornes de recharge, une par robot : alignées le long du stockage (façade d'abord, puis les côtés,
- * puis l'arrière), sur une deuxième rangée s'il le faut. Seules les places praticables comptent.
+ * Places possibles pour les bornes, de la plus proche du stockage à la plus lointaine : collées à
+ * la façade d'abord, puis aux côtés, puis à l'arrière ; puis une deuxième rangée, une troisième...
+ * Seules les places praticables comptent, assez espacées pour garer un robot sur chacune.
  */
 export function dockSpots(s: GameState): DockSpot[] {
   const st = storage(s);
@@ -52,12 +54,12 @@ export function dockSpots(s: GameState): DockSpot[] {
   };
   // (assez loin du mur pour ne pas mordre sur le dallage du stockage, et assez espacées pour qu'on
   // gare un robot sur chacune sans qu'ils se touchent)
-  for (const ring of [0.8, 1.95]) {
+  for (const ring of [0.8, 1.95, 3.1, 4.25]) {
     const sides: Array<[number, number, number]> = [
-      [0, 1, w / 2 - 0.2],
+      [0, 1, w / 2 - 0.2 + (ring > 1 ? ring - 0.8 : 0)],
       [1, 0, d / 2 - 0.2],
       [-1, 0, d / 2 - 0.2],
-      [0, -1, w / 2 - 0.2],
+      [0, -1, w / 2 - 0.2 + (ring > 1 ? ring - 0.8 : 0)],
     ];
     for (const [nx, nz, half] of sides)
       for (const u of offsets(half)) {
@@ -65,6 +67,8 @@ export function dockSpots(s: GameState): DockSpot[] {
         const z = c.z + nz * (d / 2 + ring) + (nx !== 0 ? u : 0);
         if (!canStand(s, x, z, 0.32)) continue;
         if (spots.some(([ox, oz]) => Math.hypot(ox - x, oz - z) < 0.95)) continue;
+        // (aucune clôture entre le stockage et la borne : jamais de l'autre côté d'un grillage)
+        if (crossesFence(s, c.x, c.z, x, z)) continue;
         spots.push([x, z, nx, nz]);
       }
   }
@@ -73,10 +77,37 @@ export function dockSpots(s: GameState): DockSpot[] {
   return spots;
 }
 
-/** La borne de ce robot (chaque robot a la sienne ; un nouveau robot prend la suivante). */
+/**
+ * Une borne par robot, ni plus ni moins : chaque robot garde la sienne, un robot vendu emporte la
+ * sienne, et les bornes restent toujours les plus proches du stockage (un robot garé plus loin
+ * reprend la place libérée devant).
+ */
+export function assignDocks(s: GameState) {
+  const n = Math.min(s.robots.length, dockSpots(s).length);
+  const used = new Set<number>();
+  const loose: Robot[] = [];
+  for (const r of s.robots) {
+    if (r.dock !== undefined && r.dock < n && !used.has(r.dock)) used.add(r.dock);
+    else loose.push(r);
+  }
+  let free = 0;
+  for (const r of loose) {
+    while (used.has(free)) free++;
+    r.dock = free < n ? free : s.robots.indexOf(r);
+    used.add(free);
+  }
+}
+
+/** La borne de ce robot (chaque robot a la sienne ; sans robot : la prochaine place libre). */
 export function dockOf(s: GameState, r?: Robot): DockSpot {
   const spots = dockSpots(s);
-  const i = r ? Math.max(0, s.robots.indexOf(r)) : s.robots.length;
+  if (!r) {
+    const used = new Set(s.robots.map((o) => o.dock));
+    let i = 0;
+    while (used.has(i)) i++;
+    return spots[i % spots.length];
+  }
+  const i = r.dock ?? Math.max(0, s.robots.indexOf(r));
   return spots[i % spots.length];
 }
 
@@ -86,7 +117,8 @@ export function dockPoint(s: GameState, r?: Robot): [number, number] {
 }
 
 export function checkBuyRobot(s: GameState): ActionResult {
-  // autant de robots qu'on veut, dès le début
+  // autant de robots qu'on veut, dès le début, tant qu'il reste de la place pour leur borne
+  if (s.robots.length >= dockSpots(s).length) return { ok: false, reason: 'Plus de place pour une borne de recharge autour du stockage' };
   if (s.money < ROBOT.price) return { ok: false, reason: 'Fonds insuffisants' };
   return { ok: true };
 }
@@ -95,8 +127,12 @@ export function buyRobot(s: GameState): ActionResult {
   const chk = checkBuyRobot(s);
   if (!chk.ok) return chk;
   if (!spend(s, ROBOT.price, 'constructions', ROBOT.name)) return { ok: false, reason: 'Fonds insuffisants' };
-  const [x, z] = dockPoint(s);
-  s.robots.push({ id: newId(s), x, z, heading: Math.PI, battery: 100, hopper: [], task: 'idle', target: -1, tx: x, tz: z, path: [], total: 0, boughtDay: currentDay(s) });
+  assignDocks(s);
+  const r: Robot = { id: newId(s), x: 0, z: 0, heading: Math.PI, battery: 100, hopper: [], task: 'idle', target: -1, tx: 0, tz: 0, path: [], total: 0, boughtDay: currentDay(s) };
+  s.robots.push(r);
+  assignDocks(s);
+  const [x, z, nx, nz] = dockOf(s, r);
+  Object.assign(r, { x, z, tx: x, tz: z, heading: Math.atan2(nx, nz) });
   emit(s, { kind: 'purchase', amount: ROBOT.price, label: ROBOT.name });
   notify(s, 'Votre robot ramasseur est en service : il ramasse les œufs tout seul.', 'good', '🤖');
   return { ok: true };
@@ -108,6 +144,8 @@ export function sellRobot(s: GameState, id: number): ActionResult {
   unload(s, r);
   s.stats.eggsLost += hopperCount(r);
   s.robots.splice(s.robots.indexOf(r), 1);
+  // sa borne part avec lui ; les autres robots se rapprochent du stockage si une place s'est libérée
+  assignDocks(s);
   earn(s, Math.round(ROBOT.price * ROBOT.resale), 'reventes', `Revente ${ROBOT.name}`);
   notify(s, `Robot revendu ${fmtMoney(Math.round(ROBOT.price * ROBOT.resale))}.`, 'info', '🤖');
   return { ok: true };
@@ -176,7 +214,8 @@ function plan(s: GameState, r: Robot) {
       .filter((b) => b.type === 'nest' && b.eggIds.length > 0 && !taken.has(`nest:${b.id}`))
       .sort((a, b) => b.eggIds.length - a.eggIds.length || dist(a.x, a.z) - dist(b.x, b.z));
     for (const b of nests) {
-      const [nx, nz] = toWorld(b, 1, BUILDINGS.nest.d + 0.45);
+      // (assez loin devant le nid pour que l'œuf, en sortant, passe le perchoir avant de descendre dans la bouche)
+      const [nx, nz] = toWorld(b, 1, BUILDINGS.nest.d + 0.75);
       if (go(s, r, 'nest', b.id, nx, nz)) return;
     }
   }
@@ -226,7 +265,8 @@ function updatePick(s: GameState, r: Robot, dt: number) {
     }
   }
   p.t += dt;
-  if (!p.grabbed && p.t >= p.dur * 0.2) {
+  // (dès qu'il lui fait face, les brosses le prennent : tout le reste du temps, l'œuf entre dans la bouche)
+  if (!p.grabbed && p.t >= p.dur * 0.05) {
     if (!pick(s, r, p.eggId)) {
       delete r.pick;
       return;
@@ -264,6 +304,7 @@ function arrive(s: GameState, r: Robot) {
 const thinkT = new WeakMap<Robot, number>();
 
 export function updateRobots(s: GameState, dt: number) {
+  assignDocks(s);
   for (const r of s.robots) {
     for (const l of r.hopper) l.freshness = Math.max(1, l.freshness - (9 * dt) / TIME.DAY);
     const [dx, dz] = dockPoint(s, r);
@@ -359,7 +400,7 @@ export function updateRobots(s: GameState, dt: number) {
     if (hopperCount(r) < robotCapacity(r)) {
       const fx = r.x + Math.sin(r.heading) * ROBOT.reach;
       const fz = r.z + Math.cos(r.heading) * ROBOT.reach;
-      const near = s.worldEggs.find((e) => e.where === 'ground' && Math.hypot(e.x - fx, e.z - fz) < 0.16 && !s.robots.some((o) => o !== r && o.pick?.eggId === e.id));
+      const near = s.worldEggs.find((e) => e.where === 'ground' && Math.hypot(e.x - fx, e.z - fz) < 0.1 && !s.robots.some((o) => o !== r && o.pick?.eggId === e.id));
       if (near) r.pick = { t: 0, dur: pickTime(r), eggId: near.id, type: near.type, grabbed: false };
     }
   }

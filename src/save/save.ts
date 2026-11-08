@@ -574,6 +574,7 @@ export function sanitize(input: unknown): GameState | null {
       path: [],
       total: int(r.total, 0, 0),
       ...(r.level === 2 ? { level: 2 as const } : {}),
+      ...(typeof r.dock === 'number' ? { dock: int(r.dock, 0, 0, 500) } : {}),
       boughtDay: int(r.boughtDay, 1),
     });
   }

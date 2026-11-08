@@ -96,7 +96,7 @@ import { buyWorkerSkill, dailyWages, fire, herdSpot, hire, sellerSpot, workerSki
 import { enterNursery } from '../src/sim/hens';
 import { catchable, distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
 import { buyDog, kennelPoint } from '../src/sim/dog';
-import { buyRobot, dockOf, upgradeRobot } from '../src/sim/robots';
+import { buyRobot, dockOf, dockSpots, sellRobot, upgradeRobot } from '../src/sim/robots';
 import { farmStats } from '../src/online/farms';
 import { crowdedChicks, dadCount, eggHatchIn, fertileStock, fertility, fertilize, incubatable, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
 import { ageFactor, baseLaying, createHen, eggsPerDayOf, henValue, productivity, refreshVitals, slotSpots, wellbeingTarget } from '../src/sim/hens';
@@ -2699,6 +2699,36 @@ describe('Une borne par robot', () => {
   });
 });
 
+describe('Bornes de recharge : autant que de robots, au plus près du stockage', () => {
+  it('un robot vendu emporte sa borne ; les autres gardent la leur ou se rapprochent du stockage', () => {
+    const s = newFarm(402);
+    morning(s);
+    s.money = 1e8;
+    for (let i = 0; i < 4; i++) expect(buyRobot(s).ok).toBe(true);
+    const spots = dockSpots(s);
+    const near = (n: number) => new Set(spots.slice(0, n).map((d) => `${d[0]},${d[1]}`));
+    const used = () => s.robots.map((r) => dockOf(s, r)).map((d) => `${d[0]},${d[1]}`);
+    // quatre bornes distinctes : les quatre places les plus proches du stockage
+    expect(new Set(used()).size).toBe(4);
+    for (const k of used()) expect(near(4).has(k)).toBe(true);
+    const keep = s.robots[2];
+    const keepDock = dockOf(s, keep);
+    // on vend le deuxième : il reste trois bornes, toujours les trois plus proches
+    expect(sellRobot(s, s.robots[1].id).ok).toBe(true);
+    expect(s.robots.length).toBe(3);
+    expect(new Set(used()).size).toBe(3);
+    for (const k of used()) expect(near(3).has(k)).toBe(true);
+    // celui qui était déjà au plus près n'a pas bougé
+    expect(dockOf(s, keep)).toEqual(keepDock);
+    // relu depuis une sauvegarde : chacun retrouve la sienne
+    const back = deserialize(serialize(s))!;
+    expect(back.robots.map((r) => dockOf(back, r))).toEqual(s.robots.map((r) => dockOf(s, r)));
+    // tout vendre : plus aucune borne
+    while (s.robots.length) sellRobot(s, s.robots[0].id);
+    expect(s.robots.length).toBe(0);
+  });
+});
+
 describe('Robot ramasseur : le bras, et le niveau 2', () => {
   const field = (seed: number) => {
     const s = newFarm(seed);
@@ -2879,8 +2909,8 @@ describe('Grands poulaillers, oies, coqs en trop et poule aux œufs d’or', () 
     for (let i = 0; i < 400 && (s.goldEggs ?? 0) > 0; i++) serveCustomerForTest(s);
     expect(s.goldEggs).toBe(0);
     expect(s.money - before).toBeGreaterThanOrEqual(12000);
-    // les poussines dorées restent très rares : dix fois moins que le coq noir
-    expect(RARE.goldenHenHatch).toBeCloseTo(RARE.blackRoosterHatch / 10);
+    // les poussines dorées restent très rares : plus de trente fois moins que le coq noir
+    expect(RARE.goldenHenHatch).toBeLessThanOrEqual(RARE.blackRoosterHatch / 30);
   });
 });
 
@@ -3882,13 +3912,14 @@ describe('La poule légendaire', () => {
     return s;
   };
 
-  it('est dix fois plus rare que la poule aux œufs d’or', () => {
-    expect(RARE.legendaryHenHatch).toBeCloseTo(RARE.goldenHenHatch / 10);
+  it('est bien plus rare encore que la poule aux œufs d’or', () => {
+    expect(RARE.legendaryHenHatch).toBeLessThan(RARE.goldenHenHatch / 11);
+    expect(RARE.goldenHenHatch).toBeLessThanOrEqual(1 / 800);
     const s = farm(901);
     const coop = buildingsOf(s, 'coop')[0];
     let legend = 0;
     let gold = 0;
-    const n = 200000;
+    const n = 400000;
     for (let i = 0; i < n; i++) {
       const h = createHen(s, 'rousse', coop, false, { young: 10 });
       if (h.legendary) legend++;

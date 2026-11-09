@@ -810,6 +810,39 @@ export const PREDATORS = {
     /** Un renard qui poursuit sans succès finit par changer de cible. */
     chaseMax: 6,
   },
+  /**
+   * Le loup (à partir du niveau 20) : une meute d'une dizaine sort du bois en fin d'après-midi, une
+   * fois tous les 15 à 30 jours. Plus grand, plus rapide et plus coriace que le renard (trois balles),
+   * il ne lâche rien quand il est touché : seule la mort de la moitié de la meute la fait fuir. Il
+   * faut beaucoup de commis armés (et le chien) pour la repousser.
+   */
+  wolf: {
+    /** Cinq balles pour le joueur ; trois coups de fusil d'un commis. */
+    hp: 5,
+    level: 20,
+    packMin: 8,
+    packMax: 12,
+    gapMin: 15,
+    gapMax: 30,
+    /** Fenêtre d'attaque (heures) : les poules sont encore dehors. */
+    fromHour: 16.5,
+    toHour: 19,
+    lurk: 5,
+    trot: 2.1,
+    stalk: 1.5,
+    chase: 3.1,
+    run: 3.6,
+    stalkAt: 7,
+    chaseAt: 3.2,
+    grabAt: 0.55,
+    grabTime: 1.4,
+    raidTime: 2,
+    prowlTime: 6,
+    chaseMax: 7,
+    /** La meute reste longtemps : jusqu'à trois minutes de jeu. */
+    maxLife: 180,
+    bounty: 1500,
+  },
   hawk: {
     hp: 1,
     altitude: 6.5,
@@ -835,6 +868,8 @@ export const PREDATORS = {
     hitFar: 0.42,
     /** Malus de précision sur une buse en plein vol. */
     airFactor: 0.65,
+    /** Un loup lancé au galop est bien plus dur à toucher. */
+    wolfFactor: 0.5,
   },
   /** Blessures d'une poule arrachée aux griffes d'un prédateur. */
   rescueDamage: 35,

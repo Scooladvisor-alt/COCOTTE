@@ -789,7 +789,8 @@ function steer(s: GameState, h: Hen, r: HenRt, tx: number, tz: number, maxSpd: n
   else if (ok(h.x, nz)) h.z = nz;
   const moved = Math.hypot(h.x - ox, h.z - oz);
   if (len > 1e-4 && moved < len * 0.3) {
-    r.spd *= 0.6;
+    // (sa vitesse est celle à laquelle elle avance vraiment : bloquée, elle ne marche pas sur place)
+    r.spd = moved / Math.max(dt, 1e-3);
     r.stuckT += dt;
     return 'blocked' as const;
   }
@@ -852,7 +853,7 @@ function spotEntry(s: GameState, b: Building) {
   return c;
 }
 /** Infos de la place i d'une mangeoire, d'un abreuvoir ou d'une mare (sinon undefined). */
-function feedInfo(s: GameState, b: Building, i: number) {
+export function feedInfo(s: GameState, b: Building, i: number) {
   return spotEntry(s, b).feed?.[i];
 }
 export function slotSpots(s: GameState, b: Building): Array<[number, number]> {
@@ -1909,9 +1910,13 @@ function behave(s: GameState, h: Hen, dt: number, night: boolean, hour: number) 
         h.x = h.tx;
         h.z = h.tz;
         const next = r.next;
+        r.spd = 0;
         if (next === 'idle') return decide(s, h, night);
         setAct(h, next, r.nextT, h.targetId);
         if (next === 'lay' || next === 'sleep') h.heading = 0;
+        // arrivée à sa place : tout de suite face au grain ou à l'eau (jamais de dos)
+        const fb = getBuilding(s, h.targetId);
+        if ((next === 'eat' || next === 'drink') && fb) faceFood(s, h, fb);
       }
       break;
     }

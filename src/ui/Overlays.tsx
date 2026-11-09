@@ -23,6 +23,26 @@ export function PredatorAlert() {
   const s = game.state;
   const live = livePredators(s);
   if (!live.length) return null;
+  // une meute de loups : une alerte à part, qui compte les loups encore là
+  const pack = live.filter((x) => x.species === 'wolf');
+  if (pack.length) {
+    const hunting = pack.filter((x) => x.state !== 'flee' && x.state !== 'leave' && x.state !== 'carry');
+    const armed = s.workers.filter((w) => w.job?.kind === 'hunt').length;
+    const grabbed = pack.filter((x) => x.state === 'grab').length;
+    return (
+      <div class={`pred-alert card ${grabbed ? 'urgent' : ''}`}>
+        <span class="pa-ic">
+          <Icon name="target" size={20} />
+        </span>
+        <div class="pa-txt">
+          <b>{hunting.length ? `Une meute de ${hunting.length} loup${hunting.length > 1 ? 's' : ''} attaque la ferme !` : 'La meute bat en retraite'}</b>
+          <span>
+            Cliquez sur les loups pour tirer (5 balles chacun){armed ? ` · ${armed} tireur${armed > 1 ? 's' : ''} en action` : ' · aucun commis armé : embauchez des commis !'}
+          </span>
+        </div>
+      </div>
+    );
+  }
   const p = live[0];
   const info = PREDATOR_INFO[p.species];
   const hunters = s.workers.filter((w) => w.job?.kind === 'hunt' && w.job.targetId === p.id).map((w) => w.name);

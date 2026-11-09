@@ -26,7 +26,7 @@ export const vaultOf = (o: Body) => vaults.get(o);
 export function updateVaults(s: GameState, dt: number) {
   const movers: Array<[Body, number]> = [];
   for (const w of s.workers) if (w.onSite) movers.push([w, 0.8]);
-  for (const p of s.predators) if (p.species === 'fox' && p.state !== 'dead') movers.push([p, 0.5]);
+  for (const p of s.predators) if (p.species !== 'hawk' && p.state !== 'dead') movers.push([p, 0.5]);
   for (const [o, dur] of movers) {
     const v = vaults.get(o);
     if (v) {

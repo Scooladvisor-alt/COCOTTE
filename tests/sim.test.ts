@@ -94,13 +94,13 @@ import type { Building, BuildingType, GameState, Hen } from '../src/sim/types';
 import { goodPlayer, guard, lazyPlayer } from '../scripts/bot';
 import { buyWorkerSkill, dailyWages, fire, herdSpot, hire, sellerSpot, workerSkillsHourly } from '../src/sim/workers';
 import { enterNursery } from '../src/sim/hens';
-import { catchable, distanceToFarm, shootPredator, spawnPredator } from '../src/sim/predators';
+import { catchable, distanceToFarm, maybeWolfPack, shootPredator, spawnPredator, spawnWolfPack } from '../src/sim/predators';
 import { buyDog, kennelPoint } from '../src/sim/dog';
 import { buyRobot, dockOf, dockSpots, nextUpgradePrice, sellRobot, upgradeRobot } from '../src/sim/robots';
 import { farmStats } from '../src/online/farms';
 import { crowdedChicks, dadCount, eggHatchIn, fertileStock, fertility, fertilize, incubatable, incubateAll, loadIncubator, nurseryRoom } from '../src/sim/breeding';
 import { ageFactor, baseLaying, createHen, eggsPerDayOf, henValue, productivity, refreshVitals, slotSpots, wellbeingTarget } from '../src/sim/hens';
-import { COMPOST, NATURE, RARE, ROBOT } from '../src/config/balance';
+import { COMPOST, NATURE, PREDATORS, RARE, ROBOT } from '../src/config/balance';
 import { decoPrestige, parcelPerks, shelteredByTree } from '../src/sim/perks';
 import { inherit, shopGenes } from '../src/sim/genetics';
 import { season } from '../src/sim/seasons';
@@ -1219,6 +1219,58 @@ describe('Prédateurs', () => {
     }
     expect(repelled).toBeGreaterThanOrEqual(7);
     expect(workerKills).toBeGreaterThanOrEqual(5);
+  });
+
+  it('les loups : une meute à partir du niveau 20, tous les 15 à 30 jours, en fin d’après-midi', () => {
+    const s = farm(140, 10, 12);
+    s.settings.predators = true;
+    // avant le niveau 20 : jamais de loups
+    for (let d = 0; d < 40; d++) {
+      s.clock.t += TIME.DAY;
+      maybeWolfPack(s);
+    }
+    expect(s.wolfDay).toBeUndefined();
+    expect(s.predators.some((p) => p.species === 'wolf')).toBe(false);
+    s.xp = levelAt(20).xp;
+    s.clock.t = Math.floor(s.clock.t / TIME.DAY) * TIME.DAY + 17 * HOUR;
+    maybeWolfPack(s);
+    const first = s.wolfDay!;
+    const today = currentDay(s);
+    expect(first - today).toBeGreaterThanOrEqual(PREDATORS.wolf.gapMin);
+    expect(first - today).toBeLessThanOrEqual(PREDATORS.wolf.gapMax);
+    // le jour venu, à 17 h, la meute sort du bois (une dizaine de loups)
+    s.clock.t = first * TIME.DAY + 17 * HOUR;
+    maybeWolfPack(s);
+    const pack = s.predators.filter((p) => p.species === 'wolf');
+    expect(pack.length).toBeGreaterThanOrEqual(PREDATORS.wolf.packMin);
+    expect(pack.length).toBeLessThanOrEqual(PREDATORS.wolf.packMax);
+    expect(s.wolfDay! - first).toBeGreaterThanOrEqual(PREDATORS.wolf.gapMin);
+    expect(s.wolfDay! - first).toBeLessThanOrEqual(PREDATORS.wolf.gapMax);
+    // relue, la date de la prochaine meute est gardée
+    expect(deserialize(serialize(s))!.wolfDay).toBe(s.wolfDay);
+    drainEvents(s);
+  });
+
+  it('contre une meute, il faut beaucoup de commis armés', () => {
+    const raid = (hands: number, seed: number) => {
+      const s = farm(seed, 16.8, 30);
+      for (let i = 0; i < hands; i++) hire(s, 'farmhand');
+      run(s, 5);
+      const before = s.hens.length;
+      spawnWolfPack(s, 10);
+      for (let t = 0; t < 200 && s.predators.length; t += TIME.STEP) {
+        step(s, TIME.STEP);
+        drainEvents(s);
+      }
+      const kills = s.workers.reduce((a, w) => a + w.total.kills, 0);
+      return { lost: before - s.hens.length, kills };
+    };
+    const alone = raid(0, 150);
+    const crew = raid(8, 151);
+    // seule, la ferme perd beaucoup de poules ; avec une équipe, la meute est repoussée
+    expect(alone.lost).toBeGreaterThanOrEqual(5);
+    expect(crew.kills).toBeGreaterThanOrEqual(4);
+    expect(crew.lost).toBeLessThan(alone.lost);
   });
 
   it('le vendeur et le soigneur ne prennent pas les armes', () => {
@@ -2855,6 +2907,24 @@ describe('Robot ramasseur : le bras, et le niveau 2', () => {
     }
     expect(picked).toBeGreaterThan(3);
     expect(inside).toBe(0);
+  });
+
+  it('deux robots ne se traversent jamais', () => {
+    const { s, r } = field(422);
+    expect(buyRobot(s).ok).toBe(true);
+    const r2 = s.robots[1];
+    let overlap = 0;
+    for (let step = 0; step < 1500; step++) {
+      if (step % 40 === 0) {
+        const x = (r.x + r2.x) / 2 + (((step * 7) % 9) - 4) * 0.5;
+        const z = (r.z + r2.z) / 2 - 2 - ((step * 3) % 5) * 0.4;
+        if (isWalkable(s, x, z)) dropEgg(s, x, z);
+      }
+      run(s, 0.1);
+      if (Math.hypot(r.x - r2.x, r.z - r2.z) < 0.4) overlap++;
+    }
+    expect(r.total + r2.total).toBeGreaterThan(5);
+    expect(overlap).toBe(0);
   });
 
   it('le classement compte les volailles adultes, comme le tableau de bord', () => {

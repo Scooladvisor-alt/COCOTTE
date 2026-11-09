@@ -195,7 +195,7 @@ export function SellerCard() {
               <input type="checkbox" checked={!!P.autoOn} onChange={() => (togglePetAuto(s), game.changed())} />
               <span>
                 <b>Commandes automatiques</b>
-                <small>Il met en vente la race choisie et rien d’autre, accepte les commandes de cette race et appelle les camions tout seul.</small>
+                <small>Il met en vente la race choisie (sans choix : toutes celles dont vous avez trop), accepte les commandes et appelle les camions tout seul. Il passe en revue ses parcs toutes les dix minutes.</small>
               </span>
             </label>
           ) : (
@@ -209,7 +209,7 @@ export function SellerCard() {
               </Btn>
             </div>
           )}
-          {auto && !P.priority && <small class="hint warn">Choisissez la race à vendre : il attend vos instructions.</small>}
+          {auto && !P.priority && <small class="hint">Aucune race choisie : il vend le surplus de toutes vos races.</small>}
           {auto && !hasRole(s, 'farmhand') && <small class="hint warn">Il met en vente, mais il lui faut un commis de ferme pour charger les camions.</small>}
         </>
       )}

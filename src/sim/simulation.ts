@@ -16,7 +16,7 @@ import { frailty } from './genetics';
 import { SEASONS, YEAR_DAYS, seasonIndexOfDay } from './seasons';
 import { showHourly } from './show';
 import { dailyDue, payLoans } from './bank';
-import { maybeSpawnPredator, setPredatorsQuiet, updatePredators } from './predators';
+import { maybeSpawnPredator, maybeWolfPack, setPredatorsQuiet, updatePredators } from './predators';
 import { updateRobots } from './robots';
 import { dogUpkeep, updateDog } from './dog';
 import { updateVaults } from './vault';
@@ -148,6 +148,8 @@ function hourly(s: GameState) {
 
   // De temps en temps, un renard ou une buse tente sa chance
   maybeSpawnPredator(s);
+  // à partir du niveau 20 : de temps en temps, une meute de loups
+  maybeWolfPack(s);
   breedingHourly(s);
   showHourly(s);
   petShopHourly(s);
@@ -196,6 +198,12 @@ export function step(s: GameState, dt: number) {
 
   // commandes et contrats : livrés dès que le stock le permet
   autoDeliverEggs(s);
+  // le vendeur de poules passe en revue ses parcs toutes les dix minutes de jeu
+  const tenIdx = Math.floor(s.clock.t / (HOUR / 6));
+  if (tenIdx !== (s.clock.lastPetTick ?? -1)) {
+    s.clock.lastPetTick = tenIdx;
+    if (Math.floor(s.clock.t / HOUR) * 6 !== tenIdx) petShopHourly(s);
+  }
   updatePredators(s, dt);
   updateHens(s, dt);
   updateWorkers(s, dt);

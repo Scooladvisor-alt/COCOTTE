@@ -960,6 +960,7 @@ function shootAt(s: GameState, w: Worker, p: Predator, d: number) {
   const H = PREDATORS.staff;
   let chance = H.hitNear + (H.hitFar - H.hitNear) * clamp((d - 2) / (H.range - 2), 0, 1);
   if (p.species === 'hawk' && p.y > 1.5) chance *= H.airFactor;
+  if (p.species === 'wolf') chance *= H.wolfFactor;
   const hit = rand(s) < chance;
   // à genoux pour les tirs lointains (position du tireur d'élite)
   const y0 = d > 4 ? 0.6 : 0.9;

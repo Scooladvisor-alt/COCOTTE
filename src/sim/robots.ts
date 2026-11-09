@@ -5,7 +5,7 @@
 // toujours les places les plus proches du stockage. Ils restent à l'intérieur des clôtures.
 import { HOUR, ROBOT, TIME, gradeOf } from '../config/balance';
 import { BUILDINGS, sizeOf } from '../config/buildings';
-import { buildingCenter, canStand, crossesFence, emit, lineClear, newId, notify, planPath, currentDay, rt, toWorld } from './core';
+import { buildingCenter, canStand, crossesFence, emit, isWalkable, lineClear, newId, notify, planPath, currentDay, rt, toWorld } from './core';
 import { stepAside } from './hens';
 import { addXp, earn, fmtMoney, spend } from './economy';
 import { addToStorage, removeWorldEgg } from './eggs';
@@ -84,7 +84,7 @@ function rush(s: GameState, r: Robot, e: { id: number; x: number; z: number }) {
     const sz = e.z - uz * 0.22;
     const wx = e.x - ux * 0.7;
     const wz = e.z - uz * 0.7;
-    if (!canStand(s, sx, sz, ROBOT.clearance) || !canStand(s, wx, wz, ROBOT.clearance) || !lineClear(s, wx, wz, sx, sz, ROBOT.clearance * 0.8)) continue;
+    if (!canStand(s, sx, sz, ROBOT.clearance) || !canStand(s, wx, wz, ROBOT.clearance) || !lineClear(s, wx, wz, sx, sz, ROBOT.clearance * 0.8) || !bodyFits(s, sx, sz, base + k)) continue;
     const ox = e.x + ux * 0.4;
     const oz = e.z + uz * 0.4;
     const past = canStand(s, ox, oz, ROBOT.clearance) && lineClear(s, sx, sz, ox, oz, ROBOT.clearance * 0.8);
@@ -98,11 +98,55 @@ function rush(s: GameState, r: Robot, e: { id: number; x: number; z: number }) {
   return false;
 }
 
+/**
+ * Un autre robot, un salarié ou le chien devant lui (s'il était en (x, z), cap `heading`) ? Rien ne
+ * se traverse : il s'arrête. Entre deux robots qui se font face, celui qui a le plus grand numéro
+ * cède le passage (il contourne), l'autre attend.
+ */
+function moverInTheWay(s: GameState, r: Robot, x: number, z: number, heading: number): { x: number; z: number; robot?: Robot } | null {
+  const fx = Math.sin(heading);
+  const fz = Math.cos(heading);
+  const hit = (ox: number, oz: number, rad: number) => {
+    const dx = ox - x;
+    const dz = oz - z;
+    if (dx * dx + dz * dz > 1.6) return false;
+    const ahead = dx * fx + dz * fz;
+    const side = dx * fz - dz * fx;
+    return ahead > 0 && ahead < ROBOT.front + rad && Math.abs(side) < ROBOT.halfWidth + rad;
+  };
+  for (const o of s.robots) if (o !== r && hit(o.x, o.z, 0.34)) return { x: o.x, z: o.z, robot: o };
+  for (const w of s.workers) if (w.onSite && hit(w.x, w.z, 0.22)) return { x: w.x, z: w.z };
+  if (s.dog && hit(s.dog.x, s.dog.z, 0.3)) return { x: s.dog.x, z: s.dog.z };
+  return null;
+}
+
+/**
+ * Sa carrosserie tient-elle là (cap `heading`) ? Les quatre coins, brosses comprises, sur des cases
+ * praticables et du même côté des grillages : jamais un coin dans un mur, un bâtiment ou une clôture.
+ */
+export function bodyFits(s: GameState, x: number, z: number, heading: number) {
+  const fx = Math.sin(heading);
+  const fz = Math.cos(heading);
+  const W = ROBOT.halfWidth - 0.02;
+  for (const [a, b] of [
+    [ROBOT.front - 0.04, W],
+    [ROBOT.front - 0.04, -W],
+    [-ROBOT.back, W],
+    [-ROBOT.back, -W],
+    [ROBOT.front - 0.04, 0],
+  ]) {
+    const px = x + fx * a + fz * b;
+    const pz = z + fz * a - fx * b;
+    if (!isWalkable(s, px, pz) || crossesFence(s, x, z, px, pz)) return false;
+  }
+  return true;
+}
+
 /** Bloqué par une poule depuis combien de temps (s). */
 const blockedT = new WeakMap<Robot, number>();
 
 /** Une poule occupée lui barre la route : il la contourne par le côté libre (null s'il ne peut pas). */
-function detour(s: GameState, r: Robot, h: Hen) {
+function detour(s: GameState, r: Robot, h: { x: number; z: number }) {
   const fx = Math.sin(r.heading);
   const fz = Math.cos(r.heading);
   const side = (h.x - r.x) * fz - (h.z - r.z) * fx >= 0 ? -1 : 1;
@@ -317,11 +361,24 @@ function plan(s: GameState, r: Robot) {
     for (const e of eggs.slice(0, 6)) {
       if (fast && rush(s, r, e)) return;
       // il s'arrête la bouche devant l'œuf, pour l'avaler (il ne roule jamais dessus)
+      // (la bouche devant l'œuf, et toute la carrosserie hors des murs et des grillages ; sinon par un autre côté)
+      let placed = false;
+      for (const k of [0, 0.7, -0.7, 1.4, -1.4, Math.PI]) {
+        const a = Math.atan2(e.x - r.x, e.z - r.z) + k;
+        const px = e.x - Math.sin(a) * ROBOT.reach;
+        const pz = e.z - Math.cos(a) * ROBOT.reach;
+        if (!canStand(s, px, pz, ROBOT.clearance) || !bodyFits(s, px, pz, a)) continue;
+        if (go(s, r, 'egg', e.id, px, pz)) {
+          placed = true;
+          break;
+        }
+      }
+      if (placed) return;
+      // (coincé contre un mur de tous les côtés : la place la plus dégagée devant lui)
       const d = Math.max(1e-3, dist(e.x, e.z));
-      const back = Math.min(ROBOT.reach, d);
-      const [ax, az] = [e.x - ((e.x - r.x) / d) * back, e.z - ((e.z - r.z) / d) * back];
-      const ok = canStand(s, ax, az, ROBOT.clearance);
-      if (go(s, r, 'egg', e.id, ok ? ax : e.x, ok ? az : e.z)) return;
+      const ax = e.x - ((e.x - r.x) / d) * Math.min(ROBOT.reach, d);
+      const az = e.z - ((e.z - r.z) / d) * Math.min(ROBOT.reach, d);
+      if (canStand(s, ax, az, ROBOT.clearance) && go(s, r, 'egg', e.id, ax, az)) return;
     }
     const nests = s.buildings
       .filter((b) => b.type === 'nest' && b.eggIds.length > 0 && !taken.has(`nest:${b.id}`))
@@ -470,6 +527,7 @@ export function updateRobots(s: GameState, dt: number) {
     let budget = robotSpeed(r) * dt;
     let turned = false;
     let blocker: Hen | null = null;
+    let other: { x: number; z: number; robot?: Robot } | null = null;
     while (budget > 1e-6 && r.path.length >= 2) {
       const ex = r.path[0] - r.x;
       const ez = r.path[1] - r.z;
@@ -495,6 +553,8 @@ export function updateRobots(s: GameState, dt: number) {
       const nz = r.z + (ez / d) * step;
       blocker = henInTheWay(s, nx, nz, r.heading);
       if (blocker) break;
+      other = moverInTheWay(s, r, nx, nz, r.heading);
+      if (other) break;
       r.x = nx;
       r.z = nz;
       budget -= step;
@@ -506,6 +566,17 @@ export function updateRobots(s: GameState, dt: number) {
       // elle s'écarte d'elle-même ; occupée (elle mange, boit…), il passe à côté d'elle
       if (!stepAside(s, blocker, r.x, r.z, r.heading) && w > 0.8 && detour(s, r, blocker)) blockedT.set(r, 0);
       // trop longtemps coincé : il change de tournée
+      else if (w > 6) {
+        blockedT.set(r, 0);
+        plan(s, r);
+      }
+    } else if (other) {
+      // un autre robot, un salarié ou le chien : il attend ; trop long, il contourne (entre deux
+      // robots, c'est le plus grand numéro qui cède), puis change de tournée
+      const w = (blockedT.get(r) ?? 0) + dt;
+      blockedT.set(r, w);
+      const yields = !other.robot || other.robot.id < r.id;
+      if (yields && w > 1 && detour(s, r, other)) blockedT.set(r, 0);
       else if (w > 6) {
         blockedT.set(r, 0);
         plan(s, r);

@@ -83,10 +83,15 @@ function groundMarks() {
 
 // ------------------------------------------------------------------ Renard ----
 const FOX = { fur: 0xd7692a, furDark: 0xb85420, white: 0xf5efe4, sock: 0x2e211b, nose: 0x1f1a17, eye: 0x2a1a0c };
-let foxGeo: { body: THREE.BufferGeometry; head: THREE.BufferGeometry; tail: THREE.BufferGeometry; leg: THREE.BufferGeometry } | null = null;
+/** Le loup : pelage gris (dos plus sombre, ventre et gorge crème), yeux ambrés, pattes grises. */
+const WOLF = { fur: 0x8d8f94, furDark: 0x5f6268, white: 0xd9d4c9, sock: 0x6c6e73, nose: 0x1c1c1f, eye: 0xd9a032 };
+type FoxGeo = { body: THREE.BufferGeometry; head: THREE.BufferGeometry; tail: THREE.BufferGeometry; leg: THREE.BufferGeometry };
+const canidGeos = new Map<string, FoxGeo>();
 
-function foxGeometry() {
-  if (foxGeo) return foxGeo;
+function foxGeometry(wolf = false): FoxGeo {
+  const hit = canidGeos.get(wolf ? 'wolf' : 'fox');
+  if (hit) return hit;
+  const FOX = wolf ? WOLF : FOX_PAL;
   const body = merge([
     sph(0.14, 10, 8, FOX.fur, [0, 0, -0.02], [0.9, 0.82, 2.25]),
     sph(0.1, 8, 6, FOX.white, [0, -0.05, 0.16], [0.8, 0.75, 1.35]),
@@ -109,15 +114,17 @@ function foxGeometry() {
   ]);
   const tail = merge([
     sph(0.09, 8, 6, FOX.fur, [0, -0.02, -0.2], [1, 0.95, 2.4]),
-    sph(0.07, 8, 6, FOX.white, [0, -0.04, -0.4], [1, 1, 1.25]),
+    sph(0.07, 8, 6, wolf ? FOX.furDark : FOX.white, [0, -0.04, -0.4], [1, 1, 1.25]),
   ]);
   const leg = merge([box(0.05, 0.2, 0.055, FOX.furDark, [0, -0.08, 0]), box(0.048, 0.08, 0.05, FOX.sock, [0, -0.2, 0]), box(0.056, 0.03, 0.08, FOX.sock, [0, -0.245, 0.015])]);
-  foxGeo = { body, head, tail, leg };
-  return foxGeo;
+  const g = { body, head, tail, leg };
+  canidGeos.set(wolf ? 'wolf' : 'fox', g);
+  return g;
 }
+const FOX_PAL = FOX;
 
-function createFox(): PredatorView {
-  const g = foxGeometry();
+function createFox(wolf = false): PredatorView {
+  const g = foxGeometry(wolf);
   const root = new THREE.Group();
   const body = new THREE.Group();
   body.position.y = 0.3;
@@ -149,7 +156,7 @@ function createFox(): PredatorView {
   root.add(body);
   const { ring, shadow } = groundMarks();
   shadow.visible = false;
-  return { species: 'fox', root, body, head, tail, legs, wings: [], mouth, prey: null, preyBreed: null, ring, shadow, phase: Math.random() * 6, px: 0, pz: 0, py: 0, gait: 0, fade: 1 };
+  return { species: wolf ? 'wolf' : 'fox', root, body, head, tail, legs, wings: [], mouth, prey: null, preyBreed: null, ring, shadow, phase: Math.random() * 6, px: 0, pz: 0, py: 0, gait: 0, fade: 1 };
 }
 
 // -------------------------------------------------------------------- Buse ----
@@ -221,7 +228,7 @@ function createHawk(): PredatorView {
 }
 
 export function createPredatorView(species: PredatorSpecies): PredatorView {
-  return species === 'fox' ? createFox() : createHawk();
+  return species === 'fox' ? createFox() : species === 'wolf' ? createFox(true) : createHawk();
 }
 
 /** Poule emportée : un petit modèle inerte, couché sur le flanc. */

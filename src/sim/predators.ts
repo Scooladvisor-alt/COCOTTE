@@ -11,7 +11,12 @@ import type { ActionResult, Building, GameState, Hen, HenAct, Predator, Predator
 export const PREDATOR_INFO: Record<PredatorSpecies, { name: string; a: string; the: string; female: boolean }> = {
   fox: { name: 'Renard', a: 'un renard', the: 'le renard', female: false },
   hawk: { name: 'Buse', a: 'une buse', the: 'la buse', female: true },
+  wolf: { name: 'Loup', a: 'un loup', the: 'le loup', female: false },
 };
+/** Renard ou loup : les chasseurs au sol (la buse, elle, vole). */
+const onGround = (p: Predator) => p.species !== 'hawk';
+/** Les réglages de l'espèce au sol. */
+const groundOf = (p: Predator) => (p.species === 'wolf' ? PREDATORS.wolf : PREDATORS.fox);
 const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
 
 // ------------------------------------------------------------- Requêtes ----
@@ -23,6 +28,7 @@ export function livePredators(s: GameState) {
 }
 /** Hauteur visée (centre du corps) : au sol pour le renard, en vol pour la buse. */
 export function predatorAimY(p: Predator) {
+  if (p.species === 'wolf') return p.state === 'dead' ? 0.2 : 0.46;
   return p.species === 'fox' ? (p.state === 'dead' ? 0.15 : 0.32) : Math.max(0.2, p.y);
 }
 
@@ -53,7 +59,7 @@ export function threatNear(s: GameState, x: number, z: number, scale = 1): Preda
   let bd = Infinity;
   for (const p of s.predators) {
     let r = 0;
-    if (p.species === 'fox') {
+    if (onGround(p)) {
       if (p.state === 'chase' || p.state === 'grab') r = PREDATORS.fleeRadius + 0.3;
       else if (p.state === 'stalk' || p.state === 'approach' || p.state === 'prowl' || p.state === 'carry' || p.state === 'dig') r = PREDATORS.fleeRadius * 0.75;
     } else if ((p.state === 'dive' && p.y < 3.2) || p.state === 'grab') r = PREDATORS.fleeRadius;
@@ -253,6 +259,51 @@ export function maybeSpawnPredator(s: GameState) {
   else if (h >= 9 && h < 17 && farmLevel(s) >= PREDATORS.hawkLevel && r < (PREDATORS.foxDayChance + PREDATORS.hawkChance) * k) spawnPredator(s, 'hawk');
 }
 
+/**
+ * La meute de loups : à partir du niveau 20, une fois tous les 15 à 30 jours, en fin d'après-midi
+ * (les poules sont dehors). Chien ou pas, elle vient : il faut des commis armés pour la repousser.
+ */
+export function maybeWolfPack(s: GameState) {
+  const W = PREDATORS.wolf;
+  if (!s.settings.predators || quiet.has(s) || farmLevel(s) < W.level) return;
+  const day = currentDay(s);
+  if (s.wolfDay === undefined) {
+    s.wolfDay = day + W.gapMin + Math.floor(rand(s) * (W.gapMax - W.gapMin + 1));
+    return;
+  }
+  if (day < s.wolfDay || s.predators.some((p) => p.species === 'wolf')) return;
+  const h = currentHour(s);
+  if (h < W.fromHour || h >= W.toHour || s.hens.filter(catchable).length < 4) return;
+  spawnWolfPack(s);
+  s.wolfDay = day + W.gapMin + Math.floor(rand(s) * (W.gapMax - W.gapMin + 1));
+}
+
+/** Fait sortir une meute du bois (tirage, ou directement pour les tests). */
+export function spawnWolfPack(s: GameState, size?: number): Predator[] {
+  const W = PREDATORS.wolf;
+  const n = size ?? W.packMin + Math.floor(rand(s) * (W.packMax - W.packMin + 1));
+  const outside = s.hens.filter(catchable);
+  const focus = outside.length ? outside[Math.floor(rand(s) * outside.length)] : { x: 15, z: 25 };
+  const [x0, z0] = foxSpawnPoint(s, focus);
+  const pack: Predator[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const r = 0.6 + rand(s) * 1.6;
+    const p = blank(s, 'wolf', x0 + Math.sin(a) * r, z0 + Math.cos(a) * r);
+    p.heading = Math.atan2(focus.x - p.x, focus.z - p.z);
+    // (ils sortent du bois les uns après les autres)
+    p.age = -i * 0.35;
+    p.ex = x0;
+    p.ez = z0;
+    s.predators.push(p);
+    pack.push(p);
+  }
+  s.lastPredatorT = s.clock.t;
+  emit(s, { kind: 'predatorSpawn', id: pack[0].id, species: 'wolf', x: x0, z: z0 });
+  notify(s, `Une meute de ${n} loups sort du bois ! Commis, aux fusils : il en faudra plusieurs pour la repousser.`, 'bad', '🐺');
+  return pack;
+}
+
 function blank(s: GameState, species: PredatorSpecies, x: number, z: number): Predator {
   return {
     id: newId(s),
@@ -261,10 +312,10 @@ function blank(s: GameState, species: PredatorSpecies, x: number, z: number): Pr
     z,
     y: 0,
     heading: 0,
-    state: species === 'fox' ? 'approach' : 'arrive',
+    state: species === 'hawk' ? 'arrive' : 'approach',
     t: 0,
     age: 0,
-    hp: species === 'fox' ? PREDATORS.fox.hp : PREDATORS.hawk.hp,
+    hp: species === 'wolf' ? PREDATORS.wolf.hp : species === 'fox' ? PREDATORS.fox.hp : PREDATORS.hawk.hp,
     targetHen: -1,
     targetCoop: -1,
     carrying: null,
@@ -371,7 +422,7 @@ function nearestPrey(s: GameState, p: Predator, maxD = Infinity, avoid = -1): He
     if (!catchable(h) || h.id === avoid) continue;
     // sous les branches d'un arbre, une buse ne peut pas piquer
     if (p.species === 'hawk' && shelteredByTree(s, h.x, h.z)) continue;
-    if (s.predators.some((o) => o !== p && o.targetHen === h.id && o.state === 'grab')) continue;
+    if (s.predators.some((o) => o !== p && o.targetHen === h.id && (o.state === 'grab' || (p.species === 'wolf' && o.species === 'wolf' && o.state !== 'dead')))) continue;
     const d = Math.hypot(h.x - p.x, h.z - p.z);
     if (d < bd) {
       bd = d;
@@ -408,7 +459,7 @@ function takeHen(s: GameState, p: Predator, h: Hen) {
   p.pathT = 0;
   emit(s, { kind: 'henTaken', henId: h.id, species: p.species, x: h.x, z: h.z });
   emit(s, { kind: 'henGone', henId: h.id, reason: 'died' });
-  notify(s, `${cap(PREDATOR_INFO[p.species].the)} a emporté ${h.name} !`, 'bad', p.species === 'fox' ? '🦊' : '🦅');
+  notify(s, `${cap(PREDATOR_INFO[p.species].the)} a emporté ${h.name} !`, 'bad', p.species === 'fox' ? '🦊' : p.species === 'wolf' ? '🐺' : '🦅');
 }
 
 /** Libère une poule saisie (le prédateur a été touché à temps) : elle s'enfuit, blessée. */
@@ -419,12 +470,12 @@ function release(s: GameState, p: Predator) {
   h.act = 'idle';
   h.actT = 0.1;
   emit(s, { kind: 'henRescued', henId: h.id, x: h.x, z: h.z });
-  notify(s, `${h.name} a été arrachée de justesse aux griffes ${p.species === 'fox' ? 'du renard' : 'de la buse'} !`, 'good', '🐔');
+  notify(s, `${h.name} a été arrachée de justesse aux griffes ${p.species === 'fox' ? 'du renard' : p.species === 'wolf' ? 'du loup' : 'de la buse'} !`, 'good', '🐔');
 }
 
 // --------------------------------------------------------------- Renard ----
 function updateFox(s: GameState, p: Predator, dt: number) {
-  const F = PREDATORS.fox;
+  const F = groundOf(p);
   switch (p.state) {
     case 'approach':
     case 'stalk':
@@ -494,11 +545,12 @@ function updateFox(s: GameState, p: Predator, dt: number) {
         p.t = 0;
         return;
       }
-      // il secoue sa proie dans la gueule
+      // il secoue sa proie dans la gueule (celle du loup est bien plus loin devant)
+      const reach = p.species === 'wolf' ? 0.62 : 0.42;
       hen.act = 'caught';
       hen.actT = 0.5;
-      hen.x = p.x + Math.sin(p.heading) * 0.42;
-      hen.z = p.z + Math.cos(p.heading) * 0.42;
+      hen.x = p.x + Math.sin(p.heading) * reach;
+      hen.z = p.z + Math.cos(p.heading) * reach;
       p.t -= dt;
       if (p.t <= 0) takeHen(s, p, hen);
       return;
@@ -707,10 +759,44 @@ export function updatePredators(s: GameState, dt: number) {
   for (const p of [...s.predators]) {
     p.age += dt;
     // chasse trop longue : il abandonne
-    if (p.age > PREDATORS.maxLife && isThreat(p) && p.state !== 'grab') leave(s, p);
-    if (p.species === 'fox') updateFox(s, p, dt);
+    if (p.age > (p.species === 'wolf' ? PREDATORS.wolf.maxLife : PREDATORS.maxLife) && isThreat(p) && p.state !== 'grab') leave(s, p);
+    if (onGround(p)) updateFox(s, p, dt);
     else updateHawk(s, p, dt);
   }
+  separatePack(s);
+}
+
+/** Corps au sol (renard, loup) : ils ne se traversent jamais, ils s'écartent l'un de l'autre. */
+function separatePack(s: GameState) {
+  const live = s.predators.filter((p) => onGround(p) && p.state !== 'dead');
+  for (let i = 0; i < live.length; i++)
+    for (let j = i + 1; j < live.length; j++) {
+      const a = live[i];
+      const b = live[j];
+      const gap = (a.species === 'wolf' ? 0.34 : 0.24) + (b.species === 'wolf' ? 0.34 : 0.24);
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const d = Math.hypot(dx, dz);
+      if (d >= gap) continue;
+      const ux = d > 1e-4 ? dx / d : Math.sin(a.id);
+      const uz = d > 1e-4 ? dz / d : Math.cos(a.id);
+      const push = (gap - d) / 2;
+      // (celui qui tient une proie ne bouge pas : c'est l'autre qui s'écarte)
+      const ka = a.state === 'grab' ? 0 : b.state === 'grab' ? 2 : 1;
+      const kb = 2 - ka;
+      const ax = a.x - ux * push * ka;
+      const az = a.z - uz * push * ka;
+      const bx = b.x + ux * push * kb;
+      const bz = b.z + uz * push * kb;
+      if (ka && clearAt(s, ax, az, 0.15)) {
+        a.x = ax;
+        a.z = az;
+      }
+      if (kb && clearAt(s, bx, bz, 0.15)) {
+        b.x = bx;
+        b.z = bz;
+      }
+    }
 }
 
 // ------------------------------------------------------------------ Tirs ----
@@ -732,20 +818,49 @@ export function damagePredator(s: GameState, p: Predator, dmg: number, by: Worke
     emit(s, { kind: 'predatorHit', id: p.id, species: p.species, x: p.x, y: predatorAimY(p), z: p.z, killed: true });
     // prime au renard abattu (par le joueur ou par un salarié)
     let bounty = '';
-    if (p.species === 'fox') {
-      earn(s, PREDATORS.foxBounty, 'primes', 'Prime : renard abattu');
-      emit(s, { kind: 'money', amount: PREDATORS.foxBounty, x: p.x, z: p.z });
-      bounty = ` Prime : +${fmtMoney(PREDATORS.foxBounty)}.`;
+    if (p.species !== 'hawk') {
+      const amount = p.species === 'wolf' ? PREDATORS.wolf.bounty : PREDATORS.foxBounty;
+      earn(s, amount, 'primes', p.species === 'wolf' ? 'Prime : loup abattu' : 'Prime : renard abattu');
+      emit(s, { kind: 'money', amount, x: p.x, z: p.z });
+      bounty = ` Prime : +${fmtMoney(amount)}.`;
     }
     if (by) {
       by.today.kills++;
       by.total.kills++;
-      notify(s, `${by.name} a abattu ${info.the} ! Le troupeau est sauf.${bounty}`, 'good', '🎯');
-    } else notify(s, `${cap(info.the)} est abattu${info.female ? 'e' : ''} ! Le troupeau est sauf.${bounty}`, 'good', '🎯');
+    }
+    if (p.species === 'wolf') {
+      // la meute tient tant que la moitié des loups est debout ; au-delà, elle bat en retraite
+      const pack = s.predators.filter((o) => o.species === 'wolf');
+      const standing = pack.filter((o) => o.state !== 'dead' && o.state !== 'flee' && o.state !== 'leave');
+      if (standing.length && standing.length * 2 <= pack.length) {
+        for (const o of standing) {
+          if (o.state === 'grab') release(s, o);
+          if (o.state !== 'carry') {
+            o.state = 'flee';
+            o.path = [];
+            o.pathT = 0;
+            o.targetHen = -1;
+          }
+        }
+        notify(s, `La meute bat en retraite : ${pack.length - standing.length} loups abattus !${bounty}`, 'good', '🐺');
+      } else if (by) notify(s, `${by.name} a abattu un loup ! Il en reste ${standing.length}.${bounty}`, 'good', '🎯');
+      else notify(s, `Un loup abattu ! Il en reste ${standing.length}.${bounty}`, 'good', '🎯');
+      return;
+    }
+    if (by) notify(s, `${by.name} a abattu ${info.the} ! Le troupeau est sauf.${bounty}`, 'good', '🎯');
+    else notify(s, `${cap(info.the)} est abattu${info.female ? 'e' : ''} ! Le troupeau est sauf.${bounty}`, 'good', '🎯');
     return;
   }
   emit(s, { kind: 'predatorHit', id: p.id, species: p.species, x: p.x, y: predatorAimY(p), z: p.z, killed: false });
-  // blessé, le renard lâche tout et détale
+  // blessé, le renard lâche tout et détale (le loup, lui, revient à la charge)
+  if (p.species === 'wolf') {
+    if (p.state === 'grab' || wasGrabbing) {
+      p.state = 'stalk';
+      p.targetHen = -1;
+      p.t = 0;
+    }
+    return;
+  }
   if (p.state !== 'carry') {
     p.state = 'flee';
     p.path = [];

@@ -157,6 +157,7 @@ function RobotCard({ r }: { r: Robot }) {
       </div>
       <div class="activity">
         <span>{charging ? (r.battery >= 99 ? 'Sur sa borne, prêt à repartir' : 'En charge sur sa borne') : ROBOT_TASKS[r.task]}</span>
+        <FollowBtn />
       </div>
       <Need label="Batterie" value={r.battery} />
       <div class="kv">

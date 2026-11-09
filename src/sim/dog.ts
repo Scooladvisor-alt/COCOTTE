@@ -248,7 +248,7 @@ export function updateDog(s: GameState, dt: number) {
     if (out >= 0) [d.x, d.z] = center(out);
   }
   // un prédateur aux abords : il fonce en aboyant
-  const prey = s.predators.find((p) => p.state !== 'dead' && p.state !== 'flee' && p.state !== 'leave' && distanceToFarm(s, p.x, p.z) < 9 && (p.species === 'fox' || p.y < 3));
+  const prey = s.predators.find((p) => p.state !== 'dead' && p.state !== 'flee' && p.state !== 'leave' && distanceToFarm(s, p.x, p.z) < 9 && (p.species !== 'hawk' || p.y < 3));
   if (prey) {
     d.act = 'chase';
     const rp = (repathT.get(d) ?? 0) - dt;

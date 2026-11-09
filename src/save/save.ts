@@ -687,6 +687,7 @@ export function sanitize(input: unknown): GameState | null {
     predatorSlowdown: bool(set.predatorSlowdown, true),
   };
   s.lastPredatorT = num(raw.lastPredatorT, 0, 0, s.clock.t);
+  if (typeof raw.wolfDay === 'number') s.wolfDay = int(raw.wolfDay, 0, 0, 1e7);
   s.savedAt = num(raw.savedAt, Date.now());
   s.unlockedSeen = arr(raw.unlockedSeen).filter((x): x is string => typeof x === 'string');
 

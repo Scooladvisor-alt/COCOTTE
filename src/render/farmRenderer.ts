@@ -676,7 +676,7 @@ export class FarmRenderer {
       let bestD = Math.max(34, 44 * this.zoom);
       for (const [id, v] of this.preds) {
         if (!v.alive) continue;
-        tmpV.set(v.root.position.x, v.root.position.y + (v.species === 'fox' ? 0.3 : 0), v.root.position.z).project(this.camera);
+        tmpV.set(v.root.position.x, v.root.position.y + (v.species !== 'hawk' ? 0.3 : 0), v.root.position.z).project(this.camera);
         const d = Math.hypot((tmpV.x * 0.5 + 0.5) * r.width + r.left - clientX, (-tmpV.y * 0.5 + 0.5) * r.height + r.top - clientY);
         if (d < bestD) {
           bestD = d;
@@ -1943,7 +1943,7 @@ export class FarmRenderer {
         this.predG.add(v.root, v.ring, v.shadow);
         this.preds.set(p.id, v);
         // le renard surgit des hautes herbes
-        if (p.species === 'fox') this.particles.burst(p.x, 0.25, p.z, 0x9fcd62, 12, { speed: 0.9, up: 1.4 });
+        if (p.species !== 'hawk') this.particles.burst(p.x, 0.25, p.z, 0x9fcd62, 12, { speed: 0.9, up: 1.4 });
       }
       this.animatePredator(p, v, dt);
     }
@@ -1985,13 +1985,14 @@ export class FarmRenderer {
     // anneau de danger : pulse sous le prédateur vivant
     v.ring.visible = alive;
     v.ring.position.set(v.px, GRASS_TOP + 0.025, v.pz);
-    v.ring.scale.setScalar((p.species === 'hawk' ? 1.25 : 1) * (1 + Math.sin(t * 7) * 0.12));
+    v.ring.scale.setScalar((p.species === 'hawk' ? 1.25 : p.species === 'wolf' ? 1.3 : 1) * (1 + Math.sin(t * 7) * 0.12));
     (v.ring.material as THREE.MeshBasicMaterial).opacity = 0.55 + Math.sin(t * 7) * 0.3;
     // disparition du cadavre
-    const fade = p.state === 'dead' && p.t < 1 && (p.species === 'fox' || p.y <= 0.13) ? Math.max(0.001, p.t) : 1;
-    v.root.scale.setScalar(fade);
+    const fade = p.state === 'dead' && p.t < 1 && (p.species !== 'hawk' || p.y <= 0.13) ? Math.max(0.001, p.t) : 1;
+    // (le loup est bien plus grand que le renard)
+    v.root.scale.setScalar(fade * (p.species === 'wolf' ? 1.45 : 1));
 
-    if (p.species === 'fox') {
+    if (p.species !== 'hawk') {
       // par-dessus le grillage d'un bond souple
       const vlt = vaultOf(p);
       const vk = vlt ? Math.min(1, vlt.t / vlt.dur) : -1;

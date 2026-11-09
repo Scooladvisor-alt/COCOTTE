@@ -230,7 +230,7 @@ export interface WorkerTally {
 }
 
 // ------------------------------------------------------------- Prédateurs ----
-export type PredatorSpecies = 'fox' | 'hawk';
+export type PredatorSpecies = 'fox' | 'hawk' | 'wolf';
 export type PredatorState =
   /** Renard : approche au trot, traque (accroupi), poursuite, prise. */
   | 'approach'
@@ -681,12 +681,16 @@ export interface GameState {
     lastClosedDay: number;
     /** Dernier jour où les contrats ont été livrés (17h). */
     lastContractDay: number;
+    /** Dernière tranche de dix minutes où le vendeur de poules a fait sa ronde. */
+    lastPetTick?: number;
     /** Dernière heure de jeu traitée par les tâches horaires (automatisations). */
     lastHourTick: number;
   };
   money: number;
   xp: number;
   reputation: number;
+  /** Jour où la prochaine meute de loups sortira du bois (à partir du niveau 20). */
+  wolfDay?: number;
   grain: number;
   /** Litres d'eau dans la cuve. */
   water: number;

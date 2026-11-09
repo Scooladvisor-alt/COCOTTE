@@ -1,5 +1,5 @@
 // Contrôleur : boucle de jeu, entrées, évènements → effets, sauvegarde automatique.
-import { AUTOSAVE_SECONDS, EGG_TYPES, FRESHNESS, LEVELS, TIME } from './config/balance';
+import { AUTOSAVE_SECONDS, EGG_TYPES, FRESHNESS, LEVELS, PREDATORS, TIME } from './config/balance';
 import { BUILDINGS, COOP_SCALE, STORAGE_SCALE, sizeOf, standLayout } from './config/buildings';
 import { sound } from './audio/sound';
 import { music } from './audio/music';
@@ -575,8 +575,8 @@ export class Game {
         this.toast(e.text, e.tone, e.icon, e.action);
         break;
       case 'predatorSpawn': {
-        sound.play(e.species === 'fox' ? 'alarm' : 'screech');
-        if (e.species === 'fox') sound.play('squawk');
+        sound.play(e.species === 'hawk' ? 'screech' : 'alarm');
+        if (e.species !== 'hawk') sound.play('squawk');
         // le joueur doit pouvoir réagir : on repasse en vitesse normale
         if (this.state.settings.predatorSlowdown && this.state.clock.speed > 1) {
           A.setSpeed(this.state, 1);
@@ -606,10 +606,10 @@ export class Game {
         break;
       }
       case 'predatorHit': {
-        const fur = e.species === 'fox' ? 0xd7692a : 0x7d5534;
+        const fur = e.species === 'fox' ? 0xd7692a : e.species === 'wolf' ? 0x8d8f94 : 0x7d5534;
         R.particles.burst(e.x, e.y + 0.1, e.z, fur, e.killed ? 22 : 12, { speed: 1.4, up: 1.6, size: 0.9, life: 1.1 });
         R.particles.burst(e.x, e.y + 0.1, e.z, 0xffffff, 6, { speed: 1, up: 2, size: 0.6 });
-        sound.play(e.species === 'fox' ? 'yelp' : 'screech');
+        sound.play(e.species === 'hawk' ? 'screech' : 'yelp');
         if (e.killed) R.labels.float(e.x, e.y + 1, e.z, `${PREDATOR_INFO[e.species].name} abattu${PREDATOR_INFO[e.species].female ? 'e' : ''} !`, 'money');
         else R.labels.float(e.x, e.y + 0.9, e.z, 'Touché !', 'egg');
         break;
@@ -775,10 +775,10 @@ export class Game {
       const pos = this.renderer.predatorPosition(p.id);
       if (!pos) continue;
       const info = PREDATOR_INFO[p.species];
-      const max = p.species === 'fox' ? 2 : 1;
+      const max = p.species === 'wolf' ? PREDATORS.wolf.hp : p.species === 'fox' ? 2 : 1;
       const pips = Array.from({ length: max }, (_, i) => `<i class="${i < p.hp ? 'on' : ''}"></i>`).join('');
       const what = p.state === 'carry' ? 'emporte sa proie' : p.state === 'flee' ? 'blessé, il fuit' : p.state === 'leave' ? 's’en va' : 'cliquez pour tirer';
-      L.set(`x${p.id}`, pos.x, pos.y + (p.species === 'fox' ? 1.0 : 0.6), pos.z, `<b>${info.name}</b><span class="pips">${pips}</span><em>${what}</em>`, 'predator');
+      L.set(`x${p.id}`, pos.x, pos.y + (p.species === 'wolf' ? 1.35 : p.species === 'fox' ? 1.0 : 0.6), pos.z, `<b>${info.name}</b><span class="pips">${pips}</span><em>${what}</em>`, 'predator');
     }
     // humeur des clients
     for (const c of s.customers) {

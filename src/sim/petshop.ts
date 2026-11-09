@@ -302,12 +302,28 @@ function autoDealer(s: GameState, t: SellTarget) {
   }
 }
 
-/** Chaque heure : le vendeur remet en vente ce qu'on lui a demandé, ou gère tout en mode automatique. */
+/** Ce que le vendeur gère en mode automatique : la race demandée, sinon toutes celles dont il y a du surplus ou du stock. */
+function autoTargets(s: GameState): SellTarget[] {
+  if (s.petShop.priority) return [s.petShop.priority];
+  const seen = new Map<string, SellTarget>();
+  for (const h of [...s.hens, ...s.petShop.birds]) {
+    if (h.black || h.young) continue;
+    const t = { breed: h.breed, male: !!h.rooster };
+    seen.set(`${t.breed}:${t.male}`, t);
+  }
+  return [...seen.values()].filter((t) => spareOf(s, t).length > 0 || s.petShop.birds.some((h) => !h.ship && isTarget(t)(h)));
+}
+
+/**
+ * Toutes les dix minutes de jeu (et aussitôt qu'on change un réglage) : le vendeur remet en vente ce
+ * qu'on lui a demandé, ou gère tout en mode automatique. Il est réactif : pas besoin d'attendre l'heure.
+ */
 export function petShopHourly(s: GameState) {
   if (!s.petShop.seller || !petShopOf(s)) return;
   if (sellerAutoOn(s)) {
-    if (s.petShop.priority) autoDealer(s, s.petShop.priority);
-    return;
+    for (const t of autoTargets(s)) autoDealer(s, t);
+    // (en plus, avec « remettre en vente » coché, il garnit les parcs comme d'habitude)
+    if (!s.petShop.restock) return;
   }
   if (!s.petShop.restock) return;
   let quota = PETSHOP.sellerPerHour;

@@ -4,7 +4,7 @@
 // déchargent au stockage et retournent se recharger chacun sur sa borne : une borne par robot,
 // toujours les places les plus proches du stockage. Ils restent à l'intérieur des clôtures.
 import { HOUR, ROBOT, TIME, gradeOf } from '../config/balance';
-import { BUILDINGS, sizeOf } from '../config/buildings';
+import { BUILDINGS, FOREST_TRUNKS, sizeOf } from '../config/buildings';
 import { buildingCenter, canStand, crossesFence, emit, isWalkable, lineClear, newId, notify, planPath, currentDay, rt, toWorld } from './core';
 import { stepAside } from './hens';
 import { addXp, earn, fmtMoney, spend } from './economy';
@@ -187,6 +187,14 @@ export function dockSpots(s: GameState): DockSpot[] {
   const c = buildingCenter(st);
   const { w, d } = sizeOf('storage', st.level, st.rot);
   const spots: DockSpot[] = [];
+  const plants: Array<[number, number, number]> = [];
+  for (const b of s.buildings) {
+    if (b.type === 'tree' || b.type === 'bush') {
+      const ox = b.wild ? b.wild.ox : 0.5;
+      const oz = b.wild ? b.wild.oz : 0.5;
+      plants.push([b.x + ox, b.z + oz, b.type === 'tree' ? 1.25 : 0.75]);
+    } else if (b.type === 'forest') for (const [i, j] of FOREST_TRUNKS) plants.push([b.x + i + 0.5, b.z + j + 0.5, 1.4]);
+  }
   const offsets = (half: number) => {
     const out = [0];
     for (let k = 1.05; k <= half + 0.3; k += 1.05) out.push(-k, k);
@@ -206,6 +214,8 @@ export function dockSpots(s: GameState): DockSpot[] {
         const x = c.x + nx * (w / 2 + ring) + (nz !== 0 ? u : 0);
         const z = c.z + nz * (d / 2 + ring) + (nx !== 0 ? u : 0);
         if (!canStand(s, x, z, 0.32)) continue;
+        // (jamais sous les branches d'un arbre ou dans un buisson : la balise y passerait au travers)
+        if (plants.some(([px, pz, r]) => Math.hypot(px - x, pz - z) < r)) continue;
         if (spots.some(([ox, oz]) => Math.hypot(ox - x, oz - z) < 0.95)) continue;
         // (aucune clôture entre le stockage et la borne : jamais de l'autre côté d'un grillage)
         if (crossesFence(s, c.x, c.z, x, z)) continue;

@@ -634,10 +634,13 @@ export class FarmRenderer {
     this.people.clear();
     for (const w of this.staff.values()) this.staffG.remove(w.root);
     this.staff.clear();
-    for (const p of this.preds.values()) this.predG.remove(p.root);
+    for (const p of this.preds.values()) this.predG.remove(p.root, p.ring, p.shadow);
     this.preds.clear();
-    for (const r of this.robots.values()) this.robotsG.remove(r.root);
+    // (chaque robot emporte sa borne : aucune balise ne reste plantée d'une ferme à l'autre)
+    for (const r of this.robots.values()) this.robotsG.remove(r.root, r.dock);
     this.robots.clear();
+    this.gulpFrom.clear();
+    this.dockKey = '';
     this.droppings.reset();
     this.fenceVersion = -1;
     this.layoutKey = '';
@@ -2223,6 +2226,10 @@ export class FarmRenderer {
       v.dockLedMat.color.multiplyScalar(charging ? 0.75 + Math.sin(t * 3) * 0.25 : 0.7);
     }
     GRASS_PRESS_N.value = pressN;
+    // (par sécurité : rien d'autre que les robots en service et leurs bornes)
+    const keep = new Set<THREE.Object3D>();
+    for (const v of this.robots.values()) keep.add(v.root).add(v.dock);
+    for (const o of [...this.robotsG.children]) if (!keep.has(o)) this.robotsG.remove(o);
     // une borne ajoutée, vendue ou déplacée : l'herbe repousse (ou s'efface) tout de suite à sa place
     if (dockKey !== this.dockKey) {
       this.dockKey = dockKey;

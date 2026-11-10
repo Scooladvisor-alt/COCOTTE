@@ -320,20 +320,23 @@ function autoTargets(s: GameState): SellTarget[] {
  */
 export function petShopHourly(s: GameState) {
   if (!s.petShop.seller || !petShopOf(s)) return;
+  // une race choisie : il ne vend QUE celle-là, jamais une autre volaille
+  const only = s.petShop.priority;
   if (sellerAutoOn(s)) {
     for (const t of autoTargets(s)) autoDealer(s, t);
-    // (en plus, avec « remettre en vente » coché, il garnit les parcs comme d'habitude)
-    if (!s.petShop.restock) return;
+    if (only || !s.petShop.restock) return;
   }
   if (!s.petShop.restock) return;
   let quota = PETSHOP.sellerPerHour;
-  // d'abord la race qu'on lui a demandée, puis le reste comme d'habitude
-  if (s.petShop.priority)
-    for (const h of spareOf(s, s.petShop.priority)) {
+  if (only) {
+    for (const h of spareOf(s, only)) {
       if (quota <= 0 || petRoom(s) <= 0) break;
       moveToShop(s, h);
       quota--;
     }
+    return;
+  }
+  // aucune race choisie : le surplus de chaque troupeau, les moins performantes d'abord
   for (const goose of [false, true]) {
     const flock = s.hens.filter((h) => isGoose(h.breed) === goose && !h.young && !h.rooster);
     const keep = goose ? Math.min(petKeep(s), PETSHOP.keepGeese) : petKeep(s);

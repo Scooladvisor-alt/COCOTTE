@@ -973,6 +973,25 @@ function shootAt(s: GameState, w: Worker, p: Predator, d: number) {
   if (hit) damagePredator(s, p, H.damage, w);
 }
 
+/**
+ * Ligne de tir dégagée ? Aucun bâtiment (poulailler, réserve, arbre…) entre le tireur et sa cible ;
+ * le grillage, lui, ne gêne pas. Une buse haut dans le ciel se vise par-dessus les toits.
+ */
+export function lineOfFire(s: GameState, x0: number, z0: number, p: { x: number; z: number; y?: number; species?: string }) {
+  if (p.species === 'hawk' && (p.y ?? 0) > 2.5) return true;
+  const r = rt(s);
+  const dx = p.x - x0;
+  const dz = p.z - z0;
+  const len = Math.hypot(dx, dz);
+  const n = Math.max(1, Math.ceil(len / 0.2));
+  for (let i = 1; i < n; i++) {
+    const x = Math.floor(x0 + (dx * i) / n);
+    const z = Math.floor(z0 + (dz * i) / n);
+    if (inGrid(x, z) && r.blocked[cellIndex(x, z)]) return false;
+  }
+  return true;
+}
+
 function huntTick(s: GameState, w: Worker, p: Predator, dt: number) {
   const H = PREDATORS.staff;
   const j = w.job!;
@@ -982,7 +1001,9 @@ function huntTick(s: GameState, w: Worker, p: Predator, dt: number) {
   j.tx = p.x;
   j.tz = p.z;
   const d = Math.hypot(p.x - w.x, p.z - w.z);
-  if (d > H.range) {
+  // un bâtiment entre lui et la bête : il ne tire pas au travers, il va la chercher derrière
+  const clear = lineOfFire(s, w.x, w.z, p);
+  if (d > H.range || !clear) {
     // il court se mettre à portée (sans franchir la clôture)
     j.phase = 'walk';
     st.aim = 0;

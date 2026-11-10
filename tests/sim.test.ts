@@ -92,7 +92,7 @@ import { newFarm } from '../src/sim/starter';
 import { creditLimit, dailyDue, loanRate, pauseLoan, quoteLoan, repayLoan, takeLoan } from '../src/sim/bank';
 import type { Building, BuildingType, GameState, Hen } from '../src/sim/types';
 import { goodPlayer, guard, lazyPlayer } from '../scripts/bot';
-import { buyWorkerSkill, dailyWages, fire, herdSpot, hire, sellerSpot, workerSkillsHourly } from '../src/sim/workers';
+import { buyWorkerSkill, dailyWages, fire, herdSpot, hire, lineOfFire, sellerSpot, workerSkillsHourly } from '../src/sim/workers';
 import { enterNursery } from '../src/sim/hens';
 import { catchable, distanceToFarm, maybeWolfPack, shootPredator, spawnPredator, spawnWolfPack } from '../src/sim/predators';
 import { buyDog, kennelPoint } from '../src/sim/dog';
@@ -5179,6 +5179,31 @@ describe('Commandes de revendeurs et camion', () => {
       s.petShop.birds.length = 0;
       setPetPriority(s, { breed: 'oie', male: false });
       expect(s.petShop.birds.filter((h) => h.breed === 'oie').length).toBeGreaterThan(0);
+    });
+
+    it('une race choisie : il ne vend QUE celle-là, des heures durant, jamais une autre', () => {
+      const s = field(1653);
+      for (let i = 0; i < 12; i++) mk(s, 'rousse');
+      for (let i = 0; i < 3; i++) mk(s, 'leghorn');
+      for (let i = 0; i < 3; i++) mk(s, 'oie');
+      s.petShop.restock = true;
+      setPetPriority(s, { breed: 'leghorn', male: false });
+      run(s, HOUR * 6);
+      // (les leghorn sont parties en vente — certaines déjà achetées par des clients)
+      expect(s.hens.filter((h) => h.breed === 'leghorn').length).toBeLessThan(3);
+      expect(s.petShop.birds.every((h) => h.breed === 'leghorn' && !h.rooster)).toBe(true);
+      expect(s.hens.filter((h) => h.breed === 'rousse')).toHaveLength(12);
+      expect(s.hens.filter((h) => h.breed === 'oie')).toHaveLength(3);
+    });
+
+    it('les commis ne tirent jamais à travers un bâtiment', () => {
+      const s = field(1654);
+      const coop = buildingsOf(s, 'coop')[0];
+      const c = buildingCenter(coop);
+      const { w } = sizeOf('coop', coop.level, coop.rot);
+      // de part et d'autre du poulailler : pas de ligne de tir ; à découvert : oui
+      expect(lineOfFire(s, c.x - w / 2 - 1, c.z, { x: c.x + w / 2 + 1, z: c.z })).toBe(false);
+      expect(lineOfFire(s, c.x - w / 2 - 1, c.z + 4, { x: c.x + w / 2 + 1, z: c.z + 4 })).toBe(isWalkable(s, c.x, c.z + 4));
     });
 
     it('la priorité respecte le nombre à garder et les volailles rares', () => {

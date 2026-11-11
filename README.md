@@ -10,13 +10,15 @@ npm run dev        # http://localhost:5173
 ```
 
 - `npm run build` : version de production (dossier `dist/`, jouable via `npm run preview`)
-- `npm test` : 289 tests automatisés de la simulation (les 10 scénarios du cahier des charges, personnel, prédateurs, capacité d'élevage, cas limites)
+- `npm test` : 291 tests automatisés de la simulation (les 10 scénarios du cahier des charges, personnel, prédateurs, capacité d'élevage, cas limites)
 - `npm run balance` : simulation d'équilibrage sans interface (un « bon gestionnaire » et un « négligent » joués par des bots)
 - `npx vite-node scripts/stress.ts` : charge maximale (270 poules) et temps de calcul par pas
 - `npx vite-node scripts/movement.ts` / `scripts/predators-check.ts` : diagnostics des déplacements et des attaques
 - `http://localhost:5173/?nosave` : partie de démonstration qui ne lit ni n'écrit la sauvegarde
 
-La ferme continue de tourner quand l'onglet est caché, la fenêtre réduite ou recouverte : seul l'affichage s'arrête, la simulation avance du temps réel écoulé (aucun prédateur n'attaque tant que l'onglet est caché). Jeu fermé, la progression hors ligne prend le relais (2 jours de jeu maximum).
+Le jeu s'arrête dès que l'onglet est caché, l'application mise en arrière-plan ou fermée, et reprend exactement là où on l'avait laissé : aucun temps n'est rattrapé (plus de progression hors ligne). Le temps ne s'accélère pas : pause ou vitesse normale.
+
+**Publicité récompensée** (`src/ads.ts`, Google AdSense, API de placement des jeux H5) : en haut de la boutique, « Regarder une pub » rapporte **1 000 €** si la publicité est regardée jusqu'au bout (au plus une toutes les deux minutes). Pendant la publicité, le jeu est en pause et le son coupé. En développement, Google sert une publicité de test. `public/ads.txt` déclare l'éditeur.
 
 **Page d'accueil** : titre « Cocotte » et un bouton « Jouer » (ou « Continuer » si une partie est sauvegardée), devant une ferme vitrine en 3D isométrique qui vit en direct (poules, coq, poussins, commis, chien) sous une caméra qui dérive lentement (sim/showcase.ts, jamais sauvegardée). Balises de partage (description, Open Graph) dans index.html.
 
@@ -47,7 +49,7 @@ Site statique, plus une base Supabase pour les fermes : `npm run build` produit 
 | Ramasser un œuf au sol | clic sur l'œuf |
 | Tirer sur un renard ou une buse | clic dessus (curseur en viseur) |
 | Déplacer la vue / zoomer | glisser / molette (pincer sur mobile) |
-| Pause, vitesses ×1 / ×3 / ×10 | `Espace`, `1`, `2`, `3` |
+| Pause / reprise | `Espace` |
 | Ramasser tous les œufs | `R` |
 | Passer la nuit (dès 20 h, jusqu'à 6 h 30 ; aucun prédateur pendant ce temps) | bouton « Passer la nuit » ou `N` |
 | Boutique / Vente | `B` / `V` |
@@ -284,4 +286,3 @@ Garanties principales (couvertes par les tests) :
 - un œuf n'existe qu'à un endroit à la fois ; les retraits de stock sont atomiques (rien n'est retiré si la quantité manque) ;
 - la clôture quotidienne est gardée par `lastClosedDay` : jamais deux fois la même facture ;
 - la simulation avance par **pas fixes** : le résultat ne dépend pas du nombre d'images par seconde ;
-- la progression hors ligne utilise les mêmes règles, plafonnées à 2 jours de jeu, et rien quand la partie est en pause.

@@ -5907,3 +5907,33 @@ describe('Déco & biomes : chacun a un vrai effet', () => {
     expect(parcelPerks(s, key(beds[0])).deco).toBe(NATURE.flowerbedMax * BUILDINGS.flowerbed.levels[0].wellbeing!);
   });
 });
+
+describe('Temps et publicité', () => {
+  it('le temps ne s’accélère plus : pause ou vitesse normale', () => {
+    const s = createNewGame(990);
+    A.setSpeed(s, 3);
+    expect(s.clock.speed).toBe(1);
+    A.setSpeed(s, 10);
+    expect(s.clock.speed).toBe(1);
+    A.setSpeed(s, 0);
+    expect(s.clock.speed).toBe(0);
+    // une ancienne sauvegarde en accéléré repart en vitesse normale
+    const raw = JSON.parse(serialize(s));
+    raw.clock.speed = 10;
+    expect(deserialize(JSON.stringify(raw))!.clock.speed).toBe(1);
+  });
+
+  it('une publicité regardée rapporte 1 000 €, au plus une toutes les deux minutes', () => {
+    const s = createNewGame(991);
+    const m = s.money;
+    const t0 = 1_000_000_000_000;
+    expect(A.rewardAd(s, t0).ok).toBe(true);
+    expect(s.money - m).toBe(100000);
+    expect(A.rewardAd(s, t0 + 60_000).ok).toBe(false);
+    expect(s.money - m).toBe(100000);
+    expect(A.adCooldownLeft(s, t0 + 60_000)).toBe(60_000);
+    expect(A.rewardAd(s, t0 + 121_000).ok).toBe(true);
+    expect(s.money - m).toBe(200000);
+    expect(deserialize(serialize(s))!.lastAdAt).toBe(t0 + 121_000);
+  });
+});

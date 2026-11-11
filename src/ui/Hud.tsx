@@ -316,8 +316,6 @@ export function TopRight() {
   const speeds: Array<[number, string, string]> = [
     [0, 'pause', 'Pause (Espace)'],
     [1, 'play', 'Vitesse normale (1)'],
-    [3, 'fast', 'Accéléré ×3 (2)'],
-    [10, 'faster', 'Très rapide ×10 (3)'],
   ];
   return (
     <div class="top-right">

@@ -8353,3 +8353,11 @@ body {
 .nursery-out span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .nursery-out b { font-size: 13px; }
 .nursery-out small { font-size: 11.5px; opacity: 0.75; line-height: 1.35; }
+
+/* Boutique : publicité récompensée */
+.ad-offer { display: flex; align-items: center; gap: 12px; margin: 4px 0 14px; padding: 12px 14px; border-radius: 16px; background: linear-gradient(135deg, #fff6dc, #ffe9c2); border: 1px solid rgba(214, 160, 58, 0.35); }
+.ad-offer .ad-ic { font-size: 26px; line-height: 1; flex: none; }
+.ad-offer .ad-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.ad-offer .ad-txt b { font-size: 15px; }
+.ad-offer .ad-txt small { font-size: 12px; opacity: 0.75; line-height: 1.35; }
+.ad-offer button { flex: none; }

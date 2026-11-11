@@ -216,10 +216,8 @@ function SettingsPanel() {
         />
         <b>{Math.round(s.settings.musicVolume * 100)} %</b>
       </div>
-      {toggle('offline', 'Progression hors ligne (2 jours de jeu maximum)')}
       <h5>Prédateurs</h5>
       {toggle('predators', 'Renards et buses attaquent de temps en temps')}
-      {toggle('predatorSlowdown', 'Repasser en vitesse normale pendant une attaque')}
       <p class="hint">
         Cliquez sur un prédateur pour lui tirer dessus. Le commis et le jardinier sont armés : ils le traquent d’eux-mêmes. Le soir, des trappes fermées
         protègent les poules endormies. Aucune attaque pendant votre absence.

@@ -952,6 +952,9 @@ export function parcelPrice(owned: number): number {
   return Math.round(PARCELS.basePrice * Math.pow(PARCELS.growth, Math.max(0, owned - 1)) / 100) * 100;
 }
 
+/** Publicité récompensée (boutique) : 1 000 €, au plus une toutes les deux minutes. */
+export const AD_REWARD = { amount: 100000, cooldownMs: 2 * 60 * 1000 };
+
 export const AUTOSAVE_SECONDS = 15;
 export const SAVE_VERSION = 11;
 

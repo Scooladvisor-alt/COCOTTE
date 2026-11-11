@@ -2,7 +2,7 @@
 // illustrées par les modèles 3D du jeu, l'essentiel en deux ou trois chiffres, le prix bien visible.
 import type { ComponentChildren } from 'preact';
 import { useEffect, useRef, useState } from 'preact/hooks';
-import { BREEDING, COSTS, DELIVERY, HEN_PACKS, DOG, EGG_TYPES, GRAIN_BINS, GRAIN_SACKS, PARCELS, ROBOT, UNLOCKS, WATER, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice, type StoreLevel, COMPOST, NATURE } from '../config/balance';
+import { AD_REWARD, BREEDING, COSTS, DELIVERY, HEN_PACKS, DOG, EGG_TYPES, GRAIN_BINS, GRAIN_SACKS, PARCELS, ROBOT, UNLOCKS, WATER, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice, type StoreLevel, COMPOST, NATURE } from '../config/balance';
 import { grainBinDef, grainPerDay, waterPerDay, waterTankDef } from '../sim/stocks';
 import { BREEDS, BREED_ORDER, ROOSTER_TITLES, isGoose } from '../config/breeds';
 import { BUILDINGS, BUILD_ORDER, DECO_ORDER } from '../config/buildings';
@@ -103,6 +103,7 @@ export function ShopPanel() {
       </nav>
       <div class="shop-main" ref={main} onScroll={onScroll}>
         <section class="shop-sect" data-cat="hens">
+          <AdOffer />
           <HensTab />
         </section>
         <section class="shop-sect" data-cat="buildings">
@@ -125,6 +126,25 @@ export function ShopPanel() {
           <TeamPanel embedded />
         </section>
       </div>
+    </div>
+  );
+}
+
+// ------------------------------------------------- Publicité récompensée ----
+/** 1 000 € offerts contre une publicité regardée jusqu'au bout (au plus une toutes les deux minutes). */
+function AdOffer() {
+  const game = useGame();
+  const wait = A.adCooldownLeft(game.state);
+  return (
+    <div class="ad-offer">
+      <span class="ad-ic">🎁</span>
+      <div class="ad-txt">
+        <b>{fmtMoney(AD_REWARD.amount)} offerts</b>
+        <small>Regardez une courte publicité jusqu’au bout : la somme arrive aussitôt dans la caisse.</small>
+      </div>
+      <Btn kind="primary" small disabled={game.adBusy || wait > 0} onClick={() => game.watchAd()}>
+        {game.adBusy ? 'Publicité…' : wait > 0 ? `Dans ${Math.ceil(wait / 1000)} s` : 'Regarder une pub'}
+      </Btn>
     </div>
   );
 }

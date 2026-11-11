@@ -22,7 +22,8 @@ import { deliverOrder } from './sim/market';
 import { createShowcase } from './sim/showcase';
 import { fertileStock, hatchesGeese, isIncubator } from './sim/breeding';
 import { isTreasure } from './sim/eggs';
-import { advance, advanceRealtime, canSkipNight, simulateOffline, skipNight, type OfflineSummary } from './sim/simulation';
+import { loadAds, showRewardedAd } from './ads';
+import { advance, advanceRealtime, canSkipNight, skipNight, type OfflineSummary } from './sim/simulation';
 import type { ActionResult, BuildingType, GameEvent, GameState, NotifyAction, ShowResult } from './sim/types';
 
 export type Selection =
@@ -115,7 +116,8 @@ export class Game {
     this.renderer.labels.onClick = (key) => this.onLabelClick(key);
     this.bindInput(this.renderer.renderer.domElement);
     window.addEventListener('resize', () => this.renderer.resize());
-    // La ferme vit même onglet caché ou fenêtre réduite : l'affichage s'arrête, pas la simulation.
+    // Onglet caché, application en arrière-plan ou fermée : la ferme s'arrête net, et reprend
+    // exactement là où on l'a laissée (aucun temps n'est rattrapé).
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'hidden') {
         // personne pour défendre la ferme à l'écran : pas d'attaque tant que l'onglet est caché
@@ -124,13 +126,12 @@ export class Game {
         // l'application passe en arrière-plan : la ferme part en ligne tout de suite
         if (this.started && this.persist && !this.visiting) void pushFarm(this.state, true);
       } else {
-        this.background(true);
         setPredatorsQuiet(this.state, false);
         this.last = performance.now();
+        this.wall = this.last;
         this.changed();
       }
     });
-    window.setInterval(() => this.background(), 1000);
     window.addEventListener('beforeunload', () => this.save());
     // (sur iPhone, une application fermée depuis le sélecteur n'envoie souvent que pagehide)
     window.addEventListener('pagehide', () => this.save());
@@ -186,30 +187,7 @@ export class Game {
     }, 650);
   }
 
-  /**
-   * Quand l'affichage est suspendu (onglet caché, fenêtre réduite ou recouverte), le navigateur
-   * n'appelle plus la boucle d'animation : une minuterie fait alors avancer la ferme du temps réel
-   * écoulé. Seuls les messages utiles sont gardés (pas de sons ni d'effets d'une scène invisible).
-   */
-  private background(force = false) {
-    const now = performance.now();
-    if (!this.started || this.skipping) {
-      this.wall = now;
-      return;
-    }
-    if (!force && now - this.wall < 600) return; // l'animation tourne : rien à faire
-    const secs = (now - this.wall) / 1000;
-    this.wall = now;
-    this.last = now;
-    if (advanceRealtime(this.state, secs) === 0) return;
-    for (const e of drainEvents(this.state)) if (e.kind === 'notify' || e.kind === 'levelUp' || e.kind === 'mission' || e.kind === 'showResult') this.onEvent(e);
-    this.saveTimer += secs;
-    if (this.saveTimer > AUTOSAVE_SECONDS) {
-      this.saveTimer = 0;
-      this.save();
-    }
-    this.changed();
-  }
+
 
   /** Page d'accueil : la ferme vitrine vit derrière le titre, la caméra dérive lentement au-dessus. */
   private showcase: GameState | null = null;
@@ -257,7 +235,7 @@ export class Game {
     this.renderer.focusOn(short ? 13 : 15, short ? 23 : 25.5);
   }
 
-  start(offlineSeconds = 0) {
+  start() {
     if (this.showcase) {
       // fin de l'accueil : place à la vraie ferme
       this.showcase = null;
@@ -265,17 +243,14 @@ export class Game {
       this.goHome(true);
     }
     this.started = true;
+    loadAds();
     // demande au navigateur de ne pas effacer la sauvegarde pour faire de la place
     if (this.persist) void navigator.storage?.persist?.().catch(() => false);
     sound.unlock();
     music.enabled = this.state.settings.music;
     music.setVolume(this.state.settings.musicVolume);
     music.start();
-    if (offlineSeconds > 0) {
-      const sum = simulateOffline(this.state, offlineSeconds);
-      drainEvents(this.state);
-      if (sum && (sum.eggsLaid > 0 || sum.money !== 0)) this.offline = sum;
-    }
+    // (pas de rattrapage hors ligne : la ferme reprend exactement là où on l'avait laissée)
     this.changed();
     if (this.persist) {
       void this.checkGreetings();
@@ -314,8 +289,9 @@ export class Game {
     if (this.started && !modal && !this.skipping) {
       // images au compte-gouttes (fenêtre recouverte, onglet ralenti par le navigateur) :
       // on rattrape tout le temps réel écoulé au lieu de le perdre
+      // (au plus deux secondes : une longue absence ne se rattrape pas, le jeu était à l'arrêt)
       const gap = (performance.now() - this.wall) / 1000;
-      if (gap > 0.3) advanceRealtime(this.state, gap);
+      if (gap > 0.3) advanceRealtime(this.state, Math.min(gap, 2));
       else advance(this.state, dt);
     }
     this.wall = performance.now();
@@ -1133,16 +1109,50 @@ export class Game {
       } else if (e.key === ' ') {
         e.preventDefault();
         this.setSpeed(this.state.clock.speed === 0 ? 1 : 0);
-      } else if (e.key === '1') this.setSpeed(1);
-      else if (e.key === '2') this.setSpeed(3);
-      else if (e.key === '3') this.setSpeed(10);
-      else if (e.key.toLowerCase() === 'b') this.openPanel('shop');
+      } else if (e.key.toLowerCase() === 'b') this.openPanel('shop');
       else if (e.key.toLowerCase() === 'v') this.openPanel('market');
       else if (e.key.toLowerCase() === 'r') {
         if (this.placing) this.rotatePlacing();
         else this.act(() => A.collectAll(this.state), 'pop');
       }
       else if (e.key.toLowerCase() === 'n') this.skipNight();
+    });
+  }
+
+  /** Publicité récompensée en cours (le bouton patiente). */
+  adBusy = false;
+
+  /** La boutique propose 1 000 € contre une publicité regardée jusqu'au bout. */
+  watchAd() {
+    if (this.adBusy) return;
+    const wait = A.adCooldownLeft(this.state);
+    if (wait > 0) return this.toast(`Prochaine publicité dans ${Math.ceil(wait / 1000)} s.`, 'info', '⏳');
+    this.adBusy = true;
+    this.changed();
+    const speed = this.state.clock.speed;
+    const musicOn = music.enabled;
+    const soundOn = sound.enabled;
+    showRewardedAd({
+      // pendant la publicité : jeu en pause, son coupé
+      pause: () => {
+        A.setSpeed(this.state, 0);
+        music.setEnabled(false);
+        sound.enabled = false;
+      },
+      resume: () => {
+        A.setSpeed(this.state, speed);
+        if (musicOn) music.setEnabled(true);
+        sound.enabled = soundOn;
+      },
+      onReward: () => {
+        if (this.act(() => A.rewardAd(this.state), 'coin')) this.toast('Merci ! +1 000 € dans la caisse.', 'good', '🎁');
+      },
+      onDone: (o) => {
+        this.adBusy = false;
+        if (o === 'dismissed') this.toast('Publicité interrompue : pas de récompense.', 'info', '📺');
+        else if (o === 'unavailable') this.toast('Aucune publicité disponible pour le moment. Réessayez plus tard.', 'info', '📺');
+        this.changed();
+      },
     });
   }
 

@@ -691,6 +691,8 @@ export interface GameState {
   reputation: number;
   /** Jour où la prochaine meute de loups sortira du bois (à partir du niveau 20). */
   wolfDay?: number;
+  /** Dernière publicité récompensée regardée (horloge réelle, ms). */
+  lastAdAt?: number;
   grain: number;
   /** Litres d'eau dans la cuve. */
   water: number;

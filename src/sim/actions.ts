@@ -1,6 +1,6 @@
 // Toutes les commandes du joueur. Chaque action valide ses préconditions AVANT de
 // modifier l'état : une action refusée ne laisse aucune trace (ni argent, ni objet).
-import { AUTO_DOOR, BIRD_ORDERS, BREEDING, CLEARING, COSTS, DELIVERY, GRAIN_BINS, GRID_W, GRID_Z0, GRID_Z1, HEN_PACKS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
+import { AD_REWARD, AUTO_DOOR, BIRD_ORDERS, BREEDING, CLEARING, COSTS, DELIVERY, GRAIN_BINS, GRID_W, GRID_Z0, GRID_Z1, HEN_PACKS, GRAIN_SACKS, GRASS, HEALTH, PARCELS, REPUTATION, WATER_PACKS, WATER_TANKS, WORLD, parcelPrice, sackPrice, waterPrice } from '../config/balance';
 import { grainCapacity, takeGrain, takeWater, waterCapacity } from './stocks';
 import { BREEDS, ROOSTER_TITLES, isGoose } from '../config/breeds';
 import { BUILDINGS, PET_POS, sizeOf } from '../config/buildings';
@@ -857,6 +857,19 @@ export function reseed(s: GameState, key: string): ActionResult {
 export { parcelPrice, PARCELS };
 
 // ------------------------------------------------------------ Personnel ----
+/** Temps (ms) avant de pouvoir regarder une autre publicité récompensée. */
+export function adCooldownLeft(s: GameState, now = Date.now()) {
+  return Math.max(0, (s.lastAdAt ?? 0) + AD_REWARD.cooldownMs - now);
+}
+/** Publicité regardée jusqu'au bout : 1 000 € dans la caisse. */
+export function rewardAd(s: GameState, now = Date.now()): ActionResult {
+  if (adCooldownLeft(s, now) > 0) return fail('Une seule publicité toutes les deux minutes');
+  s.lastAdAt = now;
+  earn(s, AD_REWARD.amount, 'primes', 'Publicité regardée');
+  return OK;
+}
+
+/** Pause ou vitesse normale : le temps ne s'accélère pas. */
 export function setSpeed(s: GameState, speed: number) {
-  s.clock.speed = speed;
+  s.clock.speed = speed > 0 ? 1 : 0;
 }

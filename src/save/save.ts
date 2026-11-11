@@ -179,7 +179,7 @@ export function sanitize(input: unknown): GameState | null {
   s.rng = int(raw.rng, s.rng);
   const clock = obj(raw.clock);
   s.clock.t = num(clock.t, s.clock.t, 0);
-  s.clock.speed = [0, 1, 3, 10].includes(clock.speed as number) ? (clock.speed as number) : 1;
+  s.clock.speed = clock.speed === 0 ? 0 : 1;
   s.clock.lastClosedDay = int(clock.lastClosedDay, Math.floor(s.clock.t / TIME.DAY), 0);
   s.clock.lastContractDay = int(clock.lastContractDay, 0, 0);
   s.clock.lastHourTick = int(clock.lastHourTick, Math.floor(s.clock.t / HOUR), 0);
@@ -687,6 +687,7 @@ export function sanitize(input: unknown): GameState | null {
     predatorSlowdown: bool(set.predatorSlowdown, true),
   };
   s.lastPredatorT = num(raw.lastPredatorT, 0, 0, s.clock.t);
+  if (typeof raw.lastAdAt === 'number') s.lastAdAt = num(raw.lastAdAt, 0, 0, 1e15);
   if (typeof raw.wolfDay === 'number') s.wolfDay = int(raw.wolfDay, 0, 0, 1e7);
   s.savedAt = num(raw.savedAt, Date.now());
   s.unlockedSeen = arr(raw.unlockedSeen).filter((x): x is string => typeof x === 'string');

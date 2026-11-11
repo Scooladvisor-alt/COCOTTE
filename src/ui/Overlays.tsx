@@ -159,8 +159,8 @@ const STEPS: Step[] = [
   {
     done: (s) => s.stats.eggsLaid > 0,
     title: 'Une nouvelle pensionnaire',
-    text: 'Elle picore l’herbe, boit à l’abreuvoir et mange le grain de la mangeoire. Bien nourrie, elle pond. Accélérez le temps pour la voir pondre !',
-    target: () => 'speed',
+    text: 'Elle picore l’herbe, boit à l’abreuvoir et mange le grain de la mangeoire. Bien nourrie, elle pond : patience, son premier œuf ne va pas tarder !',
+    target: () => null,
   },
   {
     done: (s) => s.stats.eggsCollected > 0,
@@ -232,11 +232,6 @@ export function Tutorial() {
         {idx === 0 && (
           <Btn kind="primary" small onClick={() => game.openPanel('shop', 'hens')}>
             Ouvrir la boutique
-          </Btn>
-        )}
-        {idx === 1 && (
-          <Btn kind="primary" small onClick={() => game.setSpeed(3)}>
-            Accélérer ×3
           </Btn>
         )}
         {idx === 3 && (
@@ -386,7 +381,7 @@ export function TitleScreen() {
     const fresh = newFarm();
     if (name) fresh.farmName = name;
     game.replaceState(fresh);
-    game.start(0);
+    game.start();
     game.save();
     if (game.persist && identity()) void pushFarm(game.state, true);
   };
@@ -396,9 +391,9 @@ export function TitleScreen() {
     state.farmName = name;
     game.replaceState(state);
     if (game.persist) saveGame(state);
-    game.start(Math.max(0, (Date.now() - state.savedAt) / 1000));
+    game.start();
   };
-  const resumeLocal = () => game.start(Math.max(0, (Date.now() - s.savedAt) / 1000));
+  const resumeLocal = () => game.start();
 
   const play = () => {
     sound.unlock();

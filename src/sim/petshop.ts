@@ -154,7 +154,7 @@ export function putBlackOnSale(s: GameState, n: number): ActionResult {
   const shop = petShopOf(s);
   if (!shop) return fail('Construisez d’abord la vente de poules pondeuses, à droite du parking');
   const list = flockBlack(s).slice(0, Math.min(n, petRoom(s)));
-  if (!list.length) return fail(petRoom(s) <= 0 ? `Les parcs sont pleins (${lvl(shop).capacity} places)` : 'Aucun coq noir adulte à mettre en vente');
+  if (!list.length) return fail(petRoom(s) <= 0 ? `Les parcs sont pleins (${lvl(shop).capacity} places)` : 'Aucune volaille noire adulte à mettre en vente');
   for (const h of list) moveToShop(s, h);
   return OK;
 }
@@ -524,7 +524,7 @@ const orderHens = (o: OrderKind) => (h: Hen) => !h.ship && (o.black ? !!h.black 
 /** Volailles en vente qui conviennent à cette commande : le camion ne prend rien d'autre. */
 export const orderStock = (s: GameState, o: OrderKind) => s.petShop.birds.filter(orderHens(o)).length;
 /** Comment la commande se nomme, sans jamais prendre une oie pour une poule. */
-export const orderWord = (o: OrderKind & { count: number }) => (o.black ? `coq${o.count > 1 ? 's' : ''} noir${o.count > 1 ? 's' : ''}` : birdWord(o.goose, o.count, !!o.male));
+export const orderWord = (o: OrderKind & { count: number }) => (o.black ? `volaille${o.count > 1 ? 's' : ''} noire${o.count > 1 ? 's' : ''}` : birdWord(o.goose, o.count, !!o.male));
 export function orderLabel(o: OrderKind & { count: number }) {
   if (o.black) return `${o.count} ${orderWord(o)}`;
   if (o.male) return `${o.count} ${orderWord(o)}${o.breed ? ` ${BREEDS[o.breed].name}` : ''}`;

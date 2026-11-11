@@ -29,23 +29,27 @@ declare global {
 
 let loaded = false;
 
-/** Charge le script AdSense (une seule fois). */
+/**
+ * Le script AdSense est écrit en dur dans index.html (le robot de Google doit le trouver dans la
+ * page pour valider le site). Ici, seulement un filet de sécurité s'il manquait.
+ */
 export function loadAds() {
   if (loaded || typeof document === 'undefined') return;
   loaded = true;
+  window.adsbygoogle = window.adsbygoogle || [];
+  if (!window.adBreak) {
+    const push = (o: object) => window.adsbygoogle!.push(o);
+    window.adBreak = push as Window['adBreak'];
+    window.adConfig = push;
+  }
+  if (document.querySelector('script[src*="adsbygoogle.js"]')) return;
   const s = document.createElement('script');
   s.async = true;
   s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${CLIENT}`;
   s.crossOrigin = 'anonymous';
-  s.setAttribute('data-ad-client', CLIENT);
   s.setAttribute('data-ad-frequency-hint', '30s');
   if (import.meta.env.DEV) s.setAttribute('data-adbreak-test', 'on');
   document.head.appendChild(s);
-  window.adsbygoogle = window.adsbygoogle || [];
-  const push = (o: object) => window.adsbygoogle!.push(o);
-  window.adBreak = push as Window['adBreak'];
-  window.adConfig = push;
-  window.adConfig({ preloadAdBreaks: 'on', sound: 'on' });
 }
 
 export type AdOutcome = 'viewed' | 'dismissed' | 'unavailable';

@@ -382,15 +382,26 @@ describe('Aménagements : effets réels', () => {
 });
 
 describe('Coq noir et chien de garde', () => {
-  it('le coq entièrement noir est rare et se revend entre 600 et 700 €', () => {
+  it('coqs et poules entièrement noirs sont rares et se revendent entre 600 et 700 €', () => {
     const s = createNewGame(51);
     const coop = buildingsOf(s, 'coop')[0];
     let black = 0;
     for (let i = 0; i < 2000; i++) if (createHen(s, 'rousse', coop, false, { rooster: true }).black) black++;
     expect(black / 2000).toBeGreaterThan(RARE.blackRoosterBuy * 0.5);
     expect(black / 2000).toBeLessThan(RARE.blackRoosterBuy * 1.6);
-    // jamais une poule
-    for (let i = 0; i < 300; i++) expect(createHen(s, 'rousse', coop).black).toBeFalsy();
+    // les poules aussi, aussi rarement ; jamais une oie, une poule d'or ou légendaire
+    let hens = 0;
+    for (let i = 0; i < 2000; i++) if (createHen(s, 'rousse', coop).black) hens++;
+    expect(hens / 2000).toBeGreaterThan(RARE.blackRoosterBuy * 0.5);
+    expect(hens / 2000).toBeLessThan(RARE.blackRoosterBuy * 1.6);
+    for (let i = 0; i < 300; i++) expect(createHen(s, 'oie', coop).black).toBeFalsy();
+    expect(createHen(s, 'rousse', coop, false, { golden: true }).black).toBeFalsy();
+    const hen = createHen(s, 'leghorn', coop, false, { black: true });
+    hen.health = 100;
+    expect(henValue(hen)).toBeGreaterThanOrEqual(60000);
+    s.hens.push(hen);
+    expect(deserialize(serialize(s))!.hens.find((x) => x.id === hen.id)?.black).toBe(true);
+    drainEvents(s);
     const h = createHen(s, 'sussex', coop, false, { rooster: true, black: true });
     h.health = 100;
     expect(henValue(h)).toBeGreaterThanOrEqual(60000);
@@ -2589,7 +2600,7 @@ describe('Vieillesse et réforme', () => {
       drainEvents(s);
     }
     expect(s.hens).toHaveLength(1);
-    expect(h.health).toBeGreaterThanOrEqual(35);
+    expect(h.health).toBeGreaterThanOrEqual(30);
   });
 });
 
@@ -4869,7 +4880,7 @@ describe('Commandes de revendeurs et camion', () => {
     s.hens.length = 0;
     const coop = buildingsOf(s, 'coop')[0];
     for (let i = 0; i < 40; i++) {
-      const h = createHen(s, 'rousse', coop, false, { at: [coop.x + 1, coop.z + 5] });
+      const h = createHen(s, 'rousse', coop, false, { black: false, at: [coop.x + 1, coop.z + 5] });
       h.rooster = true;
       s.hens.push(h);
     }

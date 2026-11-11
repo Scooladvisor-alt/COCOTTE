@@ -50,7 +50,7 @@ export interface NewHenOptions {
   genes?: Genes;
   /** Plumage imposé (sinon tiré au hasard). */
   skin?: number;
-  /** Coq noir imposé (true / false) ; sinon tirage rarissime pour les coqs. */
+  /** Plumage tout noir imposé (true / false) ; sinon tirage rarissime (coqs et poules). */
   black?: boolean;
   /** Forcer (ou interdire) les plumes d'or. */
   golden?: boolean;
@@ -97,7 +97,6 @@ export function createHen(s: GameState, breed: BreedId, coop: Building, quickFir
   // chaque poule a son plumage : les rousses ne se ressemblent pas toutes
   const skin = opts.skin ?? pickSkin(breed, rand(s));
   if (skin > 0) h.skin = skin;
-  // rarissime : un coq entièrement noir
   // encore plus rare : une poussine aux plumes d'or, future poule aux œufs d'or ;
   // et, une fois sur dix de ces merveilles, la poule légendaire
   if (!opts.rooster && !isGoose(breed)) {
@@ -120,14 +119,17 @@ export function createHen(s: GameState, breed: BreedId, coop: Building, quickFir
       );
     }
   }
-  if (opts.rooster && !isGoose(breed) && (opts.black ?? rand(s) < (opts.young ? RARE.blackRoosterHatch : RARE.blackRoosterBuy))) {
+  // rarissime : une volaille entièrement noire (coq ou poule, comme l'Ayam Cemani) ; jamais une
+  // poule d'or ou légendaire en plus
+  if (!isGoose(breed) && !h.golden && !h.legendary && (opts.black ?? rand(s) < (opts.young ? RARE.blackRoosterHatch : RARE.blackRoosterBuy))) {
     h.black = true;
     const v = fmtMoney(blackValue(h));
+    const who = opts.rooster ? (opts.young ? 'un coquelet entièrement noir' : 'un coq entièrement noir') : opts.young ? 'une poussine entièrement noire' : 'une poule entièrement noire';
     notify(
       s,
       opts.young
-        ? `Incroyable : ${h.name} est un coquelet entièrement noir, plumes, crête et pattes ! Une rareté qui vaudra environ ${v} adulte.`
-        : `Incroyable : ${h.name} est un coq entièrement noir, plumes, crête et pattes ! Une rareté qui se revend environ ${v}.`,
+        ? `Incroyable : ${h.name} est ${who}, plumes, crête et pattes ! Une rareté qui vaudra environ ${v} adulte.`
+        : `Incroyable : ${h.name} est ${who}, plumes, crête et pattes ! Une rareté qui se revend environ ${v}.`,
       'good',
     );
   }

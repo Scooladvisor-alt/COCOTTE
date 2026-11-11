@@ -316,7 +316,7 @@ export function VisitStats() {
   const rare = [
     { n: s.hens.filter((h) => h.legendary).length, one: 'légendaire', many: 'légendaires' },
     { n: s.hens.filter((h) => h.golden).length, one: 'poule d’or', many: 'poules d’or' },
-    { n: s.hens.filter((h) => h.black).length, one: 'coq noir', many: 'coqs noirs' },
+    { n: s.hens.filter((h) => h.black).length, one: 'volaille noire', many: 'volailles noires' },
   ].filter((x) => x.n > 0);
   return (
     <aside class={`visit-stats card ${open ? '' : 'closed'}`}>

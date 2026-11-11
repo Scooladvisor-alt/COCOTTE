@@ -53,7 +53,13 @@ function serviceWorker(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [preact({ prefreshEnabled: false }), fullReload(), serviceWorker()],
+  plugins: [
+    preact({ prefreshEnabled: false }),
+    fullReload(),
+    serviceWorker(),
+    // en développement, Google sert des publicités de test (jamais en production)
+    { name: 'ads-test', apply: 'serve', transformIndexHtml: (html: string) => html.replace('<script async data-ad-frequency-hint', '<script async data-adbreak-test="on" data-ad-frequency-hint') },
+  ],
   base: './',
   server: { port: 5173 },
   build: {

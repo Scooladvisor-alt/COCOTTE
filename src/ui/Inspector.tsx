@@ -243,7 +243,7 @@ function PetBirdCard({ h }: { h: Hen }) {
         <span>{h.black ? 'Valeur, pour un revendeur' : 'Prix en boutique'}</span>
         <b>{fmtMoney(birdPrice(s, h))}</b>
       </div>
-      <p class="hint">{h.ship ? `${who} part avec le camion du revendeur.` : h.black ? 'Ce coq noir attend le camion d’un revendeur, le seul à payer ce qu’il vaut. Vous pouvez encore changer d’avis.' : `${who} attend un client dans son parc. Vous pouvez encore changer d’avis.`}</p>
+      <p class="hint">{h.ship ? `${who} part avec le camion du revendeur.` : h.black ? `${h.rooster ? 'Ce coq noir' : 'Cette poule noire'} attend le camion d’un revendeur, le seul à payer ce qu’${h.rooster ? 'il' : 'elle'} vaut. Vous pouvez encore changer d’avis.` : `${who} attend un client dans son parc. Vous pouvez encore changer d’avis.`}</p>
       <div class="actions">
         <Btn
           kind="primary"
@@ -683,7 +683,7 @@ function HenCard({ h }: { h: Hen }) {
           )}
           <div class="chips">
             {!isGoose(h.breed) && <Chip>{b.name}</Chip>}
-            {h.legendary ? <Chip tone="warn">Poule légendaire · immortelle, un œuf légendaire tous les 4 jours</Chip> : h.golden ? <Chip tone="warn">Poule aux œufs d’or · un œuf d’or tous les 2 jours</Chip> : h.black ? <Chip tone="warn">Entièrement noir · rarissime</Chip> : h.skin ? <Chip>{skinName(h.breed, h.skin)}</Chip> : null}
+            {h.legendary ? <Chip tone="warn">Poule légendaire · immortelle, un œuf légendaire tous les 4 jours</Chip> : h.golden ? <Chip tone="warn">Poule aux œufs d’or · un œuf d’or tous les 2 jours</Chip> : h.black ? <Chip tone="warn">{h.rooster ? 'Entièrement noir' : 'Entièrement noire'} · rarissime</Chip> : h.skin ? <Chip>{skinName(h.breed, h.skin)}</Chip> : null}
             {isGoose(h.breed) && growthStage(h) >= 3 ? <span class={`sex-chip ${h.rooster ? 'male' : 'female'}`}>{h.rooster ? '♂' : '♀'} {birdRole(h)}</span> : (h.rooster || h.young) && <Chip tone="blue">{birdRole(h)}</Chip>}
             <Chip tone={st.tone}>{st.label}</Chip>
           </div>

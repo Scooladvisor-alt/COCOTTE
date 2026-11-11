@@ -333,7 +333,7 @@ function BirdRow({ breed, male = false }: { breed: BreedId; male?: boolean }) {
   );
 }
 
-/** Les coqs noirs : pas de prix à régler ni de client au comptoir, ils partent par lots avec les revendeurs. */
+/** Les volailles noires (coqs et poules) : pas de prix à régler ni de client au comptoir, ils partent par lots avec les revendeurs. */
 function BlackRow() {
   const game = useGame();
   const s = game.state;
@@ -348,7 +348,7 @@ function BlackRow() {
       <img class="pc-egg" src={birdThumb(sample)} alt="" />
       <div class="pc-main">
         <div class="pc-top">
-          <b>Coqs noirs</b>
+          <b>Volailles noires</b>
           <small>
             {flock.length} à la ferme · <b>{stock.length}</b> en vente
           </small>
@@ -360,14 +360,14 @@ function BlackRow() {
               + {n}
             </Btn>
           ))}
-          <Btn kind="ghost" small disabled={!stock.length} title="Reprendre un coq noir à la ferme" onClick={() => game.act(() => takeBlackBack(s, 1), 'pop')}>
+          <Btn kind="ghost" small disabled={!stock.length} title="Reprendre une volaille noire à la ferme" onClick={() => game.act(() => takeBlackBack(s, 1), 'pop')}>
             Reprendre
           </Btn>
         </div>
       </div>
       <div class="pc-price">
         <b>≈ {fmtMoney(value)}</b>
-        <small>par coq noir</small>
+        <small>par volaille noire</small>
       </div>
     </div>
   );
@@ -493,7 +493,7 @@ export function DealersTab() {
   return (
     <>
       <p class="hint">
-        Des revendeurs et des associations cherchent des poules, des oies, et très souvent des coqs et des jars, pour des particuliers. Les coqs noirs partent par petits lots, à leur vraie valeur. Une fois la commande acceptée, mettez les volailles dans les parcs de la vente de poules, puis appelez leur camion : seules celles-là partent, les moins bonnes d’abord. Il quitte la route par le chemin de terre, entre par le grand portail de la parcelle {BIRD_ORDERS.parcelName}, et les commis de ferme guident les volailles jusqu’à sa rampe. Vous êtes payé quand il repart.
+        Des revendeurs et des associations cherchent des poules, des oies, et très souvent des coqs et des jars, pour des particuliers. Les coqs et poules entièrement noirs partent par petits lots, à leur vraie valeur. Une fois la commande acceptée, mettez les volailles dans les parcs de la vente de poules, puis appelez leur camion : seules celles-là partent, les moins bonnes d’abord. Il quitte la route par le chemin de terre, entre par le grand portail de la parcelle {BIRD_ORDERS.parcelName}, et les commis de ferme guident les volailles jusqu’à sa rampe. Vous êtes payé quand il repart.
       </p>
       {!commis && (
         <div class="notice">

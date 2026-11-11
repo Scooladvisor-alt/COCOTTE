@@ -325,7 +325,7 @@ export function sanitize(input: unknown): GameState | null {
       thinkT: num(h.thinkT, 0, 0, 5),
     };
     if (bool(h.rooster, false)) hen.rooster = true;
-    if (hen.rooster && bool(h.black, false)) hen.black = true;
+    if (!hen.golden && !hen.legendary && bool(h.black, false)) hen.black = true;
     if (!hen.rooster && bool(h.golden, false)) hen.golden = true;
     if (!hen.rooster && bool(h.legendary, false)) hen.legendary = true;
     if (hen.rooster && bool(h.ranked, false)) hen.ranked = true;

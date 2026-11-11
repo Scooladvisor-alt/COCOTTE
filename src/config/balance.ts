@@ -963,7 +963,7 @@ export const SAVE_VERSION = 11;
  * Un particulier peut rester anonyme : il suffit d'indiquer comment le joindre et l'hébergeur.
  */
 export const LEGAL = {
-  editor: 'Cocotte est un jeu gratuit, sans publicité, édité à titre personnel et non commercial.',
+  editor: 'Cocotte est un jeu gratuit, financé par la publicité, édité par Antonin à titre individuel.',
   /** À compléter : une adresse e-mail de contact (ou un lien vers la page GitHub du projet). */
   contact: 'antownin@gmail.com',
   host: 'Vercel Inc., 440 N Barranca Ave #4133, Covina, CA 91723, États-Unis — vercel.com',

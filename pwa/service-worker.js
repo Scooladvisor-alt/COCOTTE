@@ -36,6 +36,8 @@ self.addEventListener('fetch', (event) => {
   // serveur en ligne, polices ou services d'ailleurs : le navigateur s'en charge, sans cache
   if (url.origin !== self.location.origin) return;
   if (req.mode === 'navigate') {
+    // les pages à part (mentions légales, conditions, confidentialité) : le navigateur s'en charge
+    if (url.pathname.endsWith('.html') && url.pathname !== '/index.html') return;
     event.respondWith(page(req));
     return;
   }

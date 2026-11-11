@@ -8361,3 +8361,20 @@ body {
 .ad-offer .ad-txt b { font-size: 15px; }
 .ad-offer .ad-txt small { font-size: 12px; opacity: 0.75; line-height: 1.35; }
 .ad-offer button { flex: none; }
+
+/* Accueil : les atouts du jeu, et les liens légaux en pied de page */
+.ld-perks { list-style: none; margin: -2px 0 2px; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; max-width: 440px; }
+.ld-perks li { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px 7px 9px; border-radius: 999px; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(162, 101, 28, 0.16); box-shadow: 0 1px 2px rgba(60, 40, 10, 0.06); font-size: 13px; font-weight: 700; color: #3f4350; }
+.ld-perks li span { font-size: 15px; line-height: 1; }
+.ld-hero > :nth-child(6) { animation-delay: 0.68s; }
+.ld-hero > :nth-child(7) { animation-delay: 0.78s; }
+.ld-hero > :nth-child(8) { animation-delay: 0.88s; }
+.ld-feats { letter-spacing: 0.04em; text-transform: none; font-size: 12.5px; }
+.ld-feats a { color: #8a8270; text-decoration: none; }
+.ld-feats a:hover { color: #22252e; text-decoration: underline; }
+@media (orientation: landscape) and (max-height: 540px) {
+  .ld-perks { display: none; }
+}
+@media (max-width: 820px) and (orientation: portrait) {
+  .ld-perks li { font-size: 12px; padding: 6px 10px 6px 8px; }
+}

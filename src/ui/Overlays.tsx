@@ -5,7 +5,6 @@ import { TIME, LEVEL_GATES, levelAt } from '../config/balance';
 import { BUILDINGS } from '../config/buildings';
 import { sound } from '../audio/sound';
 import { deleteSave, deserialize, hasSave, saveGame } from '../save/save';
-import { currentDay } from '../sim/core';
 import { fmtMoney, fmtSigned } from '../sim/economy';
 import { unlocksAt } from '../sim/progression';
 import { newFarm } from '../sim/starter';
@@ -473,14 +472,27 @@ export function TitleScreen() {
           <i class="ld-egg" /> Un petit jeu de ferme
         </span>
         <h1 class="ld-title">Cocotte</h1>
-        <p class="ld-lead">Élevez vos poules, ramassez les œufs, vendez-les au village. Votre ferme vit même quand vous n’êtes pas là.</p>
+        <p class="ld-lead">Élevez vos poules, ramassez leurs œufs et faites de votre ferme la plus belle du village. Couveuses, robots, commis, renards et loups : à vous de jouer !</p>
+        <ul class="ld-perks">
+          <li>
+            <span>🐔</span> Poules, coqs et oies
+          </li>
+          <li>
+            <span>✨</span> Œufs d’or et poule légendaire
+          </li>
+          <li>
+            <span>🤖</span> Robots et commis
+          </li>
+          <li>
+            <span>🏆</span> Classement en ligne
+          </li>
+        </ul>
         {note && <p class="ofarm-err">{note}</p>}
         <div class="ld-actions">
           {local || id ? (
             <>
               <button class="ld-play" disabled={busy} onClick={() => void cont()}>
                 {busy ? 'Un instant…' : 'Continuer'}
-                <small>{local ? `${id?.name ?? s.farmName} · jour ${currentDay(s)}` : id?.name}</small>
               </button>
               {local && (
                 <button class={`ld-ghost ${confirm ? 'danger' : ''}`} onClick={startNew}>
@@ -509,11 +521,17 @@ export function TitleScreen() {
       </main>
       {installHelp && <InstallHelp onClose={() => setInstallHelp(false)} />}
       <footer class="ld-feats">
-        <span>Élever</span>
+        <a href="/mentions-legales.html" target="_blank" rel="noopener">
+          Mentions légales
+        </a>
         <i />
-        <span>Récolter</span>
+        <a href="/cgu.html" target="_blank" rel="noopener">
+          Conditions d’utilisation
+        </a>
         <i />
-        <span>Vendre</span>
+        <a href="/confidentialite.html" target="_blank" rel="noopener">
+          Confidentialité
+        </a>
       </footer>
     </div>
   );

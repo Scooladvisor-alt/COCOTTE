@@ -233,7 +233,20 @@ function SettingsPanel() {
           <b>Hébergeur.</b> {LEGAL.host}.
         </p>
         <p>
-          <b>Vos données.</b> Aucun cookie, aucune publicité, aucun outil de mesure d’audience, aucune adresse e-mail demandée. Pour jouer, vous choisissez un nom de ferme et un code secret. Votre partie est enregistrée dans votre navigateur et, sous ce nom, dans notre base de données (hébergée par Supabase, supabase.com) où le code est conservé chiffré. Le nom de votre ferme, ses chiffres (niveau, volailles, ponte, bien-être) et la ferme elle-même sont visibles par les autres joueurs (classement et visites). Les polices de caractères sont fournies avec le jeu. Pour faire supprimer votre ferme de la base, écrivez à l’adresse de contact ci-dessus.
+          <b>Vos données.</b> Votre partie est enregistrée dans votre navigateur et, sous le nom de votre ferme, dans notre base de données (Supabase) où le code secret est conservé chiffré. Le nom de votre ferme et ses chiffres sont visibles des autres joueurs. Aucune adresse e-mail n’est demandée. Le jeu est financé par des publicités Google : avec votre accord, Google peut utiliser des cookies pour les adapter à vos visites.
+        </p>
+        <p class="legal-links">
+          <a href="/mentions-legales.html" target="_blank" rel="noopener">
+            Mentions légales
+          </a>
+          {' · '}
+          <a href="/cgu.html" target="_blank" rel="noopener">
+            Conditions d’utilisation
+          </a>
+          {' · '}
+          <a href="/confidentialite.html" target="_blank" rel="noopener">
+            Confidentialité
+          </a>
         </p>
       </details>
       <h5>Nouvelle partie</h5>

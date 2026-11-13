@@ -5948,3 +5948,14 @@ describe('Temps et publicité', () => {
     expect(deserialize(serialize(s))!.lastAdAt).toBe(t0 + 121_000);
   });
 });
+
+describe('Blason de la ferme', () => {
+  it('le blason choisi est gardé à la relecture ; un blason inconnu est ignoré', () => {
+    const s = createNewGame(992);
+    s.logo = 'lune';
+    expect(deserialize(serialize(s))!.logo).toBe('lune');
+    const raw = JSON.parse(serialize(s));
+    raw.logo = '<script>';
+    expect(deserialize(JSON.stringify(raw))!.logo).toBeUndefined();
+  });
+});

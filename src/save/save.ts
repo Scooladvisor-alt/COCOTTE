@@ -176,6 +176,7 @@ export function sanitize(input: unknown): GameState | null {
   s.fenceH.fill(0);
   s.fenceV.fill(0);
   s.farmName = str(raw.farmName, s.farmName, 32);
+  if (typeof raw.logo === 'string' && /^[a-z]{2,12}$/.test(raw.logo)) s.logo = raw.logo;
   s.rng = int(raw.rng, s.rng);
   const clock = obj(raw.clock);
   s.clock.t = num(clock.t, s.clock.t, 0);

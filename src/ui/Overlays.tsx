@@ -1,3 +1,4 @@
+import { CrestPicker, crestOf } from './FarmLogo';
 import { useEffect, useState } from 'preact/hooks';
 import { toastLife } from '../game';
 import { buildingThumb } from '../render/thumbs';
@@ -369,6 +370,7 @@ export function TitleScreen() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState('');
   const [installHelp, setInstallHelp] = useState(false);
+  const [logo, setLogo] = useState<string>(crestOf(s.logo).id);
   if (game.started) return null;
   // partie de démonstration (?nosave) : ni inscription ni sauvegarde
   const id = game.persist ? identity() : null;
@@ -379,6 +381,7 @@ export function TitleScreen() {
     if (game.persist) deleteSave();
     const fresh = newFarm();
     if (name) fresh.farmName = name;
+    fresh.logo = logo;
     game.replaceState(fresh);
     game.start();
     game.save();
@@ -444,14 +447,21 @@ export function TitleScreen() {
           <h1 class="ld-title small">{texts[step][0]}</h1>
           <p class="ld-lead">{texts[step][1]}</p>
           {note && <p class="ofarm-err">{note}</p>}
+          {(step === 'create' || step === 'join') && (
+            <div class="crest-block">
+              <p class="crest-label">Votre blason</p>
+              <CrestPicker value={logo} onPick={setLogo} />
+            </div>
+          )}
           <OnlineForm
             mode={step}
             initialName={step === 'join' && NAME_RE.test(s.farmName) ? s.farmName : ''}
             onDone={({ name, state }) => {
               if (step === 'create') return begin(name);
               if (step === 'restore') return state ? resumeOnline(state, name) : begin(name);
-              // ancienne partie : elle prend le nom choisi et continue
+              // ancienne partie : elle prend le nom et le blason choisis, et continue
               s.farmName = name;
+              s.logo = logo;
               resumeLocal();
               void pushFarm(s, true);
             }}
@@ -473,30 +483,18 @@ export function TitleScreen() {
         </span>
         <h1 class="ld-title">Cocotte</h1>
         <p class="ld-lead">Élevez vos poules, ramassez leurs œufs et faites de votre ferme la plus belle du village. Couveuses, robots, commis, renards et loups : à vous de jouer !</p>
-        <ul class="ld-perks">
-          <li>
-            <span>🐔</span> Poules, coqs et oies
-          </li>
-          <li>
-            <span>✨</span> Œufs d’or et poule légendaire
-          </li>
-          <li>
-            <span>🤖</span> Robots et commis
-          </li>
-          <li>
-            <span>🏆</span> Classement en ligne
-          </li>
-        </ul>
         {note && <p class="ofarm-err">{note}</p>}
-        <div class="ld-actions">
+        <div class="ld-actions ld-stack">
           {local || id ? (
             <>
-              <button class="ld-play" disabled={busy} onClick={() => void cont()}>
-                {busy ? 'Un instant…' : 'Continuer'}
+              <button class="ld-play ld-big" disabled={busy} onClick={() => void cont()}>
+                {busy ? 'Un instant…' : 'Continuer ma ferme'}
+                <small>Reprendre là où vous l’aviez laissée</small>
               </button>
               {local && (
-                <button class={`ld-ghost ${confirm ? 'danger' : ''}`} onClick={startNew}>
-                  {confirm ? 'Effacer et recommencer' : 'Nouvelle partie'}
+                <button class={`ld-ghost ld-big ${confirm ? 'danger' : ''}`} onClick={startNew}>
+                  {confirm ? 'Oui, tout effacer et recommencer' : 'Nouvelle partie'}
+                  <small>{confirm ? 'Votre ferme actuelle sera perdue' : 'Recommencer une ferme de zéro'}</small>
                 </button>
               )}
               {confirm && (
@@ -506,16 +504,25 @@ export function TitleScreen() {
               )}
             </>
           ) : (
-            <button class="ld-play" onClick={play}>
-              Jouer
+            <>
+              <button class="ld-play ld-big" onClick={play}>
+                Créer ma ferme
+                <small>Nouvelle partie, gratuite</small>
+              </button>
+              {game.persist && (
+                <button class="ld-ghost ld-big" onClick={() => setStep('restore')}>
+                  J’ai déjà une ferme
+                  <small>La retrouver avec son nom et son code</small>
+                </button>
+              )}
+            </>
+          )}
+          {(local || id) && game.persist && (
+            <button class="ld-link" onClick={() => setStep('restore')}>
+              Retrouver une autre ferme en ligne
             </button>
           )}
         </div>
-        {game.persist && (
-          <button class="ld-link" onClick={() => setStep('restore')}>
-            J’ai déjà une ferme en ligne
-          </button>
-        )}
         <InstallButton onHelp={() => setInstallHelp(true)} />
         <small class="ld-note">Gratuit · dans le navigateur · sauvegarde automatique</small>
       </main>
@@ -567,7 +574,7 @@ function InstallHelp({ onClose }: { onClose: () => void }) {
             Choisissez <b>Sur l’écran d’accueil</b>, puis <b>Ajouter</b>.
           </li>
         </ol>
-        <small>Cocotte s’ouvrira ensuite comme une application, en plein écran. Votre ferme vous y attend : « J’ai déjà une ferme en ligne », avec votre nom et votre code secret.</small>
+        <small>Cocotte s’ouvrira ensuite comme une application, en plein écran. Votre ferme vous y attend : « J’ai déjà une ferme », avec votre nom et votre code secret.</small>
         <button class="ld-play" onClick={onClose}>
           Compris
         </button>

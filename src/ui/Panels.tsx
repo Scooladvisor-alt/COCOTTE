@@ -14,6 +14,7 @@ import { ShopPanel } from './Shop';
 import { HenListPanel } from './HenList';
 import { TeamPanel } from './Team';
 import { OnlineSettings, RankingPanel } from './Online';
+import { CrestPicker } from './FarmLogo';
 import { identity, pushFarm } from '../online/farms';
 
 export function PanelHost() {
@@ -171,6 +172,18 @@ function SettingsPanel() {
           onChange={(e) => {
             s.farmName = (e.target as HTMLInputElement).value.trim().slice(0, 32) || s.farmName;
             game.changed();
+          }}
+        />
+      </div>
+      <div class="crest-block">
+        <p class="crest-label">Blason</p>
+        <CrestPicker
+          value={s.logo}
+          onPick={(id) => {
+            s.logo = id;
+            game.changed();
+            game.save();
+            if (game.persist && identity()) void pushFarm(s, true);
           }}
         />
       </div>

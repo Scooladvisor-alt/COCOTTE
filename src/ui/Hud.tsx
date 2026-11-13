@@ -1,3 +1,4 @@
+import { FarmLogo } from './FarmLogo';
 import { useState } from 'preact/hooks';
 import { GRAIN_SACKS, TIME, UNLOCKS, sackPrice, waterPrice } from '../config/balance';
 import { grainCapacity, grainDays, grainPerDay, waterCapacity, waterDays, waterPerDay } from '../sim/stocks';
@@ -38,9 +39,7 @@ export function LeftPanel() {
   return (
     <aside class={`left-panel card ${open ? '' : 'collapsed'}`}>
       <header class="farm-head" onClick={() => setOpen(!open)} title={open ? 'Réduire le tableau de bord' : 'Ouvrir le tableau de bord'}>
-        <div class="logo">
-          <Icon name="hen" size={20} />
-        </div>
+        <FarmLogo id={s.logo} />
         <div class="farm-title">
           <b>{s.farmName}</b>
           <span>

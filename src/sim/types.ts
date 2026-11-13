@@ -670,6 +670,8 @@ export interface Settings {
 export interface GameState {
   version: number;
   farmName: string;
+  /** Blason choisi par le joueur (voir ui/FarmLogo). */
+  logo?: string;
   seed: number;
   rng: number;
   nextId: number;

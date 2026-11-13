@@ -100,6 +100,10 @@ export function startLabel(role: WorkerRole) {
 export function endLabel(role: WorkerRole) {
   return role === 'farmhand' ? 'après la rentrée des poules' : `${endHour(role)} h`;
 }
+/** Un abri ouvert dont personne ne s'occupe encore de fermer la trappe ? */
+function uncoveredAt(s: GameState) {
+  return openCoops(s).some((b) => !s.workers.some((o) => o.onSite && (o.job?.kind === 'waitCoop' || o.job?.kind === 'closeCoop') && o.job.targetId === b.id));
+}
 /** Abris encore ouverts que le commis doit fermer (il ne rentre pas tant qu'il en reste ; une trappe automatique se ferme toute seule). */
 function openCoops(s: GameState) {
   return s.buildings.filter((b) => isShelter(b) && !b.closed && !b.autoDoor);
@@ -908,11 +912,7 @@ function eveningRound(s: GameState, w: Worker) {
     const [x, z] = coopWaitPoint(s, coops[0]);
     if (assign(s, w, 'waitCoop', coops[0].id, x, z, 0)) return true;
   }
-  // un collègue s'occupe du dernier poulailler : on l'attend en faisant une petite ronde
-  if (openCoops(s).length) {
-    wander(s, w, { x: w.x, z: w.z }, 1.5);
-    return true;
-  }
+  // un collègue s'occupe du dernier poulailler : inutile de traîner dans le noir, il rentre
   return false;
 }
 
@@ -1116,8 +1116,12 @@ export function updateWorkers(s: GameState, dt: number) {
     ) {
       if (eveningRound(s, w)) continue;
     }
+    if (w.role === 'farmhand' && !working && !uncoveredAt(s) && w.job?.kind === 'wander') w.job = null;
     // fin de journée : on range le panier puis on rentre
-    const busyClosing = w.job?.kind === 'waitCoop' || w.job?.kind === 'closeCoop' || (w.role === 'farmhand' && openCoops(s).length > 0 && w.job?.kind === 'wander');
+    // (seul le commis qui ferme un abri reste : les autres, s'il n'y a plus d'abri sans personne
+    // pour le fermer, rentrent chez eux au lieu de traîner dans la ferme la nuit)
+    const uncovered = w.role === 'farmhand' && uncoveredAt(s);
+    const busyClosing = w.job?.kind === 'waitCoop' || w.job?.kind === 'closeCoop' || (uncovered && w.job?.kind === 'wander');
     if (!working && !busyClosing && w.job?.kind !== 'commuteOut' && w.job?.kind !== 'commuteIn' && w.job?.kind !== 'deposit') {
       const st = storage(s);
       if (basketCount(w) > 0 && st && storageFree(s) > 0) {

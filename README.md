@@ -10,13 +10,15 @@ npm run dev        # http://localhost:5173
 ```
 
 - `npm run build` : version de production (dossier `dist/`, jouable via `npm run preview`)
-- `npm test` : 291 tests automatisés de la simulation (les 10 scénarios du cahier des charges, personnel, prédateurs, capacité d'élevage, cas limites)
+- `npm test` : 292 tests automatisés de la simulation (les 10 scénarios du cahier des charges, personnel, prédateurs, capacité d'élevage, cas limites)
 - `npm run balance` : simulation d'équilibrage sans interface (un « bon gestionnaire » et un « négligent » joués par des bots)
 - `npx vite-node scripts/stress.ts` : charge maximale (270 poules) et temps de calcul par pas
 - `npx vite-node scripts/movement.ts` / `scripts/predators-check.ts` : diagnostics des déplacements et des attaques
 - `http://localhost:5173/?nosave` : partie de démonstration qui ne lit ni n'écrit la sauvegarde
 
 Le jeu s'arrête dès que l'onglet est caché, l'application mise en arrière-plan ou fermée, et reprend exactement là où on l'avait laissé : aucun temps n'est rattrapé (plus de progression hors ligne). Le temps ne s'accélère pas : pause ou vitesse normale.
+
+**Blason de la ferme** (`src/ui/FarmLogo.tsx`) : à la création de la ferme, le joueur choisit son blason parmi douze (la Poule, la Grange, le Blé, l'Œuf, la Pousse, le Soleil, la Lune, l'Étoile, le Cœur, le Panier, la Source, le Trophée), chacun avec ses couleurs ; il s'affiche en haut à gauche et se change dans les Réglages.
 
 **Publicité récompensée** (`src/ads.ts`, Google AdSense, API de placement des jeux H5) : en haut de la boutique, « Regarder une pub » rapporte **1 000 €** si la publicité est regardée jusqu'au bout (au plus une toutes les deux minutes). Pendant la publicité, le jeu est en pause et le son coupé. En développement, Google sert une publicité de test. `public/ads.txt` déclare l'éditeur.
 

@@ -68,7 +68,7 @@ export const STAFF = {
   startHour: 6,
   endHour: 20,
   /** Le commis arrive avant le réveil des poules pour ouvrir les trappes… */
-  farmhandStart: 4.0,
+  farmhandStart: 4.5,
   /** …et reste le soir jusqu'à ce que toutes les poules soient rentrées. */
   farmhandEnd: 21,
   /** Heure limite : les trappes sont fermées même s'il reste des retardataires. */

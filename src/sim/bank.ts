@@ -20,13 +20,13 @@ export const BANK = {
   /** Prêts en cours au maximum. */
   maxLoans: 5,
   /** Taux annuel de base selon la saison (printemps, été, automne, hiver). */
-  seasonRate: [0.06, 0.05, 0.07, 0.09],
+  seasonRate: [0.025, 0.02, 0.03, 0.035],
   /** Majoration selon la durée. */
-  durationRate: { 7: 0, 14: 0.01, 28: 0.02 } as Record<number, number>,
+  durationRate: { 7: 0, 14: 0.005, 28: 0.01 } as Record<number, number>,
   /** Majoration quand le compte est à découvert. */
-  overdraftRate: 0.05,
+  overdraftRate: 0.02,
   /** Majoration quand on est déjà très endetté (plus de la moitié du plafond). */
-  heavyDebtRate: 0.03,
+  heavyDebtRate: 0.015,
   /** Pauses d'échéances possibles (jours), une seule fois par prêt. */
   pauses: [3, 7] as const,
 };

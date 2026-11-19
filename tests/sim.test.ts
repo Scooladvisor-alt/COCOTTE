@@ -94,7 +94,7 @@ import type { Building, BuildingType, GameState, Hen } from '../src/sim/types';
 import { goodPlayer, guard, lazyPlayer } from '../scripts/bot';
 import { buyWorkerSkill, dailyWages, fire, herdSpot, hire, lineOfFire, sellerSpot, workerSkillsHourly } from '../src/sim/workers';
 import { enterNursery } from '../src/sim/hens';
-import { catchable, distanceToFarm, maybeWolfPack, shootPredator, spawnPredator, spawnWolfPack } from '../src/sim/predators';
+import { catchable, distanceToFarm, maybeWolfPack, shootPredator, spawnPredator, spawnWolfPack, wolfPackSize } from '../src/sim/predators';
 import { buyDog, kennelPoint } from '../src/sim/dog';
 import { buyRobot, dockOf, dockSpots, nextUpgradePrice, sellRobot, upgradeRobot } from '../src/sim/robots';
 import { farmStats } from '../src/online/farms';
@@ -1253,8 +1253,10 @@ describe('Prédateurs', () => {
     s.clock.t = first * TIME.DAY + 17 * HOUR;
     maybeWolfPack(s);
     const pack = s.predators.filter((p) => p.species === 'wolf');
-    expect(pack.length).toBeGreaterThanOrEqual(PREDATORS.wolf.packMin);
-    expect(pack.length).toBeLessThanOrEqual(PREDATORS.wolf.packMax);
+    // autant de loups que la moitié du niveau du joueur (niveau 20 : 10 loups)
+    expect(pack.length).toBe(Math.floor(farmLevel(s) / 2));
+    s.xp = levelAt(27).xp;
+    expect(wolfPackSize(s)).toBe(13);
     expect(s.wolfDay! - first).toBeGreaterThanOrEqual(PREDATORS.wolf.gapMin);
     expect(s.wolfDay! - first).toBeLessThanOrEqual(PREDATORS.wolf.gapMax);
     // relue, la date de la prochaine meute est gardée

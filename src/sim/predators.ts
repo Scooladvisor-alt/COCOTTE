@@ -278,10 +278,12 @@ export function maybeWolfPack(s: GameState) {
   s.wolfDay = day + W.gapMin + Math.floor(rand(s) * (W.gapMax - W.gapMin + 1));
 }
 
+/** Taille de la meute : la moitié du niveau du joueur, arrondie à l'inférieur (niveau 27 → 13 loups). */
+export const wolfPackSize = (s: GameState) => Math.max(1, Math.min(PREDATORS.wolf.packMax, Math.floor(farmLevel(s) / 2)));
+
 /** Fait sortir une meute du bois (tirage, ou directement pour les tests). */
 export function spawnWolfPack(s: GameState, size?: number): Predator[] {
-  const W = PREDATORS.wolf;
-  const n = size ?? W.packMin + Math.floor(rand(s) * (W.packMax - W.packMin + 1));
+  const n = size ?? wolfPackSize(s);
   const outside = s.hens.filter(catchable);
   const focus = outside.length ? outside[Math.floor(rand(s) * outside.length)] : { x: 15, z: 25 };
   const [x0, z0] = foxSpawnPoint(s, focus);

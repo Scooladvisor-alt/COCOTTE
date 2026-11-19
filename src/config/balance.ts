@@ -820,8 +820,8 @@ export const PREDATORS = {
     /** Cinq balles pour le joueur ; trois coups de fusil d'un commis. */
     hp: 5,
     level: 20,
-    packMin: 8,
-    packMax: 12,
+    /** Taille de la meute : la moitié du niveau du joueur (niveau 27 → 13 loups), au plus 60. */
+    packMax: 60,
     gapMin: 15,
     gapMax: 30,
     /** Fenêtre d'attaque (heures) : les poules sont encore dehors. */
